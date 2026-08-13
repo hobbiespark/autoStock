@@ -11,7 +11,16 @@ import java.util.Map;
 
 /**
  * 키움 주문 API 어댑터 (LIVE 모드).
- * TODO Phase 2 검증: 앱키 발급 후 모의투자에서 필드명·응답 포맷 실측 확인.
+ *
+ * <p>실측 검증 완료(2026-08-13, mockapi, 일반 모의계좌):
+ * <pre>
+ *   매수 kt10000 / 매도 kt10001, POST /api/dostk/ordr
+ *   요청: {"dmst_stex_tp":"KRX","stk_cd":"005930","ord_qty":"1","ord_uv":"","trde_tp":"3","cond_uv":""}
+ *   응답: {"ord_no":"0121751","dmst_stex_tp":"KRX","return_code":0,"return_msg":"모의투자 매수주문완료"}
+ *   trde_tp: "0" 보통(지정가, ord_uv 필수) / "3" 시장가(ord_uv 빈값)
+ *   장중 시장가는 즉시 체결되어 잔고(kt00018)의 acnt_evlt_remn_indv_tot에 반영됨.
+ *   주의: 잔고 응답의 종목코드는 "A005930"처럼 A 접두가 붙는다 — 비교 시 정규화 필요.
+ * </pre>
  */
 @Service
 public class KiwoomOrderService {
