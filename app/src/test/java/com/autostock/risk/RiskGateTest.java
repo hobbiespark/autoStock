@@ -29,7 +29,10 @@ class RiskGateTest {
     @BeforeEach
     void setUp() {
         properties = new RiskProperties(0.10, 5, -0.03, 0.05, -0.02, 30, 10_000_000);
-        killSwitch = new KillSwitch();
+        // killSwitch 전용 publisher는 이 테스트의 published 리스트와 분리한다 —
+        // KillSwitchChanged 이벤트가 여기 섞이면 "주문이 published에 없다"를 검증하는
+        // 기존 단언들이 killSwitch.engage() 한 번에 깨진다(이 테스트는 OrderRequest만 관심 대상).
+        killSwitch = new KillSwitch(event -> { });
         positionBook = new PositionBook();
         gate = new RiskGate(publisher, killSwitch, properties,
                 new PositionSizer(properties), positionBook, new DailyLimitTracker(properties));
