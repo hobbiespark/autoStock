@@ -63,7 +63,7 @@ class WalkForwardRunnerTest {
         WalkForwardRunner runner = new WalkForwardRunner(CostModel.defaults());
         List<Double> kCandidates = List.of(0.3, 0.5, 0.7);
 
-        WalkForwardResult result = runner.run(candles, kCandidates, TRAIN_SIZE, TEST_SIZE, new BigDecimal("10000000"));
+        WalkForwardResult<Double> result = runner.run(candles, kCandidates, TRAIN_SIZE, TEST_SIZE, new BigDecimal("10000000"));
 
         int expectedWindows = expectedWindowCount(TOTAL_CANDLES, TRAIN_SIZE, TEST_SIZE);
         assertEquals(expectedWindows, result.selectedParams().size(),
@@ -77,7 +77,7 @@ class WalkForwardRunnerTest {
         WalkForwardRunner runner = new WalkForwardRunner(CostModel.defaults());
         List<Double> kCandidates = List.of(0.3, 0.5, 0.7);
 
-        WalkForwardResult result = runner.run(candles, kCandidates, TRAIN_SIZE, TEST_SIZE, new BigDecimal("10000000"));
+        WalkForwardResult<Double> result = runner.run(candles, kCandidates, TRAIN_SIZE, TEST_SIZE, new BigDecimal("10000000"));
 
         assertTrue(result.selectedParams().size() > 0, "선택된 파라미터 기록이 존재해야 함");
         for (double selected : result.selectedParams()) {
@@ -91,7 +91,7 @@ class WalkForwardRunnerTest {
         WalkForwardRunner runner = new WalkForwardRunner(CostModel.defaults());
         List<Double> kCandidates = List.of(0.3, 0.5, 0.7, 1.0);
 
-        WalkForwardResult result = runner.run(candles, kCandidates, TRAIN_SIZE, TEST_SIZE, new BigDecimal("10000000"));
+        WalkForwardResult<Double> result = runner.run(candles, kCandidates, TRAIN_SIZE, TEST_SIZE, new BigDecimal("10000000"));
 
         int expectedWindows = expectedWindowCount(TOTAL_CANDLES, TRAIN_SIZE, TEST_SIZE);
         assertEquals(kCandidates.size() * expectedWindows, result.trials(),
@@ -104,7 +104,7 @@ class WalkForwardRunnerTest {
         WalkForwardRunner runner = new WalkForwardRunner(CostModel.defaults());
         List<Double> kCandidates = List.of(0.3, 0.5, 0.7);
 
-        WalkForwardResult result = runner.run(candles, kCandidates, TRAIN_SIZE, TEST_SIZE, new BigDecimal("10000000"));
+        WalkForwardResult<Double> result = runner.run(candles, kCandidates, TRAIN_SIZE, TEST_SIZE, new BigDecimal("10000000"));
 
         int expectedWindows = expectedWindowCount(TOTAL_CANDLES, TRAIN_SIZE, TEST_SIZE);
         assertEquals(TEST_SIZE * expectedWindows, result.oosResult().dailyReturns().size(),

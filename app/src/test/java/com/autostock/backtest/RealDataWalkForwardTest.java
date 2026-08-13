@@ -96,7 +96,7 @@ class RealDataWalkForwardTest {
                 continue;
             }
 
-            WalkForwardResult result = runner.run(candles, K_CANDIDATES, TRAIN_SIZE, TEST_SIZE, INITIAL_CAPITAL);
+            WalkForwardResult<Double> result = runner.run(candles, K_CANDIDATES, TRAIN_SIZE, TEST_SIZE, INITIAL_CAPITAL);
             BacktestResult oos = result.oosResult();
 
             // ── 결과가 산출됐는지만 확인한다(성과 수치 자체는 assert하지 않음 — 클래스 설명 참고) ──
