@@ -2,6 +2,7 @@
 
 키움증권 REST API 기반 국내주식 자동매매 시스템
 작성: 2026-08-13 | 스택: Java 21 + Spring Boot 3.x (Spring Modulith) + PostgreSQL
+진행 현황: [PROGRESS.md](PROGRESS.md) 참조 (Phase별 체크·실측 기록·전략 실험 결과)
 
 ---
 
@@ -26,6 +27,13 @@ v1 단순 자동매매 → v2 검증 방법론 강화(이벤트 기반, DSR/PBO)
 **ADR-3. 인텔리전스 우선순위 vs 매매 코어 검증**
 거시·뉴스 계층은 가치가 있으나, 검증된 매매 루프 없이는 필터 기여도를 측정할 수 없다.
 → **결정: 매매 코어 루프(시세→시그널→리스크→주문→체결→감사)의 모의투자 검증이 최우선.** 인텔리전스는 2단계로: (a) 규칙 기반 최소형 필터(VIX·환율 임계치, DART 공시 종목 배제) 먼저, (b) KR-FinBERT 뉴스 감성은 필터 on/off 백테스트로 기여도 입증 후 도입.
+
+**ADR-5. 엔지니어링 고도화 (2026-08-13 추가, 조사 기반 결정)**
+- **스레드**: Java 21 가상 스레드 활성화(`spring.threads.virtual.enabled=true`) — 블로킹 I/O(키움 REST `.block()`) 중심 워크로드에 적합. JDK21의 synchronized 핀닝 이슈 대응으로 핫패스의 `synchronized`는 `ReentrantLock`으로 교체. 운영 관찰 전까지 되돌릴 수 있는 플래그로 유지 ([production rollout 가이드](https://www.momentslog.com/development/spring-boot-virtual-threads-in-production-capacity-limits-jdk-differences-and-a-safe-rollout))
+- **캐시**: Redis가 아닌 **Caffeine 로컬 캐시** — 단일 JVM 모놀리스(ADR-1)에서 Redis는 네트워크 홉·운영 부담만 추가. `recordStats()`로 히트율을 Micrometer에 노출(목표 >90%), 물리 분리 시점에 Caffeine(L1)+Redis(L2) 계층화로 확장 ([멀티레벨 캐시 패턴](https://blog.devops-monk.com/2026/05/spring-boot-caching-caffeine-redis/)). 대상: 현재가(TTL 1s)·일봉(TTL 1h)·토큰(자체 캐시 유지)
+- **트랜잭션/CRUD**: 이벤트 스토어 append는 `@Transactional` 경계 명시 + Hibernate JDBC 배치(`batch_size`) 활성화. 감사 기록은 `@Async`(가상 스레드)로 핫패스에서 분리 — 매매 경로 지연에 영향 금지
+- **성능 계측**: Micrometer `Timer`/`@Timed`로 키움 API 지연·주문 라운드트립·이벤트 처리 시간 계측, Actuator `/actuator/metrics` 노출. 백테스트 처리량은 러너 자체 계측. JMH는 필요 시점까지 보류(개인 프로젝트 과잉)
+- **공통화**: `common`에 상수(`MarketConstants`: KST, 장 시간)·유틸(`KiwoomNumbers`: 부호 정규화) 집약, kiwoom/marketdata 중복 파싱 제거
 
 **ADR-4. 유지 사항**
 PostgreSQL(v2 결정), Java 21 + Spring Boot(사용자 스택), 과최적화 방지 게이트(DSR/PBO, walk-forward), 리스크 계층 명세, 정량 게이트는 그대로 유지. 시계열 볼륨 증가 시 TimescaleDB 확장 검토.
