@@ -45,7 +45,8 @@ import java.util.UUID;
  * 매도 계열 인텐트를 먼저(그리고 그것만) 판정한다.
  *
  * <h2>포지션 모델</h2>
- * 전량 매수(가용 현금을 모두 투입) / 전량 청산(보유 수량을 모두 매도) 단순 모델이다.
+ * 매수는 {@link TradeIntent#fraction()}만큼의 가용 현금을 투입(기본값 1.0이면 기존과 동일하게
+ * 전액 투입) / 매도는 항상 전량 청산(보유 수량을 모두 매도)하는 모델이다.
  * 하루에 신규 진입은 최대 1건(첫 번째로 체결 조건을 만족한 buyStop)만 반영한다.
  * TODO(Phase 4 이후): risk 모듈의 {@code PositionSizer}(고정비율 사이징)를 그대로 재사용해
  * "전량"이 아니라 실제 운영과 동일한 사이징 규칙을 적용한다 — 지금은 코어 로직(비용모델,
@@ -157,7 +158,7 @@ public final class BacktestRunner {
             // ── 3) 미보유 상태면 매수 스탑을 판정한다(하루 최대 1건 신규 진입) ──
             if (ledger.positionQty == 0) {
                 TradeIntent buy = triggeredBuyStop(intents, today);
-                if (buy != null && applyBuy(ledger, today, buy.price().max(today.open()))) {
+                if (buy != null && applyBuy(ledger, today, buy.price().max(today.open()), buy.fraction())) {
                     // ── 진입 직후, 짝지어 걸린 손절이 같은 날 조건을 만족하는지 "보수적으로" 재확인 ──
                     // 운 좋게 피했다고 가정하지 않고, 같은 날 안에 손절까지 갔다고 본다(최악 가정 원칙).
                     TradeIntent pairedStop = triggeredSellStop(intents, today);
@@ -235,11 +236,17 @@ public final class BacktestRunner {
     /**
      * 매수를 시도한다. 수수료까지 감안했을 때 1주도 살 수 없으면 아무 일도 일어나지 않는다.
      *
+     * <p><b>투입 비중(fraction)</b>: 가용 현금 전액이 아니라 {@code cash × fraction}만 투입
+     * 예산으로 삼는다 — 수량 = floor(가용현금×fraction / 체결가)에 해당(수수료까지 고려한
+     * 정확한 수량은 {@link #affordableQuantity}가 예산 상한 안에서 한 주씩 줄여가며 구한다).
+     * fraction=1.0(기존 팩토리들의 기본값)이면 기존 동작과 완전히 동일하다.
+     *
      * @return 실제로 체결됐으면 true
      */
-    private boolean applyBuy(Ledger ledger, Candle today, BigDecimal referencePrice) {
+    private boolean applyBuy(Ledger ledger, Candle today, BigDecimal referencePrice, double fraction) {
         BigDecimal execPreview = costModel.slippageAdjustedBuyPrice(referencePrice);
-        long qty = affordableQuantity(ledger.cash, execPreview);
+        BigDecimal budget = ledger.cash.multiply(BigDecimal.valueOf(fraction));
+        long qty = affordableQuantity(budget, execPreview);
         if (qty <= 0) {
             return false;
         }
