@@ -90,6 +90,9 @@
 ## 4. 다음 작업 (우선순위 순)
 
 0. ✅ ~~아키텍처 정렬 사이클 (ADR-6 구현)~~ — 완료 (커밋 01e924f): 11상태 주문 상태기계(UNKNOWN 포함, 합법 전이표 강제), ClientOrderId 가독 포맷, BrokerPort/KiwoomBrokerAdapter(구 3개 서비스 흡수), Reconciliation·StaleOrderCanceller 골격. 브로커 필드명·취소 body는 `TODO 실측`
+0-1. ✅ **C3 라이브 탑재** (커밋 c06db04): Momentum/Regime/VolTarget Math를 strategy 모듈 순수 클래스로 동형화(백테스트가 참조 — 기존 실험 테스트 무수정 통과로 수치 동일성 증명), `C3LiveStrategy`(09:05 KST 스케줄, 기본 비활성 `strategy.c3.enabled=false`), confidence=투입비중 사이징. **판단 주기 결정: 21일 유지, 5일 변형은 백테스트 재검증 대신 모의 운영 paper A/B로 비교**(trial 수 증가 방지)
+0-2. ✅ **텔레그램 알림·원격 킬스위치·일일 리포트** (커밋 0b13a48): Notifier Port + TelegramNotifier(기본 비활성), /stop·/resume·/status 폴링 명령(chat_id 화이트리스트), KillSwitchChanged 이벤트, 15:50 일일 리포트. 실행 검증은 자택망
+0-3. ✅ CI 수정 (커밋 53c963e): gradlew 실행 권한 비트 — Actions Permission denied 해결
 1. **게이트 ① 재판정 실행**: RealDataPortfolioGateTest(로컬 CSV만) 결과 확정 → 3전략 포트폴리오 vs 게이트 기준
 3. 모듈 재편(market/trading/portfolio/analysis) — 별도 사이클
 4. Phase 5: macro-intel 규칙 기반 필터 (수집 클라이언트는 예상 구현 + TODO 실측)
