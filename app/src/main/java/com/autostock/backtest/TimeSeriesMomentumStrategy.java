@@ -1,9 +1,11 @@
 package com.autostock.backtest;
 
 import com.autostock.common.event.Candle;
+import com.autostock.strategy.MomentumMath;
 
 import java.math.BigDecimal;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
@@ -49,6 +51,11 @@ import java.util.List;
  * 판단에 쓰는 "어제 종가"와 "N봉 전 종가"는 모두 오늘 이전에 이미 확정된 값이다. 종가
  * 이력({@link #closeHistory})에는 항상 "오늘 판단이 끝난 뒤" 오늘 종가를 추가하므로,
  * 판단 시점에는 결코 오늘 데이터가 섞여 들어가지 않는다.
+ *
+ * <h2>동형화(2026-08-13)</h2>
+ * "어제 종가 &gt; N봉 전 종가" 판단식 자체는 {@link com.autostock.strategy.MomentumMath#shouldHold}로
+ * 옮겼다. 라이브 전략({@code strategy.C3LiveStrategy})도 같은 메서드를 호출하므로, 이 클래스는
+ * "21봉마다만 판단한다"는 백테스트 전용 주기 관리(카운터·종가 이력 트리밍)만 담당한다.
  */
 public final class TimeSeriesMomentumStrategy implements BacktestStrategy {
 
@@ -83,9 +90,9 @@ public final class TimeSeriesMomentumStrategy implements BacktestStrategy {
         boolean judgmentDay = dayIndex > 0 && dayIndex % REBALANCE_INTERVAL == 0 && enoughHistory;
 
         if (judgmentDay) {
-            BigDecimal yesterdayClose = closeHistory.peekLast();   // 어제 종가
-            BigDecimal closeNBarsAgo = closeHistory.peekFirst();   // N봉 전 종가
-            boolean uptrend = yesterdayClose.compareTo(closeNBarsAgo) > 0;
+            // 판단식 본체는 strategy.MomentumMath로 옮겼다(백테스트=라이브 동형, PLAN 4절).
+            // closeHistory는 항상 (lookback+1)개로 트리밍되므로 맨 앞=N봉 전 종가, 맨 뒤=어제 종가.
+            boolean uptrend = MomentumMath.shouldHold(new ArrayList<>(closeHistory), lookback);
 
             if (uptrend && !state.hasPosition()) {
                 intents = List.of(TradeIntent.buyAtOpen(today.open()));

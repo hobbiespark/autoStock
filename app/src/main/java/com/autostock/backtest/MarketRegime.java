@@ -1,10 +1,11 @@
 package com.autostock.backtest;
 
 import com.autostock.common.event.Candle;
+import com.autostock.strategy.RegimeMath;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,14 +32,18 @@ import java.util.Map;
  */
 public final class MarketRegime {
 
-    /** SMA 창 길이(봉 수) — 약 1년(거래일 기준) 추세를 보는 장기 이동평균. */
-    private static final int SMA_WINDOW = 200;
+    /** SMA 창 길이(봉 수) — 약 1년(거래일 기준) 추세를 보는 장기 이동평균. {@link RegimeMath#SMA_WINDOW}와 동일. */
+    private static final int SMA_WINDOW = RegimeMath.SMA_WINDOW;
 
     private MarketRegime() {
     }
 
     /**
      * 지수 캔들 목록(시간순 정렬)으로부터 날짜별 ON/OFF 맵을 만든다.
+     *
+     * <p>실제 판정식(SMA200 계산·비교)은 {@link RegimeMath#isOn}으로 옮겼다(백테스트=라이브
+     * 동형, PLAN 4절) — 이 메서드는 지수 캔들 전체를 훑으며 날짜마다 그 판정식을 호출해
+     * 맵으로 미리 계산해두는 "사전 계산" 책임만 진다(클래스 설명 참고).
      *
      * @param indexCandles 시장 대표 지수(예: KODEX200)의 시간순 정렬된 캔들 전체
      * @return 날짜 → ON(true)/OFF(false). 입력 캔들과 1:1 대응(같은 날짜 개수).
@@ -48,20 +53,20 @@ public final class MarketRegime {
         for (int i = 0; i < indexCandles.size(); i++) {
             LocalDate date = indexCandles.get(i).date();
             if (i < SMA_WINDOW) {
-                // 아직 SMA200을 계산할 200봉이 쌓이지 않음 — 판단 근거 부족을 이유로 중립(ON) 처리.
+                // 아직 SMA200을 계산할 200봉이 쌓이지 않음 — RegimeMath.isOn도 같은 경우 ON을
+                // 반환하지만, 여기서는 별도 슬라이스를 만들지 않기 위해 미리 걸러낸다(성능).
                 regimeByDate.put(date, true);
                 continue;
             }
 
             // "전일까지"의 종가만 사용한다 — closes[i-200 .. i-1] (오늘=i의 데이터는 전혀 참조하지 않음).
-            BigDecimal sum = BigDecimal.ZERO;
+            // RegimeMath.isOn은 목록의 마지막 원소를 "전일 종가"로 취급하므로, 정확히 이 창을
+            // 그대로 넘기면(마지막 원소=indexCandles[i-1].close()) 기존 계산과 동일한 결과가 나온다.
+            List<BigDecimal> window = new ArrayList<>(SMA_WINDOW);
             for (int j = i - SMA_WINDOW; j < i; j++) {
-                sum = sum.add(indexCandles.get(j).close());
+                window.add(indexCandles.get(j).close());
             }
-            BigDecimal sma200 = sum.divide(BigDecimal.valueOf(SMA_WINDOW), 10, RoundingMode.HALF_UP);
-            BigDecimal yesterdayClose = indexCandles.get(i - 1).close();
-
-            boolean on = yesterdayClose.compareTo(sma200) > 0; // 전일 종가 > SMA200 → 상승 국면(ON)
+            boolean on = RegimeMath.isOn(window);
             regimeByDate.put(date, on);
         }
         return regimeByDate;

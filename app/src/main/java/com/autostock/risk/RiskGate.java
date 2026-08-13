@@ -131,6 +131,12 @@ public class RiskGate {
      *   <li>동시 보유 종목 수가 한도 미만일 것 — 분산 한도 (기본 5종목)</li>
      *   <li>고정비율 사이징 결과가 1주 이상일 것</li>
      * </ul>
+     *
+     * <p><b>confidence = 투입 비중(2026-08-13)</b>: 예산 = equity × maxPositionPctPerSymbol ×
+     * signal.confidence(). 스키마(Signal.confidence)는 원래 "확신도"라는 이름이지만, C3
+     * 같은 사이징 전략(변동성 타게팅)은 이 필드에 "얼마나 투입할지"(0~1의 비중)를 실어
+     * 보낸다 — 새 필드를 추가하지 않고 기존 confidence 필드를 재사용하는 설계 판단이다.
+     * 기존 전략들처럼 confidence=1.0이면 이 곱셈이 결과에 영향을 주지 않는다(수치 무변화).
      */
     private long sizeBuy(Signal signal) {
         if (positionBook.holds(signal.symbol())) {
@@ -145,12 +151,28 @@ public class RiskGate {
         // TODO Phase 2 후반: LIVE 모드에서는 브로커 잔고 조회로 equity를 실시간 갱신한다.
         //  지금은 설정값(paper-equity)을 쓰므로 SIM/모의 전용.
         BigDecimal equity = BigDecimal.valueOf(properties.paperEquity());
-        long qty = sizer.sizeBuy(equity, signal.refPrice());
+        double confidence = clampConfidence(signal);
+        long qty = sizer.sizeBuy(equity, signal.refPrice(), confidence);
         if (qty <= 0) {
-            log.info("사이징 결과 0주 — 매수 불가: {} (equity={}, price={})",
-                    signal.symbol(), equity, signal.refPrice());
+            log.info("사이징 결과 0주 — 매수 불가: {} (equity={}, price={}, confidence={})",
+                    signal.symbol(), equity, signal.refPrice(), confidence);
         }
         return qty;
+    }
+
+    /**
+     * confidence는 전략이 어떤 값을 보내든(버그로 음수·0·1 초과가 와도) 사이징 계산이
+     * 안전하게 끝나야 한다 — 범위(0, 1]를 벗어나면 경고 로그를 남기고 1.0(전액)으로
+     * 클램프한다. "무조건 거부"가 아니라 "안전한 기본값으로 대체"를 택한 이유는, 사이징
+     * 신호 하나 때문에 정상적인 매수 시그널 전체를 버리는 것이 더 위험하다고 판단해서다.
+     */
+    private double clampConfidence(Signal signal) {
+        double confidence = signal.confidence();
+        if (confidence <= 0.0 || confidence > 1.0) {
+            log.warn("confidence 범위(0,1] 벗어남({}) — 1.0으로 클램프: {}", confidence, signal.symbol());
+            return 1.0;
+        }
+        return confidence;
     }
 
     /**

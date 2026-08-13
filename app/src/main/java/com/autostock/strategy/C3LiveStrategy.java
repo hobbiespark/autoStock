@@ -1,0 +1,201 @@
+package com.autostock.strategy;
+
+import com.autostock.common.event.Candle;
+import com.autostock.common.event.Side;
+import com.autostock.common.event.Signal;
+import com.autostock.common.util.MarketConstants;
+import com.autostock.marketdata.KiwoomDailyChartService;
+import com.autostock.risk.PositionBook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * C3 라이브 전략 — 시계열 모멘텀 + KODEX200 SMA200 국면필터 + 변동성 타게팅을
+ * 실제 매매 이벤트 루프에 탑재한 Imperative Shell.
+ *
+ * <h2>왜 스케줄 기반인가(MarketTick 리스너가 아니라)</h2>
+ * 이 전략이 쓰는 판단(모멘텀·국면·변동성)은 전부 "일봉" 단위이고, 판단 주기도
+ * {@link C3StrategyProperties#decisionIntervalDays}일(기본 21영업일)에 한 번뿐이다.
+ * 장중 틱을 볼 이유가 전혀 없으므로, {@code StrategyEngine}의 {@code MarketTick} 이벤트
+ * 리스너 경로를 쓰지 않고 하루 한 번(정규장 시작 직후 09:05 KST) 스스로 판단을 내린다.
+ *
+ * <h2>순수 함수 vs Imperative Shell</h2>
+ * 매매 판단 계산 자체({@link MomentumMath}, {@link RegimeMath}, {@link VolTargetMath})는
+ * 모두 순수 함수이고, 백테스트({@code backtest} 모듈)와 완전히 동일한 로직을 공유한다
+ * (ARCHITECTURE.md 규칙 17·18). 이 클래스는 그 순수 함수들에 넣을 입력을 얻기 위한
+ * I/O(일봉 조회, 포지션 조회, 이벤트 발행)만 담당한다 — "Imperative Shell, Functional Core"
+ * 구조다. 이 클래스 안에는 매매 판단식이 단 한 줄도 새로 계산되지 않는다.
+ *
+ * <h2>실행 흐름</h2>
+ * <ol>
+ *   <li>{@link C3StrategyProperties#regimeIndexSymbol} 일봉을 조회해 {@link RegimeMath}로
+ *       국면(ON/OFF)을 판정한다.</li>
+ *   <li>OFF면: 이 전략이 관리하는 종목 중 보유 중인 것 전부 SELL Signal을 발행하고
+ *       종료한다(신규 진입은 아예 판단하지 않는다).</li>
+ *   <li>ON이면: 종목별로 "판단일"(마지막 판단 후 decisionIntervalDays가 지났는지)인지
+ *       확인하고, 판단일이면 일봉을 조회해 {@link MomentumMath}로 상승/하락 추세를 가른다.
+ *       상승 전환+미보유면 {@link VolTargetMath}로 투입 비중을 계산해 BUY, 하락 전환+보유면
+ *       SELL을 발행한다.</li>
+ * </ol>
+ *
+ * <h2>confidence = 투입 비중</h2>
+ * BUY Signal의 {@code confidence} 필드에는 {@link VolTargetMath#fraction}이 계산한 값을
+ * 그대로 싣는다(0 초과 1 이하) — Signal 스키마를 바꾸지 않고 "얼마나 살지"를 전달하는
+ * 방법이다. {@code risk.RiskGate}가 이 값을 사이징(equity × 종목당한도 × confidence)에
+ * 곱한다({@code PositionSizer.sizeBuy} 참고).
+ *
+ * <h2>21일 주기 카운터 — 인메모리, 영속화 TODO</h2>
+ * {@link #lastDecisionDate}는 종목별 "마지막 판단일"을 인메모리 맵으로만 들고 있다.
+ * 앱을 재시작하면 이 상태가 사라져, 재시작 직후 스케줄에서는 모든 종목을 다시 판단하게
+ * 된다(원래 예정보다 이를 수 있음). TODO: DB 테이블로 영속화해 재시작 후에도 원래
+ * 판단 주기를 유지하도록 개선해야 한다 — 지금은 "판단을 건너뛰기보다 한 번 더 하는 쪽이
+ * 안전하다"는 보수적 방향으로 남겨둔다.
+ *
+ * <h2>예외 격리</h2>
+ * 종목 하나의 조회·계산 실패(네트워크 오류, 데이터 부족 등)가 나머지 종목 판단을 막지
+ * 않도록, 종목별 판단은 개별적으로 예외를 잡아 error 로그만 남기고 다음 종목으로 넘어간다.
+ */
+@Component
+public class C3LiveStrategy {
+
+    private static final Logger log = LoggerFactory.getLogger(C3LiveStrategy.class);
+
+    /** 이 전략이 발행하는 모든 Signal의 strategyId — RiskGate 로그·ClientOrderId에 그대로 노출된다. */
+    private static final String STRATEGY_ID = "C3-MOMENTUM";
+
+    private final C3StrategyProperties properties;
+    private final KiwoomDailyChartService chartService;
+    private final PositionBook positionBook;
+    private final ApplicationEventPublisher publisher;
+
+    /**
+     * 종목별 "마지막 판단일" — decisionIntervalDays 주기 카운터의 인메모리 상태.
+     * 클래스 설명 "21일 주기 카운터" 절 참고(영속화 TODO).
+     */
+    private final Map<String, LocalDate> lastDecisionDate = new ConcurrentHashMap<>();
+
+    public C3LiveStrategy(C3StrategyProperties properties,
+                          KiwoomDailyChartService chartService,
+                          PositionBook positionBook,
+                          ApplicationEventPublisher publisher) {
+        this.properties = properties;
+        this.chartService = chartService;
+        this.positionBook = positionBook;
+        this.publisher = publisher;
+    }
+
+    /** 매 평일 09:05 KST(정규장 09:00 개장 직후) 1회 실행 — 클래스 설명 "왜 스케줄 기반인가" 참고. */
+    @Scheduled(cron = "0 5 9 * * MON-FRI", zone = "Asia/Seoul")
+    public void run() {
+        if (!properties.enabled()) {
+            return; // 자택망 검증 전 기본 비활성 — C3StrategyProperties Javadoc 참고
+        }
+
+        LocalDate today = LocalDate.now(MarketConstants.KST);
+
+        boolean regimeOn = judgeRegime();
+        if (!regimeOn) {
+            // OFF — 신규 진입을 아예 판단하지 않고, 보유 중인 것만 강제 청산한다.
+            liquidateAll();
+            return;
+        }
+
+        for (String symbol : properties.symbols()) {
+            try {
+                decideOne(symbol, today);
+            } catch (RuntimeException e) {
+                // 종목 단위 격리 — 한 종목의 실패가 전체 배치를 중단시키지 않는다(클래스 설명 참고).
+                log.error("C3: 종목 {} 판단 중 오류 — 이 종목만 스킵하고 계속 진행", symbol, e);
+            }
+        }
+    }
+
+    /**
+     * 국면 판정 — 지수의 최근 (regimeSmaDays+1)봉 이상을 조회해 {@link RegimeMath#isOn}에
+     * 그대로 넘긴다. 09:05(개장 직후) 호출이므로 조회 결과의 마지막 봉은 항상 "어제 종가"다
+     * (오늘 일봉은 장중에야 만들어지므로 아직 존재하지 않는다) — RegimeMath가 기대하는
+     * "전일까지" 계약과 자연스럽게 맞아떨어진다.
+     */
+    private boolean judgeRegime() {
+        List<Candle> candles = chartService.fetchDaily(
+                properties.regimeIndexSymbol(), LocalDate.now(MarketConstants.KST), properties.regimeSmaDays() + 1);
+        List<BigDecimal> closes = candles.stream().map(Candle::close).toList();
+        return RegimeMath.isOn(closes);
+    }
+
+    /** 국면 OFF — 이 전략이 관리하는 종목 중 보유 중인 것 전부 SELL Signal 발행. */
+    private void liquidateAll() {
+        for (String symbol : properties.symbols()) {
+            PositionBook.Position position = positionBook.get(symbol);
+            if (position != null) {
+                log.info("C3: 국면 OFF — 강제 청산: {}", symbol);
+                publishSell(symbol, position.avgPrice());
+            }
+        }
+    }
+
+    /** 종목 하나의 판단 — 판단일이면 모멘텀/변동성을 계산해 BUY 또는 SELL을, 아니면 아무 것도 하지 않는다. */
+    private void decideOne(String symbol, LocalDate today) {
+        if (!isJudgmentDay(symbol, today)) {
+            return; // decisionIntervalDays가 아직 안 지남 — 보유/미보유 상태를 그대로 유지
+        }
+
+        // MomentumMath는 최소 (lookbackN+1)개, VolTargetMath는 최소 (VOL_WINDOW+1)개가 필요하다.
+        int minCount = Math.max(properties.lookbackN(), VolTargetMath.VOL_WINDOW) + 1;
+        List<Candle> candles = chartService.fetchDaily(symbol, today, minCount);
+        if (candles.size() < properties.lookbackN() + 1) {
+            // 데이터가 부족하면 이번엔 판단을 건너뛴다 — lastDecisionDate를 갱신하지 않으므로
+            // 다음 스케줄에서 즉시 재시도한다(21일을 더 기다리지 않는다).
+            log.warn("C3: 종목 {} 캔들 부족({}개, 최소 {}개 필요) — 이번 판단 스킵",
+                    symbol, candles.size(), properties.lookbackN() + 1);
+            return;
+        }
+        List<BigDecimal> closes = candles.stream().map(Candle::close).toList();
+
+        // 조회에 성공해 실제로 판단을 내렸을 때만 "판단일"을 갱신한다.
+        lastDecisionDate.put(symbol, today);
+
+        boolean uptrend = MomentumMath.shouldHold(closes, properties.lookbackN());
+        boolean holding = positionBook.holds(symbol);
+        BigDecimal latestClose = candles.get(candles.size() - 1).close();
+
+        if (uptrend && !holding) {
+            double fraction = VolTargetMath.fraction(closes, properties.targetVolAnnual());
+            publishBuy(symbol, latestClose, fraction);
+        } else if (!uptrend && holding) {
+            publishSell(symbol, latestClose);
+        }
+        // uptrend && holding → 그대로 보유 유지(재진입 불필요)
+        // !uptrend && !holding → 그대로 미보유 유지(청산할 것이 없음)
+    }
+
+    /** decisionIntervalDays 주기 판정 — 마지막 판단일이 없거나(첫 판단) 주기가 지났으면 true. */
+    private boolean isJudgmentDay(String symbol, LocalDate today) {
+        LocalDate last = lastDecisionDate.get(symbol);
+        return last == null || !last.plusDays(properties.decisionIntervalDays()).isAfter(today);
+    }
+
+    /**
+     * 매수 시그널 발행. confidence 필드에는 이 전략에서 투입 비중을 의미하는 fraction을
+     * 싣는다(0 초과 1 이하) — 클래스 설명 "confidence = 투입 비중" 절 참고. 스키마 변경
+     * 없이 그대로 전달하며, RiskGate가 사이징에 곱한다.
+     */
+    private void publishBuy(String symbol, BigDecimal refPrice, double fraction) {
+        publisher.publishEvent(new Signal(STRATEGY_ID, symbol, Side.BUY, refPrice, fraction, Instant.now()));
+    }
+
+    /** 매도는 항상 전량 청산(RiskGate 정책)이라 confidence는 의미가 없다 — 1.0 고정. */
+    private void publishSell(String symbol, BigDecimal refPrice) {
+        publisher.publishEvent(new Signal(STRATEGY_ID, symbol, Side.SELL, refPrice, 1.0, Instant.now()));
+    }
+}

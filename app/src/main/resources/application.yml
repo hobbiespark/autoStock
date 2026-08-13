@@ -48,6 +48,16 @@ execution:
   mode: SIM                     # SIM: 즉시 체결 시뮬레이션 / LIVE: 키움 주문 API
   stale-order-timeout: 5m        # SUBMITTED로 이 시간 이상 머문 주문을 StaleOrderCanceller가 자동 취소 요청
 
+strategy:
+  c3:
+    enabled: false                                   # 자택망 검증 전까지 비활성 — 켜기 전 반드시 확인
+    symbols: 005930,000660,035420,035720,069500       # 삼성전자, SK하이닉스, NAVER, 카카오, KODEX200
+    lookback-n: 120                                    # TODO: 분기별 walk-forward 재선정 절차 필요(수동)
+    decision-interval-days: 21
+    target-vol-annual: 0.20
+    regime-index-symbol: 069500                        # KODEX200 — 국면 필터 기준 지수
+    regime-sma-days: 200
+
 autostock:
   ws:
     enabled: false              # 앱키 발급 후 true
