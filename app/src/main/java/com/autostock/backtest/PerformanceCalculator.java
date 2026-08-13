@@ -103,12 +103,22 @@ public final class PerformanceCalculator {
     }
 
     /**
-     * DSR(Deflated Sharpe Ratio) 계산.
+     * DSR(Deflated Sharpe Ratio) 계산 — trials 기반 범용 공식.
      *
      * <pre>
      *   SR0 = sqrt(V[SR_trials]) × ((1-γ)·Φ⁻¹(1-1/N) + γ·Φ⁻¹(1-1/(N·e)))   (N=1이면 SR0=0)
      *   DSR = Φ( (SR_obs - SR0)·sqrt(T-1) / sqrt(1 - skew·SR_obs + ((kurt-1)/4)·SR_obs²) )
      * </pre>
+     *
+     * <p><b>⚠ 이 메서드를 최종 게이트(예: 게이트① OOS DSR &gt; 0.95) 판정에 직접 쓰지 말 것.</b>
+     * {@link WalkForwardRunner}는 이 메서드를 trials = "파라미터 후보 수 × 창(window) 수"로
+     * 호출한다({@link #calculate}를 거쳐 {@link BacktestResult#dsrConfidence()}로 노출됨) —
+     * 이건 <b>train 단계에서 파라미터를 고르는 다중검정을 보정하기 위한 값</b>이지, 최종
+     * OOS 성과를 "여러 전략 계열 중 어떤 걸 채택할지" 판단하는 값이 아니다. 후보 수가
+     * 5개, 창이 25개면 N=125가 되는데, N이 이렇게 커지면 SR0(운으로 기대되는 최대 샤프)가
+     * 관측된 샤프보다 항상 커져서 DSR이 사실상 항상 0에 가깝게 나온다 — walk-forward OOS
+     * 시계열은 "선택이 이미 끝난 단일 결과"이므로 이 N을 그대로 최종 게이트에 쓰면 방법론
+     * 오류다. OOS 레벨 최종 게이트에는 반드시 {@link #deflatedSharpeAcrossFamilies}를 써라.
      *
      * @param srObserved     관측된 (비연율화) 샤프비율
      * @param trials         시도 횟수 N
@@ -135,6 +145,48 @@ public final class PerformanceCalculator {
         }
         double z = numerator / Math.sqrt(varianceTerm);
         return standardNormalCdf(z);
+    }
+
+    /**
+     * OOS(walk-forward 최종 out-of-sample) 레벨에서 쓰는 DSR — 게이트①(OOS DSR &gt; 0.95)
+     * 판정에는 <b>반드시</b> 이 메서드를 써야 한다.
+     *
+     * <h2>쉬운 설명 — N이 왜 "전략 계열 수"여야 하는가</h2>
+     * walk-forward의 train 단계에서는 창마다 파라미터 후보 여러 개를 시도해 그중 최고를
+     * "이미" 골랐다. 그 선택 과정의 다중검정 편향은 train 단계에서 {@link #deflatedSharpeRatio}
+     * (trials=후보수×창수)로 이미 따로 다뤄진다. 하지만 그렇게 골라진 뒤 이어붙인 OOS
+     * 수익률 시계열 자체는 "선택이 끝난 뒤의 단일 결과"다 — 그 시계열 하나만 놓고 보면
+     * 더 이상 "여러 개 중 하나를 고르는" 다중검정이 남아있지 않다.
+     *
+     * <p>그런데 실제로 우리가 최종 판단(어떤 전략을 채택할지)을 내리는 시점에는 여러 개의
+     * <b>전략 계열</b>(예: 무필터돌파 A, 필터돌파 B, 시계열모멘텀 C)의 OOS 성적을 나란히
+     * 놓고 비교해서 그중 하나(또는 몇 개)를 고른다 — 바로 이 "계열 간 비교·선택"이 OOS
+     * 레벨에서 진짜로 남아있는 다중검정 지점이다. 그래서 OOS 레벨 DSR의 N은 "OOS 성적을
+     * 놓고 비교한 전략 계열의 수"여야 하고, trial 간 분산도 그 계열들의 OOS 샤프비율
+     * 분산이어야 한다 — 파라미터 후보 수나 walk-forward 창 수와는 무관하다.
+     *
+     * @param oosDailyReturnsOfSelected   채택 여부를 판단하려는 전략의 OOS 일별 수익률 시계열
+     *                                    (walk-forward로 이어붙인 것, {@link WalkForwardResult#oosResult()}
+     *                                    의 {@code dailyReturns()}를 그대로 넘기면 된다)
+     * @param allFamiliesOosSharpesDaily  비교 대상 전략 "계열"들의 OOS 일별(비연율화) 샤프비율.
+     *                                    채택하려는 전략 자신의 값도 포함해서 넘겨야 한다 — 배열
+     *                                    길이가 곧 N이다. N=1이면(비교할 다른 계열이 없으면)
+     *                                    SR0=0으로 처리한다(비교로 인한 선택 편향이 없다는 뜻).
+     * @return OOS 레벨 DSR (0~1)
+     */
+    public double deflatedSharpeAcrossFamilies(List<Double> oosDailyReturnsOfSelected,
+                                                double[] allFamiliesOosSharpesDaily) {
+        int observations = oosDailyReturnsOfSelected.size();
+        double mean = mean(oosDailyReturnsOfSelected);
+        double std = populationStd(oosDailyReturnsOfSelected, mean);
+        double srDaily = std == 0.0 ? 0.0 : mean / std; // calculate()와 같은 컨벤션 — 일별(비연율화) 샤프
+        double skew = skewness(oosDailyReturnsOfSelected, mean, std);
+        double kurt = kurtosis(oosDailyReturnsOfSelected, mean, std);
+
+        int families = allFamiliesOosSharpesDaily.length;
+        double trialsVariance = families <= 1 ? 0.0 : populationVariance(allFamiliesOosSharpesDaily);
+
+        return deflatedSharpeRatio(srDaily, families, trialsVariance, skew, kurt, observations);
     }
 
     /**
@@ -166,6 +218,25 @@ public final class PerformanceCalculator {
             sumSq += d * d;
         }
         return Math.sqrt(sumSq / values.size());
+    }
+
+    /** 모분산(분모 n) — {@link #deflatedSharpeAcrossFamilies}의 계열 간 샤프비율 분산 계산용. */
+    private double populationVariance(double[] values) {
+        if (values.length == 0) {
+            return 0.0;
+        }
+        double mean = 0.0;
+        for (double v : values) {
+            mean += v;
+        }
+        mean /= values.length;
+
+        double sumSq = 0.0;
+        for (double v : values) {
+            double d = v - mean;
+            sumSq += d * d;
+        }
+        return sumSq / values.length;
     }
 
     /** 왜도(skewness) — 분포가 좌우 어느 쪽으로 치우쳤는지. */

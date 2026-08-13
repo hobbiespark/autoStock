@@ -14,7 +14,11 @@ import java.util.List;
  * @param selectedParams 각 창(window)에서 train 구간 최고 샤프로 선택된 파라미터 목록 (창 순서대로)
  * @param oosResult       모든 test(OOS, Out-Of-Sample) 구간의 일별 수익률을 이어붙여 계산한 성과.
  *                        {@link WalkForwardRunner} 클래스 설명 참고 — 최종 판단은 반드시 이 값으로 한다.
- * @param trials          DSR 계산에 사용된 총 시도 횟수 = 파라미터 후보 수 × 창(window) 수
+ * @param trials          DSR 계산에 사용된 총 시도 횟수 = 파라미터 후보 수 × 창(window) 수.
+ *                        train 단계 파라미터 선택 편향 보정용 N이다 — {@code oosResult().dsrConfidence()}가
+ *                        바로 이 trials로 계산되어 있으므로, 최종 게이트(전략 계열 간 비교) 판정에는
+ *                        쓰지 말고 {@link PerformanceCalculator#deflatedSharpeAcrossFamilies}를 따로
+ *                        호출해서 나온 값을 써야 한다({@link BacktestResult#dsrConfidence()} 참고).
  */
 public record WalkForwardResult<P>(
         List<P> selectedParams,
