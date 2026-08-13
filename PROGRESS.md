@@ -93,7 +93,11 @@
 0-1. ✅ **C3 라이브 탑재** (커밋 c06db04): Momentum/Regime/VolTarget Math를 strategy 모듈 순수 클래스로 동형화(백테스트가 참조 — 기존 실험 테스트 무수정 통과로 수치 동일성 증명), `C3LiveStrategy`(09:05 KST 스케줄, 기본 비활성 `strategy.c3.enabled=false`), confidence=투입비중 사이징. **판단 주기 결정: 21일 유지, 5일 변형은 백테스트 재검증 대신 모의 운영 paper A/B로 비교**(trial 수 증가 방지)
 0-2. ✅ **텔레그램 알림·원격 킬스위치·일일 리포트** (커밋 0b13a48): Notifier Port + TelegramNotifier(기본 비활성), /stop·/resume·/status 폴링 명령(chat_id 화이트리스트), KillSwitchChanged 이벤트, 15:50 일일 리포트. 실행 검증은 자택망
 0-3. ✅ CI 수정 (커밋 53c963e): gradlew 실행 권한 비트 — Actions Permission denied 해결
-1. **게이트 ① 재판정 실행**: RealDataPortfolioGateTest(로컬 CSV만) 결과 확정 → 3전략 포트폴리오 vs 게이트 기준
+0-4. ✅ **안전장치 잔여 완성** (커밋 7e0a3c4, 테스트 222건): 일 손실 한도(-2%) 실현손익 추적→킬스위치, WS 장시간 단절(180초)→MarketDataStale 이벤트→킬스위치, LIVE 잔고 연동 EquitySource(60초 캐시+2단 폴백), 거래 캘린더·장시간 가드
+0-5. ✅ **특일 API 휴장일 DB 동기화** (커밋 7f37936·d05e4d7): 공공데이터 SpcdeInfoService `getRestDeInfo`(공식 명세 확인, `_type=json` 지원). **매년 11/1 내년 일괄 + 매월 15일 향후 30일 창 재동기화**(대체공휴일 늦은 확정 흡수 — 명세: 임시공휴일 1일 내, 대체공휴일 대통령령 시행 후 반영). DB 우선·하드코딩 폴백 판정, MANUAL 등록으로 연말휴장 보완. 기본 비활성(서비스키 `DATA_GO_KR_SERVICE_KEY` 발급 후 활성화)
+0-6. ✅ **운영 상태기계 + CQRS Lite** (커밋 73b4184, 테스트 225건): TradingSystemStatus 6상태 전이표(STOPPED→STARTING→RUNNING→STOPPING, DEGRADED/ERROR), start/stop Command(`POST /api/trading/start|stop`, 응답은 STARTING — Backend가 Source of Truth), 킬스위치↔DEGRADED 자동 연동, View DTO+DashboardFacade(`GET /api/dashboard` 단일 폴링), FE 상태 배지·시작/정지 버튼·실현손익 표시
+1. ✅ ~~게이트 ① 재판정~~ — 완료 (3절 게이트 현황 참조: C3 잠정 통과 → N=6 보수 검증에서 철회, C3 후보 동결)
+1-1. **모듈 재편 (다음 세션)**: market/trading/portfolio/analysis 목표 구조 일괄 재편 (ADR-6, 사용자 선택 항목 — 이월)
 3. 모듈 재편(market/trading/portfolio/analysis) — 별도 사이클
 4. Phase 5: macro-intel 규칙 기반 필터 (수집 클라이언트는 예상 구현 + TODO 실측)
 5. 텔레그램 알림/원격 킬스위치 (monitor)
