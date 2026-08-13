@@ -14,8 +14,27 @@ import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Signal → (킬스위치 · 한도 · 사이징) → OrderRequest. 주문의 유일한 관문.
- * 통과 순서: 킬스위치 → 일 주문 한도 → 포지션 규칙 → 사이징.
+ * 리스크 게이트 — <b>모든 주문이 반드시 통과해야 하는 유일한 관문</b>.
+ *
+ * <p>왜 필요한가? 전략(strategy)은 "사고 싶다/팔고 싶다"는 의견(Signal)만 낼 수 있고,
+ * 실제 돈이 걸린 주문(OrderRequest)으로 바꾸는 권한은 이 클래스에만 있다.
+ * 전략 코드에 버그가 있어도 여기서 걸러지므로 계좌가 보호된다. (PLAN 4절 불변 원칙)
+ *
+ * <p>검사 순서 — 순서가 중요하다:
+ * <ol>
+ *   <li><b>킬스위치</b>: 비상 정지 상태면 무조건 거부. 가장 싸고 빠른 검사라 맨 앞.</li>
+ *   <li><b>사이징</b>: 몇 주를 살/팔 수 있는지 계산. 0주면 여기서 끝 —
+ *       주문 슬롯(일 한도)을 낭비하지 않기 위해 한도 검사보다 먼저 한다.</li>
+ *   <li><b>일 주문 한도</b>: 하루 주문 횟수 상한. 폭주(버그로 인한 연속 주문)의 마지막 방어선.</li>
+ * </ol>
+ *
+ * <pre>
+ *  Signal ──▶ [킬스위치?] ──▶ [사이징 &gt; 0?] ──▶ [일 한도 OK?] ──▶ OrderRequest 발행
+ *                │ 거부            │ 거부              │ 거부
+ *                ▼                ▼                  ▼
+ *              (로그만 남기고 조용히 버린다 — 예외를 던지지 않는 이유:
+ *               시그널 거부는 "정상 동작"이지 오류가 아니기 때문)
+ * </pre>
  */
 @Component
 public class RiskGate {
@@ -43,23 +62,43 @@ public class RiskGate {
         this.dailyLimits = dailyLimits;
     }
 
+    /**
+     * 전략이 발행한 {@link Signal}을 받아 검사 후, 통과 시에만 {@link OrderRequest}를 발행한다.
+     *
+     * @param signal 전략의 매매 의견 (이 시점에는 아직 아무 돈도 걸려있지 않다)
+     */
     @EventListener
     public void onSignal(Signal signal) {
+        // ── 1단계: 킬스위치 ─────────────────────────────────────────────
+        // 텔레그램 명령·일 손실 한도·WS 단절 등 어떤 이유로든 비상 정지 상태면
+        // 신규 주문은 전면 차단된다.
         if (killSwitch.isEngaged()) {
             log.warn("킬스위치 작동 중 — 시그널 거부: {}", signal.symbol());
             return;
         }
+
+        // ── 2단계: 사이징 (몇 주?) ──────────────────────────────────────
+        // 매수: 계좌의 일정 비율만 투입 / 매도: 보유 수량 전량 청산.
+        // switch 식(expression)을 쓰면 Side에 새 값이 추가될 때 컴파일러가
+        // 처리 누락을 잡아준다.
         long quantity = switch (signal.side()) {
             case BUY -> sizeBuy(signal);
             case SELL -> sizeSell(signal);
         };
         if (quantity <= 0) {
-            return;
+            return; // 거부 사유는 sizeBuy/sizeSell 안에서 이미 로그로 남겼다
         }
+
+        // ── 3단계: 일 주문 한도 ─────────────────────────────────────────
+        // 사이징까지 통과한 "진짜 주문 후보"만 슬롯을 소비한다.
         if (!dailyLimits.tryAcquireOrderSlot()) {
             log.warn("일 주문 한도 초과 — 거부: {}", signal.symbol());
             return;
         }
+
+        // ── 통과: 주문 요청 발행 ────────────────────────────────────────
+        // idempotencyKey(멱등키): 같은 주문이 두 번 실행되는 사고를 막는 고유 번호표.
+        // execution 모듈은 같은 키를 두 번 받으면 두 번째를 무시한다.
         publisher.publishEvent(new OrderRequest(
                 UUID.randomUUID().toString(),
                 signal.strategyId(),
@@ -70,6 +109,14 @@ public class RiskGate {
                 Instant.now()));
     }
 
+    /**
+     * 매수 수량 결정. 다음 세 가지를 모두 만족해야 0보다 큰 수량이 나온다.
+     * <ul>
+     *   <li>미보유 종목일 것 — 물타기(추가 매수)는 의도적으로 금지</li>
+     *   <li>동시 보유 종목 수가 한도 미만일 것 — 분산 한도 (기본 5종목)</li>
+     *   <li>고정비율 사이징 결과가 1주 이상일 것</li>
+     * </ul>
+     */
     private long sizeBuy(Signal signal) {
         if (positionBook.holds(signal.symbol())) {
             log.info("이미 보유 중 — 추가 매수 차단: {}", signal.symbol());
@@ -80,7 +127,8 @@ public class RiskGate {
                     properties.maxConcurrentPositions(), signal.symbol());
             return 0;
         }
-        // TODO Phase 2 후반: live 모드에서는 브로커 잔고 이벤트로 equity 갱신
+        // TODO Phase 2 후반: LIVE 모드에서는 브로커 잔고 조회로 equity를 실시간 갱신한다.
+        //  지금은 설정값(paper-equity)을 쓰므로 SIM/모의 전용.
         BigDecimal equity = BigDecimal.valueOf(properties.paperEquity());
         long qty = sizer.sizeBuy(equity, signal.refPrice());
         if (qty <= 0) {
@@ -90,12 +138,16 @@ public class RiskGate {
         return qty;
     }
 
+    /**
+     * 매도 수량 결정 — 정책: <b>부분 매도 없이 전량 청산</b>.
+     * 보유하지 않은 종목의 매도 시그널은 무시한다(공매도 미지원).
+     */
     private long sizeSell(Signal signal) {
         PositionBook.Position position = positionBook.get(signal.symbol());
         if (position == null) {
             log.info("미보유 종목 매도 시그널 무시: {}", signal.symbol());
             return 0;
         }
-        return position.quantity(); // 전량 청산
+        return position.quantity();
     }
 }
