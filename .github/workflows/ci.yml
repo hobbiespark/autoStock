@@ -1,6 +1,7 @@
 # CI — 빌드 + 전체 테스트 (Modulith 경계 검증 포함) + 키움 모의투자 스모크 테스트
 #
-# 시크릿 매핑: 리포 시크릿 KIWOOM_MOCK_* → 앱이 읽는 KIWOOM_APP_* 환경변수.
+# 시크릿 매핑: 리포 시크릿 KIWOOM_MOCK_G_*(일반 모의계좌, 주문 가능) → 앱이 읽는 KIWOOM_APP_* 환경변수.
+# (KIWOOM_MOCK_*는 공매도 교육 전용 계좌 키라 주문 불가 — 스모크에는 일반 계좌 키를 쓴다)
 # 포크 PR에는 시크릿이 전달되지 않으므로 KiwoomSmokeIT는 assumeTrue로 자동 스킵된다
 # (키가 없어도 CI는 초록불 — 스모크만 빠지고 나머지 테스트는 전부 수행).
 name: CI
@@ -28,8 +29,8 @@ jobs:
 
       - name: 테스트 실행
         env:
-          KIWOOM_APP_KEY: ${{ secrets.KIWOOM_MOCK_APP_KEY }}
-          KIWOOM_APP_SECRET: ${{ secrets.KIWOOM_MOCK_APP_SECRET }}
+          KIWOOM_APP_KEY: ${{ secrets.KIWOOM_MOCK_G_APP_KEY }}
+          KIWOOM_APP_SECRET: ${{ secrets.KIWOOM_MOCK_G_APP_SECRET }}
         run: ./gradlew test --no-daemon
 
       - name: 테스트 리포트 업로드 (실패 시 확인용)
