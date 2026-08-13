@@ -10,16 +10,22 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * OrderNoticeHandler 단위테스트.
  * ExecutionServiceTest와 같은 스타일: Spring 컨텍스트 없이 직접 조립하고,
  * ApplicationEventPublisher는 List::add로 대체해 발행된 이벤트를 그대로 확인한다.
+ * BrokerPort/OrderRepository/ReconciliationService는 Mockito 목으로 대체한다.
  */
 class OrderNoticeHandlerTest {
 
@@ -28,23 +34,21 @@ class OrderNoticeHandlerTest {
     private final List<Object> published = new ArrayList<>();
     private final ApplicationEventPublisher publisher = published::add;
 
+    private OrderRepository orderRepository;
     private ExecutionService executionService;
     private OrderNoticeHandler handler;
 
     @BeforeEach
     void setUp() {
-        // 실제 REST 호출 없이 고정 주문번호만 돌려주는 가짜 KiwoomOrderService.
-        // placeOrder()는 final이 아니라 오버라이드로 REST 의존성 없이 대체할 수 있다.
-        KiwoomOrderService fakeOrderService = new KiwoomOrderService(null) {
-            @Override
-            public String placeOrder(OrderRequest request) {
-                return BROKER_ORDER_ID;
-            }
-        };
+        orderRepository = mock(OrderRepository.class);
+        BrokerPort brokerPort = mock(BrokerPort.class);
+        when(brokerPort.placeOrder(any(OrderRequest.class))).thenReturn(new BrokerOrderResult(BROKER_ORDER_ID));
+        ReconciliationService reconciliationService = mock(ReconciliationService.class);
+
         executionService = new ExecutionService(
-                new ExecutionProperties(ExecutionProperties.Mode.LIVE), fakeOrderService, publisher,
-                new SimpleMeterRegistry());
-        handler = new OrderNoticeHandler(executionService, publisher);
+                new ExecutionProperties(ExecutionProperties.Mode.LIVE, Duration.ofMinutes(5)),
+                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry());
+        handler = new OrderNoticeHandler(executionService, orderRepository, publisher);
     }
 
     private OrderRequest order(String idempotencyKey) {
@@ -58,7 +62,7 @@ class OrderNoticeHandlerTest {
 
     @Test
     void 체결_통보_수신시_Fill_발행() {
-        executionService.onOrderRequest(order("key-1")); // brokerOrderId 매핑 생성
+        executionService.onOrderRequest(order("key-1")); // brokerOrderId 매핑 생성(인메모리)
 
         handler.onOrderNotice(notice("체결", 10, new BigDecimal("70100")));
 
@@ -74,7 +78,8 @@ class OrderNoticeHandlerTest {
 
     @Test
     void 매핑_없는_통보는_무시() {
-        // executionService.onOrderRequest를 호출하지 않았으므로 brokerOrderId 매핑이 없다
+        // executionService.onOrderRequest를 호출하지 않았고, DB 폴백도 비어있으므로(mock 기본값)
+        // 인메모리·DB 둘 다 매핑이 없다
         handler.onOrderNotice(notice("체결", 10, new BigDecimal("70100")));
 
         assertEquals(0, published.size());
@@ -104,5 +109,25 @@ class OrderNoticeHandlerTest {
         // 두 통보 모두 같은 원 주문(key-2)에 연결돼야 한다
         assertEquals("key-2", first.orderIdempotencyKey());
         assertEquals("key-2", second.orderIdempotencyKey());
+    }
+
+    @Test
+    void 인메모리_매핑_유실시_DB_폴백으로_체결통보_처리() {
+        // 재시작 시나리오 시뮬레이션: executionService.onOrderRequest를 호출하지 않아
+        // 인메모리 맵은 비어있지만, DB에는 SUBMITTED 상태 주문이 남아있다고 가정한다.
+        OrderEntity entity = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", "005930", Side.SELL,
+                10, new BigDecimal("70000"), "BREAKOUT");
+        entity.transitionTo(OrderStatus.VALIDATED);
+        entity.transitionTo(OrderStatus.SUBMITTING);
+        entity.markSubmitted(BROKER_ORDER_ID);
+        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+
+        handler.onOrderNotice(notice("체결", 10, new BigDecimal("70100")));
+
+        assertEquals(1, published.size());
+        Fill fill = (Fill) published.get(0);
+        assertEquals("20260813-BREAKOUT-005930-BUY-001", fill.orderIdempotencyKey());
+        assertEquals(Side.SELL, fill.side()); // DB 엔티티의 side를 물려받는다
+        assertEquals(OrderStatus.FILLED, entity.getStatus()); // applyFill로 상태도 갱신됐다
     }
 }
