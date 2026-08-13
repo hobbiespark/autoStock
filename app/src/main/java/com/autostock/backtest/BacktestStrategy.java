@@ -1,32 +1,37 @@
 package com.autostock.backtest;
 
-import com.autostock.common.event.Side;
-
 import java.math.BigDecimal;
-import java.util.Optional;
+import java.util.List;
 
 /**
- * 백테스트가 하루치 캔들을 넘겨줄 때마다 "사고/팔고/아무것도 안 함"을 결정하는 전략 함수.
+ * 백테스트가 하루치 캔들을 넘겨줄 때마다 "어떤 조건부 주문을 걸어둘지"를 결정하는 전략 함수.
  *
  * <p>전략·리스크 코드를 라이브와 그대로 재사용한다는 원칙(PLAN "백테스트=라이브 동형") 아래,
  * 이 인터페이스는 실제 {@code strategy} 모듈의 신호 로직을 감싸는 아주 얇은 어댑터로 쓰인다 —
  * 백테스트 전용 로직을 새로 만들지 말고, 기존 전략이 신호를 낼 때 쓰는 판단 함수를
  * 여기 연결하기만 하면 된다.
  *
- * <p>중요: 이 메서드에 넘어오는 {@link Candle}은 "그날 하루가 끝난 뒤의 확정된 캔들"이다.
- * 즉 그날의 시가/고가/저가/종가를 모두 알고 있는 상태에서 판단하지만, 실제 체결은
- * 다음날 시가에 이뤄진다({@link BacktestRunner} 참고) — 여기서 반환하는 값은 "판단"일 뿐
- * "체결"이 아니다.
+ * <h2>중요 — {@code today}는 "오늘 시가까지만" 알려진 상태로 취급할 것</h2>
+ * 러너({@link BacktestRunner})는 구현상 당일 캔들 전체({@link Candle#high()}, {@link Candle#low()},
+ * {@link Candle#close()}까지 전부 채워진 값)를 이 메서드에 넘긴다. 하지만 이것은 순전히
+ * 구현 편의(캔들을 미리 잘라서 넘기지 않기 위함)일 뿐이며, <b>규약상 전략은 오늘 캔들에서
+ * {@link Candle#open()}만 읽어야 한다.</b> 오늘의 고가/저가/종가를 판단에 쓰면 아직 일어나지
+ * 않은 미래를 미리 아는 셈이 되는 룩어헤드 버그다. (반대로 "어제까지"의 캔들은 이미 확정된
+ * 과거이므로 전략이 내부에 기억해뒀다가 자유롭게 써도 된다 — {@code VolatilityBreakoutStrategy}가
+ * 전일 고가/저가를 저장해두는 방식 참고.)
+ *
+ * <p>실제 체결 여부(오늘 고가/저가가 트리거 가격에 닿았는지)는 전략이 아니라 러너가
+ * 판단한다 — 전략은 "무엇을 걸어둘지"({@link TradeIntent} 목록)만 정하면 된다.
  */
 @FunctionalInterface
 public interface BacktestStrategy {
 
     /**
-     * @param candle 오늘자 확정 캔들
-     * @param state  오늘 캔들 처리 시점의 포트폴리오 상태(보유 수량/평단/현금)
-     * @return 매수/매도 의견. 포지션 유지(아무 것도 안 함)면 {@link Optional#empty()}.
+     * @param today 오늘자 캔들. 규약상 {@link Candle#open()}만 판단에 사용할 것(위 클래스 설명 참고).
+     * @param state 오늘 캔들 처리 시점(오늘 개장 직전)의 포트폴리오 상태(보유 수량/평단/현금)
+     * @return 오늘 걸어둘 조건부 주문 목록. 아무 것도 안 하면 빈 리스트({@link List#of()}).
      */
-    Optional<Side> onCandle(Candle candle, PortfolioState state);
+    List<TradeIntent> onCandle(Candle today, PortfolioState state);
 
     /**
      * 전략 판단 시점의 포트폴리오 상태 — RiskGate의 사이징 판단과 마찬가지로
