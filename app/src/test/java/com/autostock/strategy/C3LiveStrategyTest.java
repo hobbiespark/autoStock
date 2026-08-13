@@ -7,6 +7,8 @@ import com.autostock.common.event.Signal;
 import com.autostock.marketdata.KiwoomDailyChartService;
 import com.autostock.marketdata.MarketCalendarService;
 import com.autostock.marketdata.MarketHolidayRepository;
+import com.autostock.monitor.TradingSystemManager;
+import com.autostock.monitor.TradingSystemStatus;
 import com.autostock.risk.PositionBook;
 import org.junit.jupiter.api.Test;
 
@@ -22,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 /**
  * C3LiveStrategy 검증 — marketdata 서비스는 스텁으로 대체하고(실제 REST 호출 없음),
@@ -35,6 +38,17 @@ class C3LiveStrategyTest {
     // repository는 mock — market_holidays에 해당 연도 데이터가 없으므로 MarketCalendarService는
     // TradingCalendar 하드코딩 폴백으로 판정한다(기존 동작과 동일, RiskGateTest와 같은 이유).
     private final MarketCalendarService marketCalendarService = new MarketCalendarService(mock(MarketHolidayRepository.class));
+
+    /**
+     * 운영 상태기계가 RUNNING이라고 가정하는 스텁 — 이 테스트 파일은 C3LiveStrategy의
+     * 매매 판단 로직만 검증하므로, 이중 가드(클래스 설명 "운영 상태기계와의 이중 가드" 참고)
+     * 자체는 여기서 항상 통과시킨다(스킵 동작은 별도 테스트에서 확인).
+     */
+    private TradingSystemManager runningManager() {
+        TradingSystemManager manager = mock(TradingSystemManager.class);
+        when(manager.status()).thenReturn(TradingSystemStatus.RUNNING);
+        return manager;
+    }
 
     /**
      * {@link KiwoomDailyChartService#fetchDaily}를 실제 REST 호출 없이 사전에 준비된
@@ -120,11 +134,34 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook();
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(false, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService);
+                properties(false, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                mock(TradingSystemManager.class)); // enabled=false는 상태 조회 전에 반환되므로 스텁 불필요
 
         strategy.run();
 
         assertTrue(published.isEmpty(), "enabled=false면 no-op이어야 함(시그널·조회 모두 없음)");
+    }
+
+    @Test
+    void 운영_상태가_RUNNING이_아니면_enabled여도_스킵한다() {
+        // 이중 가드 검증 — strategy.c3.enabled=true여도 TradingSystemManager.status()가
+        // RUNNING이 아니면(예: STARTING) 매매 판단 자체를 시작하지 않아야 한다.
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put("005930", uptrendSymbolCandles("005930"));
+
+        PositionBook positionBook = new PositionBook();
+        List<Object> published = new ArrayList<>();
+        TradingSystemManager notRunning = mock(TradingSystemManager.class);
+        when(notRunning.status()).thenReturn(TradingSystemStatus.STARTING);
+
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                notRunning);
+
+        strategy.run();
+
+        assertTrue(published.isEmpty(), "운영 상태가 RUNNING이 아니면 이중 가드로 스킵돼야 함");
     }
 
     @Test
@@ -139,7 +176,8 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService);
+                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService,
+                runningManager());
 
         strategy.run();
 
@@ -159,7 +197,8 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook(); // 미보유
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService);
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                runningManager());
 
         strategy.run();
 
@@ -182,7 +221,8 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService);
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                runningManager());
 
         strategy.run();
 
@@ -203,7 +243,8 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService);
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                runningManager());
 
         strategy.run();
 
@@ -220,7 +261,8 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook();
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService);
+                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService,
+                runningManager());
 
         assertDoesNotThrow(strategy::run, "한 종목의 예외가 전체 배치 실행을 중단시키면 안 됨");
 

@@ -9,7 +9,7 @@
   :root { --bg:#0f1420; --card:#1a2233; --line:#2a3550; --text:#e6ebf5; --dim:#8a95b0; --accent:#4f8cff; --danger:#ff5d5d; --ok:#3ecf8e; }
   * { box-sizing: border-box; margin: 0; }
   body { background:#0f1420; color:#e6ebf5; font-family:'Segoe UI',system-ui,sans-serif; padding:24px; }
-  h1 { font-size:20px; margin-bottom:4px; }
+  h1 { font-size:20px; margin-bottom:4px; display:inline-block; margin-right:12px; }
   .sub { color:#8a95b0; font-size:13px; margin-bottom:20px; }
   .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; max-width:1100px; }
   .card { background:#1a2233; border:1px solid #2a3550; border-radius:10px; padding:16px; }
@@ -25,18 +25,46 @@
   .FILL   { background:#1e4a35; color:#7fe0b0; }
   .ks-on  { color:#ff5d5d; font-weight:700; }
   .ks-off { color:#3ecf8e; font-weight:700; }
+  .pnl-pos { color:#3ecf8e; }
+  .pnl-neg { color:#ff5d5d; }
   button { background:#4f8cff; color:#fff; border:0; border-radius:6px; padding:8px 14px; cursor:pointer; font-size:13px; }
   button.danger { background:#ff5d5d; }
+  button:disabled { opacity:.5; cursor:not-allowed; }
   input, select { background:#0f1420; color:#e6ebf5; border:1px solid #2a3550; border-radius:6px; padding:8px; font-size:13px; width:100%; }
   .row { display:flex; gap:8px; margin-bottom:8px; }
   .muted { color:#8a95b0; font-size:12px; margin-top:8px; }
+  /* 운영 상태 배지 — 상태별 색상 구분(STOPPED/STARTING/RUNNING/STOPPING/DEGRADED/ERROR) */
+  .badge { display:inline-block; border-radius:6px; font-size:12px; font-weight:700; padding:4px 10px; letter-spacing:.5px; }
+  .badge-STOPPED  { background:#2a3550; color:#8a95b0; }
+  .badge-STARTING { background:#4a3a1e; color:#ffd58a; }
+  .badge-RUNNING  { background:#1e4a35; color:#7fe0b0; }
+  .badge-STOPPING { background:#4a3a1e; color:#ffd58a; }
+  .badge-DEGRADED { background:#4a2a1e; color:#ffab7a; }
+  .badge-ERROR    { background:#4a1e1e; color:#ff8a8a; }
 </style>
 </head>
 <body>
 <h1>autoStock</h1>
+<span id="sys-badge" class="badge badge-STOPPED">확인 중...</span>
 <div class="sub">경량 대시보드 — 2초 주기 자동 갱신 · SIM 모드 검증용</div>
 
 <div class="grid">
+  <!-- 운영 상태(시작/정지) -->
+  <div class="card">
+    <h2>운영 상태</h2>
+    <p>상태: <span id="sys-state">확인 중...</span></p>
+    <p style="margin-top:12px">
+      <button id="btn-start" onclick="startTrading()">시작</button>
+      <button id="btn-stop" class="danger" onclick="stopTrading()">정지</button>
+    </p>
+    <p class="muted">
+      시작/정지 명령의 응답은 즉시 오는 STARTING/STOPPING일 뿐, 실제로 RUNNING/STOPPED에
+      도달했는지는 알려주지 않는다(Backend가 Source of Truth, ARCHITECTURE.md 10절).
+      그래서 버튼을 눌러도 여기서 상태를 바로 바꾸지 않고, 서버를 다시 조회(refresh)해서
+      화면을 채운다 — 낙관적 업데이트를 의도적으로 하지 않았다.
+    </p>
+  </div>
+
   <!-- 킬스위치 -->
   <div class="card">
     <h2>킬스위치</h2>
@@ -46,6 +74,14 @@
       <button onclick="toggleKs(false)">해제</button>
     </p>
     <p class="muted">비상 정지 중에는 모든 신규 주문이 RiskGate에서 차단됩니다.</p>
+  </div>
+
+  <!-- 오늘의 매매 실적 -->
+  <div class="card">
+    <h2>오늘 실적</h2>
+    <p>주문 수: <span id="today-order-count">-</span></p>
+    <p>실현손익: <span id="today-pnl">-</span></p>
+    <p class="muted">실현손익만 반영 — 보유 중인 포지션의 미실현 평가손익은 포함하지 않음(TODO).</p>
   </div>
 
   <!-- 테스트 시그널 -->
@@ -77,23 +113,44 @@
 </div>
 
 <script>
-const api = (path, options) => fetch('/api/dashboard' + path, options).then(r => r.json());
+// 대시보드는 /api/dashboard 하나만 폴링한다(ARCHITECTURE.md 10절 CQRS Lite —
+// 여러 GET을 각자 부르지 않고 서버가 조합한 DashboardView 하나를 받는다).
+const dashboardApi = () => fetch('/api/dashboard').then(r => r.json());
+const postJson = (path, body) => fetch(path, { method:'POST', headers:{'Content-Type':'application/json'},
+  body: JSON.stringify(body || {}) });
 
 async function refresh() {
   try {
-    const [ks, positions, events] = await Promise.all([
-      api('/killswitch'), api('/positions'), api('/events')]);
+    const view = await dashboardApi();
+
+    const badge = document.getElementById('sys-badge');
+    const sysState = document.getElementById('sys-state');
+    const status = view.trading.status;
+    badge.textContent = status;
+    badge.className = 'badge badge-' + status;
+    sysState.textContent = status;
+
+    // 시작/정지 버튼: 상태에 맞지 않는 명령은 서버에서도 409로 막히지만, 화면에서도
+    // 미리 비활성화해 불필요한 요청과 혼란을 줄인다.
+    document.getElementById('btn-start').disabled = (status !== 'STOPPED');
+    document.getElementById('btn-stop').disabled = !(status === 'RUNNING' || status === 'DEGRADED');
 
     const ksEl = document.getElementById('ks-state');
-    ksEl.textContent = ks.engaged ? '비상 정지 중' : '정상 (주문 허용)';
-    ksEl.className = ks.engaged ? 'ks-on' : 'ks-off';
+    ksEl.textContent = view.trading.killSwitchEngaged ? '비상 정지 중' : '정상 (주문 허용)';
+    ksEl.className = view.trading.killSwitchEngaged ? 'ks-on' : 'ks-off';
 
-    document.getElementById('positions').innerHTML = positions.length
-      ? positions.map(p => `<tr><td>${p.symbol}</td><td>${p.quantity}</td><td>${Number(p.avgPrice).toLocaleString()}</td></tr>`).join('')
+    document.getElementById('today-order-count').textContent = view.trading.todayOrderCount;
+    const pnl = Number(view.trading.todayRealizedPnl);
+    const pnlEl = document.getElementById('today-pnl');
+    pnlEl.textContent = pnl.toLocaleString() + '원';
+    pnlEl.className = pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+
+    document.getElementById('positions').innerHTML = view.positions.length
+      ? view.positions.map(p => `<tr><td>${p.symbol}</td><td>${p.quantity}</td><td>${Number(p.avgPrice).toLocaleString()}</td></tr>`).join('')
       : '<tr><td colspan="3">보유 없음</td></tr>';
 
-    document.getElementById('feed').innerHTML = events.length
-      ? events.map(e => `<div><span class="tag ${e.type}">${e.type}</span>${e.summary}
+    document.getElementById('feed').innerHTML = view.recentEvents.length
+      ? view.recentEvents.map(e => `<div><span class="tag ${e.type}">${e.type}</span>${e.summary}
           <span style="float:right;color:#8a95b0">${new Date(e.at).toLocaleTimeString()}</span></div>`).join('')
       : '이벤트 없음';
   } catch (err) {
@@ -101,18 +158,26 @@ async function refresh() {
   }
 }
 
+async function startTrading() {
+  await postJson('/api/trading/start');
+  refresh(); // 응답은 STARTING뿐 — 실제 도달 상태는 재조회로 확인(카드 설명 참고)
+}
+
+async function stopTrading() {
+  await postJson('/api/trading/stop');
+  refresh();
+}
+
 async function toggleKs(engage) {
-  await api('/killswitch', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({ engage }) });
+  await postJson('/api/dashboard/killswitch', { engage });
   refresh();
 }
 
 async function sendSignal() {
-  await api('/test-signal', { method:'POST', headers:{'Content-Type':'application/json'},
-    body: JSON.stringify({
+  await postJson('/api/dashboard/test-signal', {
       symbol: document.getElementById('ts-symbol').value.trim(),
       side:   document.getElementById('ts-side').value,
-      price:  document.getElementById('ts-price').value.trim() }) });
+      price:  document.getElementById('ts-price').value.trim() });
   setTimeout(refresh, 300); // SIM 체결이 반영될 시간을 살짝 준다
 }
 

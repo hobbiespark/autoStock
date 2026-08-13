@@ -6,6 +6,8 @@ import com.autostock.common.event.Signal;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.marketdata.KiwoomDailyChartService;
 import com.autostock.marketdata.MarketCalendarService;
+import com.autostock.monitor.TradingSystemManager;
+import com.autostock.monitor.TradingSystemStatus;
 import com.autostock.risk.PositionBook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -65,6 +67,14 @@ import java.util.concurrent.ConcurrentHashMap;
  * <h2>예외 격리</h2>
  * 종목 하나의 조회·계산 실패(네트워크 오류, 데이터 부족 등)가 나머지 종목 판단을 막지
  * 않도록, 종목별 판단은 개별적으로 예외를 잡아 error 로그만 남기고 다음 종목으로 넘어간다.
+ *
+ * <h2>운영 상태기계와의 이중 가드</h2>
+ * {@code strategy.c3.enabled} 플래그와 별개로, {@link TradingSystemManager#status()}가
+ * {@link TradingSystemStatus#RUNNING}이 아니면 이번 스케줄을 통째로 스킵한다(ARCHITECTURE.md
+ * 10절 — 시스템이 STARTING/STOPPING/DEGRADED/ERROR면 매매하면 안 된다). 이 조회는 monitor
+ * 모듈의 공개 API(TradingSystemManager, 루트 패키지) 직접 호출이다 — "조회는 인터페이스
+ * 직접 호출 허용"(ARCHITECTURE.md 9절)에 따른 것이며, monitor는 strategy를 참조하지 않으므로
+ * (반대 방향 의존 없음) 모듈 순환이 생기지 않는다(ModularityTests로 확인됨).
  */
 @Component
 public class C3LiveStrategy {
@@ -79,6 +89,7 @@ public class C3LiveStrategy {
     private final PositionBook positionBook;
     private final ApplicationEventPublisher publisher;
     private final MarketCalendarService marketCalendarService;
+    private final TradingSystemManager tradingSystemManager;
 
     /**
      * 종목별 "마지막 판단일" — decisionIntervalDays 주기 카운터의 인메모리 상태.
@@ -90,12 +101,14 @@ public class C3LiveStrategy {
                           KiwoomDailyChartService chartService,
                           PositionBook positionBook,
                           ApplicationEventPublisher publisher,
-                          MarketCalendarService marketCalendarService) {
+                          MarketCalendarService marketCalendarService,
+                          TradingSystemManager tradingSystemManager) {
         this.properties = properties;
         this.chartService = chartService;
         this.positionBook = positionBook;
         this.publisher = publisher;
         this.marketCalendarService = marketCalendarService;
+        this.tradingSystemManager = tradingSystemManager;
     }
 
     /** 매 평일 09:05 KST(정규장 09:00 개장 직후) 1회 실행 — 클래스 설명 "왜 스케줄 기반인가" 참고. */
@@ -103,6 +116,13 @@ public class C3LiveStrategy {
     public void run() {
         if (!properties.enabled()) {
             return; // 자택망 검증 전 기본 비활성 — C3StrategyProperties Javadoc 참고
+        }
+        TradingSystemStatus systemStatus = tradingSystemManager.status();
+        if (systemStatus != TradingSystemStatus.RUNNING) {
+            // 이중 가드 — enabled=true여도 운영 상태기계가 RUNNING이 아니면 매매하지 않는다
+            // (클래스 설명 "운영 상태기계와의 이중 가드" 참고).
+            log.info("C3: 운영 상태가 RUNNING이 아님({}) — 이번 스케줄 스킵", systemStatus);
+            return;
         }
 
         LocalDate today = LocalDate.now(MarketConstants.KST);
