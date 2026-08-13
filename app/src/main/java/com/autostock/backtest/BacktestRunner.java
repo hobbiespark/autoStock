@@ -9,7 +9,6 @@ import java.math.RoundingMode;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Optional;
 import java.util.UUID;
 
 /**
@@ -20,18 +19,32 @@ import java.util.UUID;
  * 피하고 싶기 때문이다. 라이브 매매와 공유하는 부분은 이벤트 스키마({@link OrderRequest},
  * {@link Fill})와 전략/리스크 "로직"이지, 스프링 배선 자체가 아니다.
  *
- * <h2>룩어헤드(lookahead) 방지 — 왜 "당일 종가 신호 → 익일 시가 체결"인가?</h2>
- * 전략은 그날 캔들이 "확정된 뒤"(장 마감 후) 판단을 내린다고 가정한다. 그런데 만약
- * 그 판단을 같은 날 종가로 즉시 체결시켜 버리면, 실제로는 아직 오지 않은 미래의
- * 가격(그날 종가)으로 주문이 체결된 셈이 된다 — 라이브에서는 있을 수 없는 일이다
- * (장 마감 후 신호가 나왔는데 마감 전 가격에 살 수는 없다). 그래서 이 러너는
- * "N일차 캔들로 내린 판단 → N+1일차 시가에 체결"로 하루를 반드시 지연시킨다.
- * 이 지연을 빼먹는 것이 백테스트에서 가장 흔하고 치명적인 실수다(비현실적으로
- * 좋은 성과가 나온다).
+ * <h2>타이밍 모델 — {@link TradeIntent}는 "오늘" 걸리고 "오늘" 판정된다</h2>
+ * 전략은 오늘 캔들의 시가만 알고 있는 상태에서(위 {@link BacktestStrategy} 참고) 오늘
+ * 걸어둘 조건부 주문({@link TradeIntent})을 정한다. 이 조건부 주문은 바로 그날의 나머지
+ * 장중 움직임(고가/저가)으로 체결 여부가 갈린다 — 옛 모델처럼 "다음날"까지 미루지 않는다.
+ * 이래도 룩어헤드가 아닌 이유: 결정에 쓴 정보(오늘 시가)와 체결 판정에 쓰는 정보(오늘
+ * 고가/저가)가 둘 다 "오늘 하루 동안 실제로 관측 가능한" 정보이고, 시간 순서상 시가 →
+ * 장중 가격변동 순으로 자연스럽게 이어지기 때문이다. 다만 "익일 시가 매도"({@link
+ * TradeIntent#sellNextOpen()})는 이름 그대로 "이 판단을 내린 시점(오늘 개장 직전) 기준으로
+ * 그다음에 오는 시가", 즉 오늘 시가에 체결된다 — 진입한 날의 다음 거래일 개장 직후
+ * 판단이 내려지기 때문에 자연히 "익일(진입일 기준 다음날) 시가 매도"가 된다.
+ *
+ * <h2>체결 순서 규약 — 왜 손절(SellStop)을 매수(BuyStop)보다 먼저 판정하는가?</h2>
+ * 같은 날 하나의 전략 호출이 buyStop과 (그 진입을 보호하는) sellStop을 동시에 반환하는
+ * 경우가 있다(변동성 돌파 전략의 표준 패턴 — 진입가 대비 손절선을 같이 건다). 이때 그날
+ * 하루 중 고가가 진입 트리거에 닿고 저가도 손절선까지 내려갔다면, "어느 쪽이 먼저
+ * 일어났는지" 일봉(OHLC) 데이터만으로는 알 수 없다. 이 러너는 <b>운 좋게 손절을 피했다고
+ * 낙관하지 않고, 최악의 경우(진입 직후 곧바로 손절)를 가정한다</b> — PLAN이 강조하는
+ * "보수적 가정" 원칙이다. 그래서 매수가 체결된 그 즉시, 같은 날의 손절 조건도 함께
+ * 검사해 필요하면 같은 날 안에 청산까지 반영한다. 이미 보유 중이던 포지션에 대해서는
+ * (전날 이전에 진입해 오늘 아침 이미 포지션이 있는 경우) 애초에 매수를 시도하지 않으므로
+ * 매도 계열 인텐트를 먼저(그리고 그것만) 판정한다.
  *
  * <h2>포지션 모델</h2>
  * 전량 매수(가용 현금을 모두 투입) / 전량 청산(보유 수량을 모두 매도) 단순 모델이다.
- * TODO(Phase 4): risk 모듈의 {@code PositionSizer}(고정비율 사이징)를 그대로 재사용해
+ * 하루에 신규 진입은 최대 1건(첫 번째로 체결 조건을 만족한 buyStop)만 반영한다.
+ * TODO(Phase 4 이후): risk 모듈의 {@code PositionSizer}(고정비율 사이징)를 그대로 재사용해
  * "전량"이 아니라 실제 운영과 동일한 사이징 규칙을 적용한다 — 지금은 코어 로직(비용모델,
  * 룩어헤드 방지, 성과지표) 검증이 우선이라 사이징은 의도적으로 단순화했다.
  */
@@ -54,7 +67,7 @@ public final class BacktestRunner {
 
     /**
      * @param candles        시간순으로 정렬된 단일 종목 캔들 목록
-     * @param strategy       매수/매도 판단 함수
+     * @param strategy       조건부 주문(TradeIntent) 판단 함수
      * @param initialCapital 초기 자본
      * @param trials         DSR 계산용 시도 횟수 (파라미터 스윕 등에서 몇 개를 테스트했는지)
      * @param trialsVariance DSR 계산용 시도 간 샤프비율 분산
@@ -62,68 +75,117 @@ public final class BacktestRunner {
     public BacktestResult run(List<Candle> candles, BacktestStrategy strategy, BigDecimal initialCapital,
                                int trials, double trialsVariance) {
         List<Double> dailyReturns = new ArrayList<>();
-
-        BigDecimal cash = initialCapital;
-        long positionQty = 0;
-        BigDecimal avgPrice = BigDecimal.ZERO;
-        int tradeCount = 0;
-        Optional<Side> pendingDecision = Optional.empty();
+        Ledger ledger = new Ledger(initialCapital);
         BigDecimal prevEquity = initialCapital;
 
         for (Candle today : candles) {
-            // ── 1) 어제 종가 기준으로 내린 판단을, 오늘 "시가"에 체결한다 (룩어헤드 방지) ──
-            if (pendingDecision.isPresent()) {
-                Side side = pendingDecision.get();
-                if (side == Side.BUY && positionQty == 0) {
-                    BigDecimal execPrice = costModel.slippageAdjustedBuyPrice(today.open());
-                    long qty = affordableQuantity(cash, execPrice);
-                    if (qty > 0) {
-                        OrderRequest order = buildOrder(today, Side.BUY, qty);
-                        Fill fill = executionHandler.execute(order, today.open());
-                        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity()));
-                        BigDecimal fee = costModel.buyFee(notional);
-                        cash = cash.subtract(notional).subtract(fee);
-                        positionQty = qty;
-                        avgPrice = fill.fillPrice();
-                        tradeCount++;
+            // ── 1) 오늘 개장 직전 상태를 전략에게 보여주고, 오늘 걸어둘 조건부 주문을 받는다 ──
+            BacktestStrategy.PortfolioState state =
+                    new BacktestStrategy.PortfolioState(ledger.positionQty, ledger.avgPrice, ledger.cash);
+            List<TradeIntent> intents = strategy.onCandle(today, state);
+
+            // ── 2) 이미 보유 중이면 매도 계열부터 판정한다(손절 우선 — 클래스 설명 참고) ──
+            if (ledger.positionQty > 0) {
+                TradeIntent stop = triggeredSellStop(intents, today);
+                if (stop != null) {
+                    applySell(ledger, today, stop.price().min(today.open()));
+                } else {
+                    TradeIntent scheduledExit = firstOfKind(intents, TradeIntent.Kind.SELL_NEXT_OPEN);
+                    if (scheduledExit != null) {
+                        applySell(ledger, today, today.open());
                     }
-                } else if (side == Side.SELL && positionQty > 0) {
-                    OrderRequest order = buildOrder(today, Side.SELL, positionQty);
-                    Fill fill = executionHandler.execute(order, today.open());
-                    BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity()));
-                    BigDecimal fee = costModel.sellFee(notional);
-                    cash = cash.add(notional).subtract(fee);
-                    positionQty = 0;
-                    avgPrice = BigDecimal.ZERO;
-                    tradeCount++;
                 }
-                // 그 외 조합(이미 보유 중인데 또 매수 / 미보유인데 매도)은 조용히 무시 —
-                // RiskGate가 라이브에서 하는 것과 동일한 정책(물타기·공매도 금지)
-                pendingDecision = Optional.empty();
             }
 
-            // ── 2) 오늘 "종가" 기준으로 평가자산을 마킹하고 일별 수익률을 기록한다 ──
-            BigDecimal equityToday = cash.add(today.close().multiply(BigDecimal.valueOf(positionQty)));
+            // ── 3) 미보유 상태면 매수 스탑을 판정한다(하루 최대 1건 신규 진입) ──
+            if (ledger.positionQty == 0) {
+                TradeIntent buy = triggeredBuyStop(intents, today);
+                if (buy != null && applyBuy(ledger, today, buy.price().max(today.open()))) {
+                    // ── 진입 직후, 짝지어 걸린 손절이 같은 날 조건을 만족하는지 "보수적으로" 재확인 ──
+                    // 운 좋게 피했다고 가정하지 않고, 같은 날 안에 손절까지 갔다고 본다(최악 가정 원칙).
+                    TradeIntent pairedStop = triggeredSellStop(intents, today);
+                    if (pairedStop != null) {
+                        applySell(ledger, today, pairedStop.price().min(today.open()));
+                    }
+                }
+            }
+
+            // ── 4) 오늘 종가 기준으로 평가자산을 마킹하고 일별 수익률을 기록한다 ──
+            BigDecimal equityToday = ledger.cash.add(today.close().multiply(BigDecimal.valueOf(ledger.positionQty)));
             double dailyReturn = prevEquity.signum() == 0
                     ? 0.0
                     : equityToday.subtract(prevEquity).divide(prevEquity, 12, RoundingMode.HALF_UP).doubleValue();
             dailyReturns.add(dailyReturn);
             prevEquity = equityToday;
-
-            // ── 3) 오늘 캔들이 "확정된 뒤"의 정보로 전략에게 판단을 묻는다 ──
-            //     이 판단은 내일 시가에나 체결되므로(위 1번), 아직 오늘 안에서는 아무 일도 안 일어난다.
-            BacktestStrategy.PortfolioState state =
-                    new BacktestStrategy.PortfolioState(positionQty, avgPrice, cash);
-            pendingDecision = strategy.onCandle(today, state);
         }
-        // 마지막 캔들에서 나온 판단은 "다음날"이 없어 체결되지 못한 채 버려진다 —
-        // 실전에서도 마감 후 신호는 다음 거래일이 와야 체결될 수 있으므로 자연스러운 동작이다.
 
         BigDecimal finalEquity = candles.isEmpty()
                 ? initialCapital
-                : cash.add(candles.get(candles.size() - 1).close().multiply(BigDecimal.valueOf(positionQty)));
+                : ledger.cash.add(candles.get(candles.size() - 1).close().multiply(BigDecimal.valueOf(ledger.positionQty)));
 
-        return performanceCalculator.calculate(dailyReturns, initialCapital, finalEquity, tradeCount, trials, trialsVariance);
+        return performanceCalculator.calculate(dailyReturns, initialCapital, finalEquity, ledger.tradeCount,
+                trials, trialsVariance);
+    }
+
+    /** 오늘 저가가 스탑 가격 이하로 내려가 체결 조건을 만족하는 첫 SELL_STOP 인텐트, 없으면 null. */
+    private TradeIntent triggeredSellStop(List<TradeIntent> intents, Candle today) {
+        for (TradeIntent intent : intents) {
+            if (intent.kind() == TradeIntent.Kind.SELL_STOP && today.low().compareTo(intent.price()) <= 0) {
+                return intent;
+            }
+        }
+        return null;
+    }
+
+    /** 오늘 고가가 트리거 가격 이상으로 올라 체결 조건을 만족하는 첫 BUY_STOP 인텐트, 없으면 null. */
+    private TradeIntent triggeredBuyStop(List<TradeIntent> intents, Candle today) {
+        for (TradeIntent intent : intents) {
+            if (intent.kind() == TradeIntent.Kind.BUY_STOP && today.high().compareTo(intent.price()) >= 0) {
+                return intent;
+            }
+        }
+        return null;
+    }
+
+    private TradeIntent firstOfKind(List<TradeIntent> intents, TradeIntent.Kind kind) {
+        for (TradeIntent intent : intents) {
+            if (intent.kind() == kind) {
+                return intent;
+            }
+        }
+        return null;
+    }
+
+    /** 매도를 체결하고 원장을 갱신한다. referencePrice는 이미 트리거/시가 규칙이 적용된 "체결 기준가"다. */
+    private void applySell(Ledger ledger, Candle today, BigDecimal referencePrice) {
+        OrderRequest order = buildOrder(today, Side.SELL, ledger.positionQty);
+        Fill fill = executionHandler.execute(order, referencePrice);
+        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity()));
+        ledger.cash = ledger.cash.add(notional).subtract(costModel.sellFee(notional));
+        ledger.positionQty = 0;
+        ledger.avgPrice = BigDecimal.ZERO;
+        ledger.tradeCount++;
+    }
+
+    /**
+     * 매수를 시도한다. 수수료까지 감안했을 때 1주도 살 수 없으면 아무 일도 일어나지 않는다.
+     *
+     * @return 실제로 체결됐으면 true
+     */
+    private boolean applyBuy(Ledger ledger, Candle today, BigDecimal referencePrice) {
+        BigDecimal execPreview = costModel.slippageAdjustedBuyPrice(referencePrice);
+        long qty = affordableQuantity(ledger.cash, execPreview);
+        if (qty <= 0) {
+            return false;
+        }
+        OrderRequest order = buildOrder(today, Side.BUY, qty);
+        Fill fill = executionHandler.execute(order, referencePrice);
+        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity()));
+        ledger.cash = ledger.cash.subtract(notional).subtract(costModel.buyFee(notional));
+        ledger.positionQty = qty;
+        ledger.avgPrice = fill.fillPrice();
+        ledger.tradeCount++;
+        return true;
     }
 
     /** 수수료까지 포함해 실제로 살 수 있는 최대 수량 — 반올림 탓에 예산을 넘기지 않도록 여유 있으면 한 주씩 줄인다. */
@@ -153,5 +215,17 @@ public final class BacktestRunner {
                 candle.open(),
                 candle.date().atStartOfDay().toInstant(ZoneOffset.UTC)
         );
+    }
+
+    /** 백테스트 진행 중 바뀌는 상태(현금/보유수량/평단/누적체결수)를 한데 묶은 가변 원장. */
+    private static final class Ledger {
+        BigDecimal cash;
+        long positionQty;
+        BigDecimal avgPrice = BigDecimal.ZERO;
+        int tradeCount;
+
+        Ledger(BigDecimal initialCash) {
+            this.cash = initialCash;
+        }
     }
 }
