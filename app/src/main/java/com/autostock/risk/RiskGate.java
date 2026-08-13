@@ -3,6 +3,8 @@ package com.autostock.risk;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
+import com.autostock.common.util.ClientOrderId;
+import com.autostock.common.util.MarketConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -11,7 +13,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.UUID;
+import java.time.LocalDate;
 
 /**
  * 리스크 게이트 — <b>모든 주문이 반드시 통과해야 하는 유일한 관문</b>.
@@ -98,9 +100,22 @@ public class RiskGate {
 
         // ── 통과: 주문 요청 발행 ────────────────────────────────────────
         // idempotencyKey(멱등키): 같은 주문이 두 번 실행되는 사고를 막는 고유 번호표.
-        // execution 모듈은 같은 키를 두 번 받으면 두 번째를 무시한다.
+        // PLAN.md ADR-6 7절 — UUID 대신 사람이 읽을 수 있는 ClientOrderId 포맷을 쓴다
+        // ("20260813-BREAKOUT-005930-BUY-005"). OrderRequest.idempotencyKey 필드 자체는
+        // 스키마 변경 없이 그대로 재사용한다 — 담기는 문자열의 "형식"만 바뀐 것이다.
+        // 일련번호는 dailyLimits.todayOrderCount()를 그대로 쓴다 — 바로 위에서
+        // tryAcquireOrderSlot()이 이미 카운터를 증가시켰으므로, 이 시점의 값이 곧
+        // "이 주문이 오늘 몇 번째인지"와 같다(다시 증가시키지 않는다).
+        String clientOrderId = ClientOrderId.generate(
+                LocalDate.now(MarketConstants.KST),
+                signal.strategyId(),
+                signal.symbol(),
+                signal.side(),
+                dailyLimits.todayOrderCount()
+        ).value();
+
         publisher.publishEvent(new OrderRequest(
-                UUID.randomUUID().toString(),
+                clientOrderId,
                 signal.strategyId(),
                 signal.symbol(),
                 signal.side(),

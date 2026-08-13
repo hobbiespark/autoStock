@@ -46,6 +46,7 @@ risk:
 
 execution:
   mode: SIM                     # SIM: 즉시 체결 시뮬레이션 / LIVE: 키움 주문 API
+  stale-order-timeout: 5m        # SUBMITTED로 이 시간 이상 머문 주문을 StaleOrderCanceller가 자동 취소 요청
 
 autostock:
   ws:
