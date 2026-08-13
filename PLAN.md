@@ -104,7 +104,7 @@ PostgreSQL(v2 결정), Java 21 + Spring Boot(사용자 스택), 과최적화 방
 | risk | **주문 유일 관문**: 사이징, 한도, 킬스위치 | `OrderRequest` |
 | execution | 키움 주문 API, 멱등성, 체결 추적 | `Fill` |
 | backtest | 이벤트 스토어 리플레이, 비용 모델, walk-forward, DSR/PBO | 리포트 |
-| monitor | 텔레그램 알림/원격 명령, 헬스체크, 성과 리포트 | — |
+| monitor | 텔레그램 알림/원격 명령, 헬스체크, 성과 리포트, 경량 대시보드(FE, 4-1절) | — |
 
 불변 원칙: **모든 주문은 risk 모듈을 통과. 모든 이벤트는 이벤트 스토어에 영속화. 전략 코드는 백테스트/모의/실전을 구분하지 않는다.**
 
@@ -141,6 +141,19 @@ autoStock/
 **2단계 — 뉴스 감성 (Phase 7)**: 뉴스 수집(RSS/주요 언론) → 종목·섹터 매핑 → KR-FinBERT 사이드카 스코어링 → `NewsSentiment`. 국내 실증: [KOSPI 예측](https://www.dbpia.co.kr/journal/articleDetail?nodeId=NODE11227781), [공모주 시초가 예측](https://www.kci.go.kr/kciportal/landing/article.kci?arti_id=ART002932250), [감성-주가 딥러닝](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART002869886). 지정학 리스크는 뉴스 스코어로 자체 산출, 임계 초과 시 킬스위치 후보 → 텔레그램 승인 요청.
 
 원칙: 감성·거시 시그널은 단독 매매 근거가 아닌 **필터/가중치**. 도입 전후 필터 on/off 백테스트로 기여도 입증 (DSR/PBO 검증 동일 적용).
+
+### 4-1. 경량 대시보드 (FE)
+
+원칙: **복잡하지 않게** — 프론트 빌드체인(React/번들러) 없이 monitor 모듈이 서빙하는 단일 정적 HTML + vanilla JS(주기 폴링) + REST API. 물리 분리 트리거 전까지는 이 구성 유지, 요구 증가 시에만 SPA 검토.
+
+| 화면 요소 | 데이터 | API |
+|---|---|---|
+| 포지션 현황 | 종목/수량/평단 | GET /api/dashboard/positions |
+| 최근 이벤트 피드 | Signal/Order/Fill 흐름 (링버퍼) | GET /api/dashboard/events |
+| 킬스위치 상태·토글 | 비상 정지/해제 | GET·POST /api/dashboard/killswitch |
+| 테스트 시그널 실행 | SIM 루프 수동 검증 (paper 전용) | POST /api/dashboard/test-signal |
+
+경계 규칙: 조회·제어는 타 모듈의 공개 API(PositionBook, KillSwitch) 직접 참조 허용(읽기/운영 제어), 매매 흐름 개입은 이벤트로만.
 
 ## 6. 데이터 계층
 

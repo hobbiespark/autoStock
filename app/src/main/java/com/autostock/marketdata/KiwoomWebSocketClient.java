@@ -27,9 +27,33 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
- * 키움 실시간 WebSocket 클라이언트.
- * 사고 대응(PLAN 3절): 단절 감지(스케줄 감시) → 자동 재연결 + 등록 종목 재구독.
- * autostock.ws.enabled=true 일 때만 동작 (앱키 필요).
+ * 키움 실시간 WebSocket 클라이언트 — 시세를 "받아오는" 게 아니라 "흘러들어오는" 통로.
+ *
+ * <p>REST와 WS의 역할 분담:
+ * <pre>
+ *   REST : 내가 물어보면 답해주는 방식 (현재가 조회, 주문 등) — 호출 한도 있음
+ *   WS   : 한 번 연결해 두면 서버가 계속 밀어주는 방식 (실시간 체결가) — 장중 시세는 이쪽
+ * </pre>
+ *
+ * <p>메시지 프로토콜 (trnm 필드로 구분):
+ * <pre>
+ *   → LOGIN {token}          연결 직후 토큰으로 인증
+ *   → REG   {item, type}     종목 구독 등록 (type 0B = 주식체결)
+ *   ← PING                   서버 생존 확인 — 같은 내용 그대로 되돌려줘야 연결 유지
+ *   ← REAL  {data[]}         실시간 데이터 — 파싱해서 MarketTick 이벤트로 변환
+ * </pre>
+ *
+ * <p><b>가장 중요한 설계: 단절 대응.</b> 커뮤니티 사고 사례 1순위가
+ * "WS가 끊긴 줄 모르고 시세 없이 매매가 멈춰 있었다"이다. (PLAN 3절)
+ * 대응 3단계:
+ * <ol>
+ *   <li>watchdog이 10초마다 연결 상태 점검</li>
+ *   <li>끊겼으면 자동 재연결</li>
+ *   <li>재연결 직후 기존 구독 종목 전체 재등록 — 이걸 빼먹으면
+ *       "연결은 됐는데 시세는 안 오는" 더 찾기 어려운 상태가 된다</li>
+ * </ol>
+ *
+ * <p>autostock.ws.enabled=true일 때만 동작 (앱키 필요).
  * TODO Phase 2 검증: LOGIN/REG 메시지 포맷·응답 코드 모의투자 실측 확인.
  */
 @Component

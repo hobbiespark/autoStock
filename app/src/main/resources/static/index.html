@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>autoStock 대시보드</title>
+<style>
+  /* 의도적으로 단순하게: 프레임워크·빌드 없음, 이 파일 하나가 FE 전부 */
+  :root { --bg:#0f1420; --card:#1a2233; --line:#2a3550; --text:#e6ebf5; --dim:#8a95b0; --accent:#4f8cff; --danger:#ff5d5d; --ok:#3ecf8e; }
+  * { box-sizing: border-box; margin: 0; }
+  body { background:#0f1420; color:#e6ebf5; font-family:'Segoe UI',system-ui,sans-serif; padding:24px; }
+  h1 { font-size:20px; margin-bottom:4px; }
+  .sub { color:#8a95b0; font-size:13px; margin-bottom:20px; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:16px; max-width:1100px; }
+  .card { background:#1a2233; border:1px solid #2a3550; border-radius:10px; padding:16px; }
+  .card h2 { font-size:14px; color:#8a95b0; margin-bottom:12px; letter-spacing:.5px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  th, td { text-align:left; padding:6px 8px; border-bottom:1px solid #2a3550; }
+  th { color:#8a95b0; font-weight:500; font-size:12px; }
+  .feed { max-height:340px; overflow-y:auto; font-size:13px; }
+  .feed div { padding:5px 0; border-bottom:1px solid #232d45; }
+  .tag { display:inline-block; min-width:52px; text-align:center; border-radius:4px; font-size:11px; padding:2px 6px; margin-right:8px; }
+  .SIGNAL { background:#2b3a5e; color:#9db8ff; }
+  .ORDER  { background:#4a3a1e; color:#ffd58a; }
+  .FILL   { background:#1e4a35; color:#7fe0b0; }
+  .ks-on  { color:#ff5d5d; font-weight:700; }
+  .ks-off { color:#3ecf8e; font-weight:700; }
+  button { background:#4f8cff; color:#fff; border:0; border-radius:6px; padding:8px 14px; cursor:pointer; font-size:13px; }
+  button.danger { background:#ff5d5d; }
+  input, select { background:#0f1420; color:#e6ebf5; border:1px solid #2a3550; border-radius:6px; padding:8px; font-size:13px; width:100%; }
+  .row { display:flex; gap:8px; margin-bottom:8px; }
+  .muted { color:#8a95b0; font-size:12px; margin-top:8px; }
+</style>
+</head>
+<body>
+<h1>autoStock</h1>
+<div class="sub">경량 대시보드 — 2초 주기 자동 갱신 · SIM 모드 검증용</div>
+
+<div class="grid">
+  <!-- 킬스위치 -->
+  <div class="card">
+    <h2>킬스위치</h2>
+    <p>상태: <span id="ks-state">확인 중...</span></p>
+    <p style="margin-top:12px">
+      <button class="danger" onclick="toggleKs(true)">비상 정지</button>
+      <button onclick="toggleKs(false)">해제</button>
+    </p>
+    <p class="muted">비상 정지 중에는 모든 신규 주문이 RiskGate에서 차단됩니다.</p>
+  </div>
+
+  <!-- 테스트 시그널 -->
+  <div class="card">
+    <h2>테스트 시그널 (SIM 루프 검증)</h2>
+    <div class="row">
+      <input id="ts-symbol" placeholder="종목코드 예: 005930" value="005930">
+      <select id="ts-side"><option>BUY</option><option>SELL</option></select>
+      <input id="ts-price" placeholder="기준가" value="70000">
+    </div>
+    <button onclick="sendSignal()">시그널 발행</button>
+    <p class="muted">Signal → RiskGate → 주문 → SIM 체결 → 포지션 갱신, 실제 매매와 동일 경로.</p>
+  </div>
+
+  <!-- 포지션 -->
+  <div class="card">
+    <h2>보유 포지션</h2>
+    <table>
+      <thead><tr><th>종목</th><th>수량</th><th>평균단가</th></tr></thead>
+      <tbody id="positions"><tr><td colspan="3">-</td></tr></tbody>
+    </table>
+  </div>
+
+  <!-- 이벤트 피드 -->
+  <div class="card">
+    <h2>최근 이벤트</h2>
+    <div class="feed" id="feed">-</div>
+  </div>
+</div>
+
+<script>
+const api = (path, options) => fetch('/api/dashboard' + path, options).then(r => r.json());
+
+async function refresh() {
+  try {
+    const [ks, positions, events] = await Promise.all([
+      api('/killswitch'), api('/positions'), api('/events')]);
+
+    const ksEl = document.getElementById('ks-state');
+    ksEl.textContent = ks.engaged ? '비상 정지 중' : '정상 (주문 허용)';
+    ksEl.className = ks.engaged ? 'ks-on' : 'ks-off';
+
+    document.getElementById('positions').innerHTML = positions.length
+      ? positions.map(p => `<tr><td>${p.symbol}</td><td>${p.quantity}</td><td>${Number(p.avgPrice).toLocaleString()}</td></tr>`).join('')
+      : '<tr><td colspan="3">보유 없음</td></tr>';
+
+    document.getElementById('feed').innerHTML = events.length
+      ? events.map(e => `<div><span class="tag ${e.type}">${e.type}</span>${e.summary}
+          <span style="float:right;color:#8a95b0">${new Date(e.at).toLocaleTimeString()}</span></div>`).join('')
+      : '이벤트 없음';
+  } catch (err) {
+    document.getElementById('feed').innerHTML = '서버 연결 실패: ' + err;
+  }
+}
+
+async function toggleKs(engage) {
+  await api('/killswitch', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ engage }) });
+  refresh();
+}
+
+async function sendSignal() {
+  await api('/test-signal', { method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      symbol: document.getElementById('ts-symbol').value.trim(),
+      side:   document.getElementById('ts-side').value,
+      price:  document.getElementById('ts-price').value.trim() }) });
+  setTimeout(refresh, 300); // SIM 체결이 반영될 시간을 살짝 준다
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>
