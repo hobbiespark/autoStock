@@ -3,6 +3,7 @@ package com.autostock.kiwoom;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import org.springframework.http.HttpStatusCode;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -74,18 +75,38 @@ public class KiwoomRestClient {
     public Map<String, Object> call(TrId trId, String path, Map<String, Object> body) {
         // 바깥: rate limiter (통과할 때까지 대기) → 안쪽: 429 재시도 → 최심부: 실제 HTTP 호출
         return rateLimiter.execute(trId, () ->
-                Retry.decorateSupplier(retry, () -> (Map<String, Object>) webClient.post()
-                        .uri(path)
-                        .header("authorization", "Bearer " + tokenManager.accessToken())
-                        .header("api-id", trId.apiId())
-                        .bodyValue(body)
-                        .retrieve()
-                        // 오류 응답이면 본문을 읽어 예외 메시지에 포함 — 디버깅 편의
-                        .onStatus(HttpStatusCode::isError, resp ->
-                                resp.bodyToMono(String.class).map(msg ->
-                                        new KiwoomApiException("키움 API 오류 [" + trId.apiId() + "] " + msg)))
-                        .bodyToMono(Map.class)
-                        .block()
-                ).get());
+                Retry.decorateSupplier(retry, () -> {
+                    Map<String, Object> response = (Map<String, Object>) webClient.post()
+                            .uri(path)
+                            .header("authorization", "Bearer " + tokenManager.accessToken())
+                            .header("api-id", trId.apiId())
+                            .contentType(MediaType.valueOf("application/json;charset=UTF-8"))
+                            .bodyValue(body)
+                            .retrieve()
+                            // 오류 응답이면 본문을 읽어 예외 메시지에 포함 — 디버깅 편의
+                            .onStatus(HttpStatusCode::isError, resp ->
+                                    resp.bodyToMono(String.class).map(msg ->
+                                            new KiwoomApiException("키움 API 오류 [" + trId.apiId() + "] " + msg)))
+                            .bodyToMono(Map.class)
+                            .block();
+                    return checkReturnCode(trId, response);
+                }).get());
+    }
+
+    /**
+     * HTTP 200이어도 키움 응답 본문의 {@code return_code}가 0이 아니면 논리 오류다
+     * (예: 파라미터 오류, 권한 없음 등). 실측(kt00018/ka10081)상 정상 응답도 이 필드를
+     * 포함하므로, 있으면 항상 검사한다 — 없는 TR도 있을 수 있어 필드 부재는 통과시킨다.
+     */
+    private Map<String, Object> checkReturnCode(TrId trId, Map<String, Object> response) {
+        if (response == null) {
+            return null;
+        }
+        Object returnCode = response.get("return_code");
+        if (returnCode != null && ((Number) returnCode).intValue() != 0) {
+            throw new KiwoomApiException(
+                    "키움 API 논리 오류 [" + trId.apiId() + "] " + response.get("return_msg"));
+        }
+        return response;
     }
 }

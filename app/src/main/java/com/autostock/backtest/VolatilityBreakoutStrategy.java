@@ -1,5 +1,6 @@
 package com.autostock.backtest;
 
+import com.autostock.common.event.Candle;
 import com.autostock.strategy.BreakoutMath;
 
 import java.math.BigDecimal;

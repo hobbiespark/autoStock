@@ -31,3 +31,10 @@ dependencies {
     testImplementation 'org.springframework.modulith:spring-modulith-starter-test'
     testRuntimeOnly 'com.h2database:h2'
 }
+
+tasks.named('test') {
+    // KiwoomSmokeIT(실제 모의투자 서버 호출)용 앱키/시크릿을 테스트 JVM에 명시적으로 전달한다.
+    // 없으면 빈 문자열이 전달되고, 테스트는 그 경우 assumeTrue로 스스로 스킵한다.
+    environment 'KIWOOM_APP_KEY', System.getenv('KIWOOM_APP_KEY') ?: ''
+    environment 'KIWOOM_APP_SECRET', System.getenv('KIWOOM_APP_SECRET') ?: ''
+}

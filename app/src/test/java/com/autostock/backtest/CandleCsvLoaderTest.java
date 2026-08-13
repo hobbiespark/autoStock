@@ -1,5 +1,6 @@
 package com.autostock.backtest;
 
+import com.autostock.common.event.Candle;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 

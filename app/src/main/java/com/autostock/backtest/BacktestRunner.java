@@ -1,5 +1,6 @@
 package com.autostock.backtest;
 
+import com.autostock.common.event.Candle;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
