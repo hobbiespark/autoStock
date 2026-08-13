@@ -1,6 +1,7 @@
 package com.autostock.risk;
 
 import com.autostock.common.event.OrderRequest;
+import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,12 +9,13 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.UUID;
 
 /**
- * Signal → (사이징·한도·킬스위치 검사) → OrderRequest.
- * Phase 2~4에 걸쳐 검사 규칙 완성. 골격 단계에서는 킬스위치 검사만 활성.
+ * Signal → (킬스위치 · 한도 · 사이징) → OrderRequest. 주문의 유일한 관문.
+ * 통과 순서: 킬스위치 → 일 주문 한도 → 포지션 규칙 → 사이징.
  */
 @Component
 public class RiskGate {
@@ -23,25 +25,39 @@ public class RiskGate {
     private final ApplicationEventPublisher publisher;
     private final KillSwitch killSwitch;
     private final RiskProperties properties;
+    private final PositionSizer sizer;
+    private final PositionBook positionBook;
+    private final DailyLimitTracker dailyLimits;
 
-    public RiskGate(ApplicationEventPublisher publisher, KillSwitch killSwitch, RiskProperties properties) {
+    public RiskGate(ApplicationEventPublisher publisher,
+                    KillSwitch killSwitch,
+                    RiskProperties properties,
+                    PositionSizer sizer,
+                    PositionBook positionBook,
+                    DailyLimitTracker dailyLimits) {
         this.publisher = publisher;
         this.killSwitch = killSwitch;
         this.properties = properties;
+        this.sizer = sizer;
+        this.positionBook = positionBook;
+        this.dailyLimits = dailyLimits;
     }
 
     @EventListener
     public void onSignal(Signal signal) {
         if (killSwitch.isEngaged()) {
-            log.warn("킬스위치 작동 중 — 시그널 거부: {}", signal);
+            log.warn("킬스위치 작동 중 — 시그널 거부: {}", signal.symbol());
             return;
         }
-        // TODO Phase 2: 포지션 조회 기반 사이징 (고정비율 → PLAN 2절 (3))
-        // TODO Phase 2: 일 손실 한도, 주문 횟수, 동시 보유 수 검사
-        // TODO Phase 5: 거시 국면 필터 (MacroIndicator 소비)
-        long quantity = 0; // 사이징 미구현 상태에서는 주문 불가
+        long quantity = switch (signal.side()) {
+            case BUY -> sizeBuy(signal);
+            case SELL -> sizeSell(signal);
+        };
         if (quantity <= 0) {
-            log.info("사이징 미구현 — 주문 미발행 (골격 단계): {}", signal.symbol());
+            return;
+        }
+        if (!dailyLimits.tryAcquireOrderSlot()) {
+            log.warn("일 주문 한도 초과 — 거부: {}", signal.symbol());
             return;
         }
         publisher.publishEvent(new OrderRequest(
@@ -52,5 +68,34 @@ public class RiskGate {
                 quantity,
                 signal.refPrice(),
                 Instant.now()));
+    }
+
+    private long sizeBuy(Signal signal) {
+        if (positionBook.holds(signal.symbol())) {
+            log.info("이미 보유 중 — 추가 매수 차단: {}", signal.symbol());
+            return 0;
+        }
+        if (positionBook.openPositionCount() >= properties.maxConcurrentPositions()) {
+            log.info("동시 보유 한도 도달({}) — 매수 거부: {}",
+                    properties.maxConcurrentPositions(), signal.symbol());
+            return 0;
+        }
+        // TODO Phase 2 후반: live 모드에서는 브로커 잔고 이벤트로 equity 갱신
+        BigDecimal equity = BigDecimal.valueOf(properties.paperEquity());
+        long qty = sizer.sizeBuy(equity, signal.refPrice());
+        if (qty <= 0) {
+            log.info("사이징 결과 0주 — 매수 불가: {} (equity={}, price={})",
+                    signal.symbol(), equity, signal.refPrice());
+        }
+        return qty;
+    }
+
+    private long sizeSell(Signal signal) {
+        PositionBook.Position position = positionBook.get(signal.symbol());
+        if (position == null) {
+            log.info("미보유 종목 매도 시그널 무시: {}", signal.symbol());
+            return 0;
+        }
+        return position.quantity(); // 전량 청산
     }
 }

@@ -27,6 +27,14 @@ risk:
   take-profit-pct: 0.05
   daily-max-loss-pct: -0.02
   daily-max-orders: 30
+  paper-equity: 10000000        # 시뮬레이션 계좌 1천만원 — live 전환 시 잔고 연동
+
+execution:
+  mode: SIM                     # SIM: 즉시 체결 시뮬레이션 / LIVE: 키움 주문 API
+
+autostock:
+  ws:
+    enabled: false              # 앱키 발급 후 true
 
 kiwoom:
   app-key: ${KIWOOM_APP_KEY:}
