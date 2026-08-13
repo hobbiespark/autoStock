@@ -1,0 +1,29 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: autostock-db
+    environment:
+      POSTGRES_DB: autostock
+      POSTGRES_USER: autostock
+      POSTGRES_PASSWORD: autostock
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autostock"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  sidecar-nlp:
+    build: ../sidecar-nlp
+    container_name: autostock-nlp
+    ports:
+      - "8100:8100"
+    profiles: ["intel"]   # Phase 7에서 활성화
+
+  # app 컨테이너는 Phase 2에서 추가 (개발 중엔 IDE/gradle bootRun 사용)
+
+volumes:
+  pgdata:

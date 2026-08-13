@@ -1,0 +1,4 @@
+rootProject.name = 'autostock'
+
+include 'common'
+include 'app'

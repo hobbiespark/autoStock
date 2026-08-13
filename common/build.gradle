@@ -1,0 +1,7 @@
+apply plugin: 'java-library'
+
+// 이벤트 스키마(계약) 모듈 — 외부 의존성 최소 유지
+dependencies {
+    // Modulith 모듈 선언 애너테이션만 사용 (OPEN 계약 모듈)
+    compileOnly 'org.springframework.modulith:spring-modulith-api:1.4.12'
+}

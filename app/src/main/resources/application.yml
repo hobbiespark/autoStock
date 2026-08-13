@@ -1,0 +1,53 @@
+spring:
+  application:
+    name: autostock
+  profiles:
+    default: paper          # 기본은 반드시 모의 (실전 오적용 방지, PLAN 3절)
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:autostock}
+    username: ${DB_USER:autostock}
+    password: ${DB_PASSWORD:autostock}
+  jpa:
+    hibernate:
+      ddl-auto: validate    # 스키마는 Flyway로만 관리
+    open-in-view: false
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+
+risk:
+  max-position-pct-per-symbol: 0.10
+  max-concurrent-positions: 5
+  stop-loss-pct: -0.03
+  take-profit-pct: 0.05
+  daily-max-loss-pct: -0.02
+  daily-max-orders: 30
+
+kiwoom:
+  app-key: ${KIWOOM_APP_KEY:}
+  app-secret: ${KIWOOM_APP_SECRET:}
+
+---
+# 모의투자
+spring:
+  config:
+    activate:
+      on-profile: paper
+kiwoom:
+  rest-base-url: https://mockapi.kiwoom.com
+  ws-url: wss://mockapi.kiwoom.com:10000/api/dostk/websocket
+
+---
+# 실전 — 게이트 ② 통과 전 사용 금지 (PLAN 1절)
+spring:
+  config:
+    activate:
+      on-profile: live
+kiwoom:
+  rest-base-url: https://api.kiwoom.com
+  ws-url: wss://api.kiwoom.com:10000/api/dostk/websocket
