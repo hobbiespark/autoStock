@@ -48,6 +48,12 @@ import java.util.UUID;
  * TODO(Phase 4 이후): risk 모듈의 {@code PositionSizer}(고정비율 사이징)를 그대로 재사용해
  * "전량"이 아니라 실제 운영과 동일한 사이징 규칙을 적용한다 — 지금은 코어 로직(비용모델,
  * 룩어헤드 방지, 성과지표) 검증이 우선이라 사이징은 의도적으로 단순화했다.
+ *
+ * <h2>워밍업 구간(warmupCandles)</h2>
+ * {@link #run(List, BacktestStrategy, BigDecimal, int, int, double)}의 {@code warmupCandles}로
+ * 지정한 앞부분 캔들은 전략에게 정상적으로 넘겨 매매까지 체결시키지만, 성과 지표에는 반영하지
+ * 않는다 — N봉 롤백처럼 지표가 확정되기까지 시간이 걸리는 전략을 짧은 walk-forward test
+ * 구간에도 제대로 태울 수 있게 하기 위함이다. 자세한 이유는 해당 메서드 Javadoc 참고.
  */
 public final class BacktestRunner {
 
@@ -63,7 +69,7 @@ public final class BacktestRunner {
 
     /** 다중검정(DSR) 보정이 필요 없는 단일 시도 백테스트용 편의 메서드. */
     public BacktestResult run(List<Candle> candles, BacktestStrategy strategy, BigDecimal initialCapital) {
-        return run(candles, strategy, initialCapital, 1, 0.0);
+        return run(candles, strategy, initialCapital, 0, 1, 0.0);
     }
 
     /**
@@ -75,11 +81,44 @@ public final class BacktestRunner {
      */
     public BacktestResult run(List<Candle> candles, BacktestStrategy strategy, BigDecimal initialCapital,
                                int trials, double trialsVariance) {
+        return run(candles, strategy, initialCapital, 0, trials, trialsVariance);
+    }
+
+    /**
+     * 워밍업 구간을 지원하는 전체 버전 — 지표가 확정되기까지 여러 봉이 필요한 전략(예:
+     * 시계열 모멘텀의 N봉 롤백, 필터 돌파의 SMA20)이 walk-forward의 test(OOS) 구간처럼
+     * 짧은 구간만 단독으로 받으면 지표를 채우기도 전에 구간이 끝나버려 단 한 번도
+     * 매매하지 못하는 문제를 해결하기 위한 기능이다.
+     *
+     * <p><b>왜 룩어헤드가 아닌가</b>: {@code candles}의 앞쪽 {@code warmupCandles}개는
+     * "성과 측정 대상 기간보다 앞선, 이미 지나간" 실제 과거 데이터다(호출자가 test 구간
+     * 시작 이전의 진짜 캔들을 그대로 잘라 붙여서 넘긴다 — {@link WalkForwardRunner} 참고).
+     * 전략은 이 구간에서도 정상적으로 {@code onCandle}을 호출받고 실제로 매매까지
+     * 체결시킨다(워밍업 구간 중 이미 포지션을 잡았다면 그 포지션을 그대로 들고
+     * "본 구간"으로 넘어간다 — 실전에서도 그렇게 됐을 것이므로). 다만 <b>성과 집계
+     * (일별 수익률, 체결 횟수, 기준 자본)에는 워밍업 구간의 결과를 포함하지 않는다</b> —
+     * 워밍업은 "지표/포지션을 실전과 같은 상태로 미리 채워두는 것"이 목적이지, 그 기간의
+     * 손익까지 이 백테스트 결과에 섞어 넣으면 test 구간과 무관한 성과가 끼어드는 셈이기
+     * 때문이다.
+     *
+     * @param warmupCandles  앞부분 몇 개 캔들을 "워밍업 전용"으로 취급할지(0이면 워밍업 없음 —
+     *                       기존 동작과 완전히 동일).
+     */
+    public BacktestResult run(List<Candle> candles, BacktestStrategy strategy, BigDecimal initialCapital,
+                               int warmupCandles, int trials, double trialsVariance) {
         List<Double> dailyReturns = new ArrayList<>();
         Ledger ledger = new Ledger(initialCapital);
         BigDecimal prevEquity = initialCapital;
+        // 워밍업이 끝나는 시점의 평가자산 — "이 백테스트가 실제로 측정하는 기간"의 시작 자본이다.
+        // 워밍업이 없으면(warmupCandles=0) initialCapital 그대로 유지된다(기존 동작과 동일).
+        BigDecimal reportedBaseCapital = initialCapital;
+        int reportedTradeCount = 0;
 
-        for (Candle today : candles) {
+        for (int i = 0; i < candles.size(); i++) {
+            Candle today = candles.get(i);
+            boolean warmingUp = i < warmupCandles;
+            int tradeCountBeforeToday = ledger.tradeCount;
+
             // ── 1) 오늘 개장 직전 상태를 전략에게 보여주고, 오늘 걸어둘 조건부 주문을 받는다 ──
             BacktestStrategy.PortfolioState state =
                     new BacktestStrategy.PortfolioState(ledger.positionQty, ledger.avgPrice, ledger.cash);
@@ -111,12 +150,20 @@ public final class BacktestRunner {
                 }
             }
 
-            // ── 4) 오늘 종가 기준으로 평가자산을 마킹하고 일별 수익률을 기록한다 ──
+            // ── 4) 오늘 종가 기준으로 평가자산을 마킹하고, 워밍업이 아닌 날만 일별 수익률/체결수에 반영한다 ──
             BigDecimal equityToday = ledger.cash.add(today.close().multiply(BigDecimal.valueOf(ledger.positionQty)));
             double dailyReturn = prevEquity.signum() == 0
                     ? 0.0
                     : equityToday.subtract(prevEquity).divide(prevEquity, 12, RoundingMode.HALF_UP).doubleValue();
-            dailyReturns.add(dailyReturn);
+            if (!warmingUp) {
+                dailyReturns.add(dailyReturn);
+                reportedTradeCount += ledger.tradeCount - tradeCountBeforeToday;
+            }
+            if (i == warmupCandles - 1) {
+                // 워밍업의 마지막 날 — 이 시점의 평가자산이 "본 구간" 첫날 수익률의 기준점이자
+                // totalReturn 계산의 기준 자본이 된다.
+                reportedBaseCapital = equityToday;
+            }
             prevEquity = equityToday;
         }
 
@@ -124,7 +171,7 @@ public final class BacktestRunner {
                 ? initialCapital
                 : ledger.cash.add(candles.get(candles.size() - 1).close().multiply(BigDecimal.valueOf(ledger.positionQty)));
 
-        return performanceCalculator.calculate(dailyReturns, initialCapital, finalEquity, ledger.tradeCount,
+        return performanceCalculator.calculate(dailyReturns, reportedBaseCapital, finalEquity, reportedTradeCount,
                 trials, trialsVariance);
     }
 
