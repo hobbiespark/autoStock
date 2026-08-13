@@ -5,6 +5,8 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.marketdata.KiwoomDailyChartService;
+import com.autostock.marketdata.MarketCalendarService;
+import com.autostock.marketdata.MarketHolidayRepository;
 import com.autostock.risk.PositionBook;
 import org.junit.jupiter.api.Test;
 
@@ -19,6 +21,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 /**
  * C3LiveStrategy 검증 — marketdata 서비스는 스텁으로 대체하고(실제 REST 호출 없음),
@@ -28,6 +31,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class C3LiveStrategyTest {
 
     private static final LocalDate D0 = LocalDate.of(2024, 1, 1);
+
+    // repository는 mock — market_holidays에 해당 연도 데이터가 없으므로 MarketCalendarService는
+    // TradingCalendar 하드코딩 폴백으로 판정한다(기존 동작과 동일, RiskGateTest와 같은 이유).
+    private final MarketCalendarService marketCalendarService = new MarketCalendarService(mock(MarketHolidayRepository.class));
 
     /**
      * {@link KiwoomDailyChartService#fetchDaily}를 실제 REST 호출 없이 사전에 준비된
@@ -113,7 +120,7 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook();
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(false, List.of("005930"), 5), chart, positionBook, published::add);
+                properties(false, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService);
 
         strategy.run();
 
@@ -132,7 +139,7 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add);
+                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService);
 
         strategy.run();
 
@@ -152,7 +159,7 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook(); // 미보유
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add);
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService);
 
         strategy.run();
 
@@ -175,7 +182,7 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add);
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService);
 
         strategy.run();
 
@@ -196,7 +203,7 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add);
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService);
 
         strategy.run();
 
@@ -213,7 +220,7 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook();
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add);
+                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService);
 
         assertDoesNotThrow(strategy::run, "한 종목의 예외가 전체 배치 실행을 중단시키면 안 됨");
 
