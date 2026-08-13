@@ -5,7 +5,7 @@ import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
-import com.autostock.common.util.TradingCalendar;
+import com.autostock.marketdata.MarketCalendarService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -49,6 +49,12 @@ import java.time.LocalDateTime;
  * 있게 했다. 실제 장 시간 판정 자체는 {@link Clock}을 주입받아 계산한다 —
  * {@code StaleOrderCanceller}와 같은 이유로, System 시계를 직접 부르지 않아야 테스트가
  * 결정론적이다(가드를 켠 채로 특정 시각을 검증하고 싶을 때 {@link Clock#fixed}로 고정).
+ *
+ * <p><b>marketdata 모듈 참조</b>: 장 시간 판정은 {@code common.util.TradingCalendar} 정적
+ * 호출 대신 {@link MarketCalendarService}(marketdata의 공개 API)를 주입받아 위임한다.
+ * risk가 marketdata를 직접 참조하는 것은 {@code monitor}가 {@code risk}를 참조하는 것과
+ * 같은 성격의 허용된 모듈 간 참조다(둘 다 어느 모듈에도 {@code allowedDependencies} 제한이
+ * 없는 공개 패키지 최상위 타입만 참조 — {@code ModularityTests}가 이 경계를 검증한다).
  */
 @Component
 public class RiskGate {
@@ -63,6 +69,7 @@ public class RiskGate {
     private final DailyLimitTracker dailyLimits;
     private final EquitySource equitySource;
     private final Clock clock;
+    private final MarketCalendarService marketCalendarService;
 
     public RiskGate(ApplicationEventPublisher publisher,
                     KillSwitch killSwitch,
@@ -71,7 +78,8 @@ public class RiskGate {
                     PositionBook positionBook,
                     DailyLimitTracker dailyLimits,
                     EquitySource equitySource,
-                    Clock clock) {
+                    Clock clock,
+                    MarketCalendarService marketCalendarService) {
         this.publisher = publisher;
         this.killSwitch = killSwitch;
         this.properties = properties;
@@ -80,6 +88,7 @@ public class RiskGate {
         this.dailyLimits = dailyLimits;
         this.equitySource = equitySource;
         this.clock = clock;
+        this.marketCalendarService = marketCalendarService;
     }
 
     /**
@@ -215,9 +224,12 @@ public class RiskGate {
         return position.quantity();
     }
 
-    /** 지금이 정규장 시간(09:00~15:30 KST)인지 — {@link #clock}으로 얻은 시각을 KST로 환산해 판정한다. */
+    /**
+     * 지금이 정규장 시간(09:00~15:30 KST)인지 — {@link #clock}으로 얻은 시각을 KST로 환산해
+     * {@link MarketCalendarService#isMarketHours}에 위임 판정한다.
+     */
     private boolean isMarketHours() {
         LocalDateTime now = LocalDateTime.now(clock.withZone(MarketConstants.KST));
-        return TradingCalendar.isMarketHours(now);
+        return marketCalendarService.isMarketHours(now);
     }
 }

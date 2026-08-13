@@ -4,8 +4,8 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.util.MarketConstants;
-import com.autostock.common.util.TradingCalendar;
 import com.autostock.marketdata.KiwoomDailyChartService;
+import com.autostock.marketdata.MarketCalendarService;
 import com.autostock.risk.PositionBook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -78,6 +78,7 @@ public class C3LiveStrategy {
     private final KiwoomDailyChartService chartService;
     private final PositionBook positionBook;
     private final ApplicationEventPublisher publisher;
+    private final MarketCalendarService marketCalendarService;
 
     /**
      * 종목별 "마지막 판단일" — decisionIntervalDays 주기 카운터의 인메모리 상태.
@@ -88,11 +89,13 @@ public class C3LiveStrategy {
     public C3LiveStrategy(C3StrategyProperties properties,
                           KiwoomDailyChartService chartService,
                           PositionBook positionBook,
-                          ApplicationEventPublisher publisher) {
+                          ApplicationEventPublisher publisher,
+                          MarketCalendarService marketCalendarService) {
         this.properties = properties;
         this.chartService = chartService;
         this.positionBook = positionBook;
         this.publisher = publisher;
+        this.marketCalendarService = marketCalendarService;
     }
 
     /** 매 평일 09:05 KST(정규장 09:00 개장 직후) 1회 실행 — 클래스 설명 "왜 스케줄 기반인가" 참고. */
@@ -103,10 +106,12 @@ public class C3LiveStrategy {
         }
 
         LocalDate today = LocalDate.now(MarketConstants.KST);
-        if (!TradingCalendar.isTradingDay(today)) {
+        if (!marketCalendarService.isTradingDay(today)) {
             // cron은 MON-FRI만 걸지만 평일 중 공휴일(신정·설·추석 등)은 별도로 걸러야 한다 —
             // 휴장일에 일봉을 조회하면 "어제 종가"가 아니라 더 예전 데이터를 오늘 것으로
-            // 착각해 판단이 틀어질 수 있다(TradingCalendar 클래스 설명 참고).
+            // 착각해 판단이 틀어질 수 있다. 판정은 marketdata 모듈의 MarketCalendarService에
+            // 위임한다 — DB에 동기화된 특일 데이터가 있으면 그것을, 없으면 TradingCalendar
+            // 하드코딩으로 폴백한다(MarketCalendarService 클래스 설명 참고).
             log.info("C3: 휴장일({}) — 이번 스케줄 스킵", today);
             return;
         }

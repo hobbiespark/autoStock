@@ -4,6 +4,8 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
+import com.autostock.marketdata.MarketCalendarService;
+import com.autostock.marketdata.MarketHolidayRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -17,6 +19,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 class RiskGateTest {
 
@@ -30,6 +33,9 @@ class RiskGateTest {
     private RiskProperties properties;
     private KillSwitch killSwitch;
     private PositionBook positionBook;
+    // isMarketHours()는 DB를 전혀 보지 않고 TradingCalendar에 순수 위임하므로, repository는
+    // 실제로 호출되지 않는다 — mock으로 충분하다(RiskGate 클래스 설명 "marketdata 모듈 참조" 절 참고).
+    private final MarketCalendarService marketCalendarService = new MarketCalendarService(mock(MarketHolidayRepository.class));
     private RiskGate gate;
 
     @BeforeEach
@@ -46,7 +52,7 @@ class RiskGateTest {
         positionBook = new PositionBook();
         gate = new RiskGate(publisher, killSwitch, properties,
                 new PositionSizer(properties), positionBook, new DailyLimitTracker(properties),
-                new PaperEquitySource(properties), ANY_CLOCK);
+                new PaperEquitySource(properties), ANY_CLOCK, marketCalendarService);
     }
 
     private Signal buySignal(String symbol, String price) {
@@ -149,7 +155,7 @@ class RiskGateTest {
                 10_000_000, 0.00015, 0.0015, true);
         return new RiskGate(publisher, killSwitch, guardedProperties,
                 new PositionSizer(guardedProperties), positionBook, new DailyLimitTracker(guardedProperties),
-                new PaperEquitySource(guardedProperties), clock);
+                new PaperEquitySource(guardedProperties), clock, marketCalendarService);
     }
 
     @Test

@@ -61,6 +61,12 @@ strategy:
     regime-index-symbol: 069500                        # KODEX200 — 국면 필터 기준 지수
     regime-sma-days: 200
 
+marketdata:
+  holiday-api:
+    enabled: false                                # 공공데이터포털 서비스키 발급 후 활성화(응답 포맷 실측 전까지 비활성 유지)
+    service-key: ${DATA_GO_KR_SERVICE_KEY:}       # 공공데이터포털 발급 서비스키 — 커밋 금지, 환경변수로만 주입
+    base-url: https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService
+
 autostock:
   ws:
     enabled: false              # 앱키 발급 후 true
