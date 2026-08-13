@@ -56,13 +56,16 @@ import java.util.Map;
  * 다만 등록 후에는 {@link MarketCalendarService#evictYear(int)}를 호출하거나 앱을 재시작해야
  * 캐시에 반영된다(운영 스크립트에서 DB INSERT 직후 evictYear 호출을 함께 넣는 것을 권장).
  *
- * <h2>실측 전 TODO</h2>
+ * <h2>공식 명세 확인 사항 (SC-OA-09-04, 2026-08-13 사용자 제공)</h2>
  * <ul>
- *   <li>응답 포맷: 공공데이터포털 표준 파라미터인 {@code _type=json}으로 JSON 응답을
- *       요청하지만, 이 오퍼레이션이 실제로 JSON을 지원하는지는 서비스키 발급 후 실측이
- *       필요하다. 미지원이면(XML만 응답) {@link #callApi}를 XML 파싱으로 교체해야 한다.</li>
- *   <li>페이지네이션: {@code numOfRows=50}이면 한 달 안에 특일이 50건을 넘을 일이 없어
- *       실질적으로 페이지 처리가 필요 없다고 보고 pageNo=1 고정으로 단순화했다.</li>
+ *   <li>{@code _type=json} 공식 지원 확인(교환 데이터 표준: XML+JSON) — JSON 파싱 유지.</li>
+ *   <li>데이터 갱신: 연 1회 일괄. 특일(공휴일)은 6~8월 월력요항 발표 후 <b>+2년치</b>가
+ *       먼저 올라온다 → 11월 연간 배치 시점엔 내년 데이터가 확실히 존재(타이밍 안전).</li>
+ *   <li>임시공휴일은 발생 시 최대 1일 내 반영, 대체공휴일은 대통령령 시행 후 반영 —
+ *       월 15일 재동기화({@link #resyncUpcomingWindow})가 이를 흡수한다. 임시공휴일을
+ *       더 빨리 반영해야 하면 재동기화 주기를 주 단위로 좁히면 된다(트래픽 여유 충분).</li>
+ *   <li>제헌절은 이 오퍼레이션에서 제공되지 않음(2008년부터 비공휴일이라 휴장 판정에 무관).</li>
+ *   <li>페이지네이션: 월별 특일이 50건을 넘지 않으므로 numOfRows=50, pageNo=1 고정.</li>
  * </ul>
  */
 @Service
@@ -98,6 +101,58 @@ public class HolidaySyncService {
     public void syncNextYear() {
         int nextYear = LocalDate.now(MarketConstants.KST).getYear() + 1;
         syncYear(nextYear);
+    }
+
+    /**
+     * 매월 15일 09:10 KST — <b>향후 30일 창(이번 달 + 다음 달)만 재동기화</b>한다.
+     * (사용자 운영 정책: "매월 15일 단위로 30일 단위 재동기화")
+     *
+     * <p>왜 필요한가: 대체공휴일은 법제처 심사·국무회의·대통령 승인을 거쳐 관보에 정식
+     * 공포된 <b>이후에야</b> API 응답에 반영된다(공공데이터포털 문서 명시). 즉 11월 연간
+     * 동기화 시점에는 없던 휴일이 몇 달 뒤 새로 생길 수 있다 — 임박한 구간을 매월 다시
+     * 받아 upsert하면 이런 늦은 확정을 놓치지 않는다. 창을 30일로 좁게 잡은 이유는
+     * 트래픽 절약(월 2회 호출)과 "임박한 날짜일수록 정확해야 한다"는 우선순위 때문이다.
+     */
+    @Scheduled(cron = "0 10 9 15 * *", zone = "Asia/Seoul")
+    public void resyncUpcomingWindow() {
+        LocalDate today = LocalDate.now(MarketConstants.KST);
+        LocalDate nextMonth = today.plusMonths(1);
+        syncMonths(List.of(
+                new YearMonthPair(today.getYear(), today.getMonthValue()),
+                new YearMonthPair(nextMonth.getYear(), nextMonth.getMonthValue())));
+    }
+
+    /**
+     * 지정한 (연,월) 목록만 동기화한다 — 연간 배치({@link #syncYear})와 같은 부분 실패
+     * 정책(월 단위 격리, upsert 전용)을 그대로 쓴다.
+     */
+    public void syncMonths(List<YearMonthPair> months) {
+        if (!properties.enabled()) {
+            log.info("특일 API 연동 비활성 — 월 창 재동기화 스킵: {}", months);
+            return;
+        }
+        int savedCount = 0;
+        int failedMonths = 0;
+        for (YearMonthPair ym : months) {
+            try {
+                for (RestDeItem item : fetchMonth(ym.year(), ym.month())) {
+                    if (item.isHoliday()) {
+                        upsert(item);
+                        savedCount++;
+                    }
+                }
+            } catch (RuntimeException e) {
+                failedMonths++;
+                log.error("특일 월 재동기화 실패({}) — 건너뛰고 기존 DB 유지", ym, e);
+            }
+        }
+        log.info("특일 월 창 재동기화 완료: {}개월, 저장/갱신={}건, 실패={}개월", months.size(), savedCount, failedMonths);
+        // 창이 연말을 걸치면 두 해의 캐시가 모두 영향을 받을 수 있다 — 관련 연도 전부 evict.
+        months.stream().map(YearMonthPair::year).distinct().forEach(marketCalendarService::evictYear);
+    }
+
+    /** 재동기화 대상 (연, 월) 쌍 — 12월 창이 다음 해 1월로 넘어가는 경우를 표현하기 위해 연도를 함께 든다. */
+    public record YearMonthPair(int year, int month) {
     }
 
     /**
