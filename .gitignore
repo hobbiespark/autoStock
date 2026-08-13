@@ -28,3 +28,7 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# 외부 시세 데이터 — 라이선스/용량 문제로 커밋하지 않는다.
+# scripts/fetch_yahoo_daily.py 로 각자 로컬에서 재현한다.
+data/
