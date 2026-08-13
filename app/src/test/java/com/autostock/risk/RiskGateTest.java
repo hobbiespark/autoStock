@@ -84,6 +84,32 @@ class RiskGateTest {
     }
 
     @Test
+    void confidence가_0_5면_매수_수량이_절반이다() {
+        gate.onSignal(new Signal("test-strategy", "005930", Side.BUY, new BigDecimal("70000"), 0.5, Instant.now()));
+
+        assertEquals(1, published.size());
+        OrderRequest order = (OrderRequest) published.get(0);
+        // 1,000만원 * 10% * 0.5 = 50만원 / 7만원 = 7.14... → 7주 (confidence=1.0일 때 14주의 절반)
+        assertEquals(7, order.quantity());
+    }
+
+    @Test
+    void confidence가_1_초과면_1_0으로_클램프돼_원래_수량과_같다() {
+        gate.onSignal(new Signal("test-strategy", "005930", Side.BUY, new BigDecimal("70000"), 1.5, Instant.now()));
+
+        assertEquals(1, published.size());
+        assertEquals(14, ((OrderRequest) published.get(0)).quantity());
+    }
+
+    @Test
+    void confidence가_0이하면_1_0으로_클램프돼_원래_수량과_같다() {
+        gate.onSignal(new Signal("test-strategy", "005930", Side.BUY, new BigDecimal("70000"), 0.0, Instant.now()));
+
+        assertEquals(1, published.size());
+        assertEquals(14, ((OrderRequest) published.get(0)).quantity());
+    }
+
+    @Test
     void 동시_보유_한도_도달시_신규_매수_차단() {
         String[] symbols = {"A", "B", "C", "D", "E"};
         for (String s : symbols) {

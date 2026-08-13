@@ -1,9 +1,9 @@
 package com.autostock.backtest;
 
 import com.autostock.common.event.Candle;
+import com.autostock.strategy.VolTargetMath;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
@@ -43,11 +43,8 @@ import java.util.List;
  */
 public final class VolatilityTargetingStrategy implements BacktestStrategy {
 
-    /** 실현 변동성 계산에 쓰는 일간수익률 관측 창(봉 수). */
-    private static final int VOL_WINDOW = 20;
-
-    /** 연환산 거래일수 — PerformanceCalculator와 동일한 관례. */
-    private static final int TRADING_DAYS_PER_YEAR = 252;
+    /** 실현 변동성 계산에 쓰는 일간수익률 관측 창(봉 수). {@link VolTargetMath#VOL_WINDOW}와 동일. */
+    private static final int VOL_WINDOW = VolTargetMath.VOL_WINDOW;
 
     /** 기본 목표 변동성(연 20%). */
     private static final double DEFAULT_TARGET_VOL = 0.20;
@@ -106,46 +103,13 @@ public final class VolatilityTargetingStrategy implements BacktestStrategy {
         return adjusted;
     }
 
-    /** min(1.0, targetVol / realizedVol) — 관측 부족(20개 미만의 일간수익률)이면 1.0. */
+    /**
+     * min(1.0, targetVol / realizedVol) — 관측 부족(20개 미만의 일간수익률)이면 1.0.
+     * 실제 계산은 {@link VolTargetMath#fraction}으로 옮겼다(백테스트=라이브 동형, PLAN 4절) —
+     * 라이브 전략({@code strategy.C3LiveStrategy})도 같은 메서드를 호출한다. 이 클래스는
+     * "종가 이력을 얼마나 들고 있을지"(창 관리)만 책임진다.
+     */
     private double computeFraction() {
-        if (closeHistory.size() < VOL_WINDOW + 1) {
-            return 1.0;
-        }
-
-        List<BigDecimal> closes = new ArrayList<>(closeHistory);
-        double[] dailyReturns = new double[VOL_WINDOW];
-        for (int i = 1; i < closes.size(); i++) {
-            BigDecimal prev = closes.get(i - 1);
-            BigDecimal curr = closes.get(i);
-            dailyReturns[i - 1] = prev.signum() == 0
-                    ? 0.0
-                    : curr.subtract(prev).divide(prev, 12, RoundingMode.HALF_UP).doubleValue();
-        }
-
-        double mean = mean(dailyReturns);
-        double std = populationStd(dailyReturns, mean);
-        double realizedVol = std * Math.sqrt(TRADING_DAYS_PER_YEAR);
-        if (realizedVol == 0.0) {
-            return 1.0; // 최근 변동이 전혀 없었으면 제한할 이유가 없음
-        }
-        return Math.min(1.0, targetVol / realizedVol);
-    }
-
-    private double mean(double[] values) {
-        double sum = 0.0;
-        for (double v : values) {
-            sum += v;
-        }
-        return values.length == 0 ? 0.0 : sum / values.length;
-    }
-
-    /** 모표준편차(분모 n) — PerformanceCalculator와 동일한 관례. */
-    private double populationStd(double[] values, double mean) {
-        double sumSq = 0.0;
-        for (double v : values) {
-            double d = v - mean;
-            sumSq += d * d;
-        }
-        return Math.sqrt(sumSq / values.length);
+        return VolTargetMath.fraction(new ArrayList<>(closeHistory), targetVol);
     }
 }
