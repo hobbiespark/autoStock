@@ -1,5 +1,7 @@
 package com.autostock.backtest;
 
+import com.autostock.common.event.Candle;
+
 import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.UncheckedIOException;

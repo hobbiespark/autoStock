@@ -1,5 +1,7 @@
 package com.autostock.backtest;
 
+import com.autostock.common.event.Candle;
+
 import java.math.BigDecimal;
 import java.util.List;
 

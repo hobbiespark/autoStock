@@ -2,10 +2,14 @@ package com.autostock.kiwoom;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -32,6 +36,15 @@ import java.util.concurrent.atomic.AtomicReference;
 public class TokenManager {
 
     private static final Logger log = LoggerFactory.getLogger(TokenManager.class);
+
+    /**
+     * 키움 토큰 발급 응답의 {@code expires_dt} 포맷 — 실측(2026-08-13, mockapi.kiwoom.com):
+     * {@code "20260814121649"} 같은 14자리 문자열, KST(Asia/Seoul) 기준 로컬 시각이다.
+     * (타임존 표기가 응답에 없으므로 코드로 고정해야 한다 — 서버가 UTC로 도는 환경에서
+     * 이 가정이 빠지면 만료시각이 9시간 어긋난다.)
+     */
+    private static final DateTimeFormatter EXPIRES_DT_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final WebClient webClient;
     private final KiwoomProperties properties;
@@ -64,6 +77,7 @@ public class TokenManager {
         Map<String, Object> response = webClient.post()
                 .uri("/oauth2/token")
                 .header("api-id", TrId.TOKEN_ISSUE.apiId())
+                .contentType(MediaType.valueOf("application/json;charset=UTF-8"))
                 .bodyValue(Map.of(
                         "grant_type", "client_credentials",   // 고정값: 서버 간 인증 방식
                         "appkey", properties.appKey(),
@@ -74,9 +88,28 @@ public class TokenManager {
         if (response == null || response.get("token") == null) {
             throw new KiwoomApiException("토큰 발급 실패: 응답 없음");
         }
-        // TODO Phase 1 검증: 실제 응답의 만료시각(expires_dt) 포맷 확인 후 정확히 파싱.
-        //  지금은 보수적으로 23시간 유효로 가정 (실제는 약 24시간).
-        return new CachedToken((String) response.get("token"), Instant.now().plusSeconds(23 * 3600));
+        // HTTP 200이어도 return_code != 0이면 논리 오류(키/시크릿 오류 등) — 실측 응답 포맷:
+        // {"expires_dt":"20260814121649","return_msg":"...","token_type":"Bearer","return_code":0,"token":"..."}
+        Object returnCode = response.get("return_code");
+        if (returnCode != null && ((Number) returnCode).intValue() != 0) {
+            throw new KiwoomApiException("토큰 발급 실패: " + response.get("return_msg"));
+        }
+        return new CachedToken((String) response.get("token"), parseExpiresAt(response));
+    }
+
+    /**
+     * 응답의 {@code expires_dt}(yyyyMMddHHmmss, KST)를 파싱해 만료 시각(Instant)으로 변환한다.
+     * 필드가 없는 예외적인 응답이면 보수적으로 23시간 유효(실제 유효기간 약 24시간)로 가정한다.
+     */
+    private Instant parseExpiresAt(Map<String, Object> response) {
+        Object expiresDt = response.get("expires_dt");
+        if (expiresDt == null || String.valueOf(expiresDt).isBlank()) {
+            log.warn("토큰 응답에 expires_dt가 없어 23시간 유효로 보수적 가정함");
+            return Instant.now().plusSeconds(23 * 3600);
+        }
+        return LocalDateTime.parse(String.valueOf(expiresDt), EXPIRES_DT_FORMAT)
+                .atZone(KST)
+                .toInstant();
     }
 
     /**
