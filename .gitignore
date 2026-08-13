@@ -1,0 +1,30 @@
+# Build
+build/
+out/
+.gradle/
+*.class
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Secrets — 절대 커밋 금지
+.env
+*.pem
+application-secret*.yml
+**/appkey*
+**/secret*
+
+# Runtime
+logs/
+*.log
+
+# Python sidecar
+__pycache__/
+.venv/
+*.pyc
+
+# OS
+.DS_Store
+Thumbs.db
