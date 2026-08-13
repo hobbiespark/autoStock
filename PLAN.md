@@ -35,6 +35,14 @@ v1 단순 자동매매 → v2 검증 방법론 강화(이벤트 기반, DSR/PBO)
 - **성능 계측**: Micrometer `Timer`/`@Timed`로 키움 API 지연·주문 라운드트립·이벤트 처리 시간 계측, Actuator `/actuator/metrics` 노출. 백테스트 처리량은 러너 자체 계측. JMH는 필요 시점까지 보류(개인 프로젝트 과잉)
 - **공통화**: `common`에 상수(`MarketConstants`: KST, 장 시간)·유틸(`KiwoomNumbers`: 부호 정규화) 집약, kiwoom/marketdata 중복 파싱 제거
 
+**ADR-6. 아키텍처 원칙 확정 (2026-08-13, 외부 제안 검토 후)**
+외부 아키텍처 제안(DDD Lite·Hexagonal·State Machine 등)을 현재 구현과 대조 분석해 채택/조정/기각 확정. 상세 기준서: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+- **채택**: Value Object(ClientOrderId·StockCode·Quantity 등, 주문 안전 관련 우선), Port/Adapter(BrokerPort·SentimentAnalyzer — 현행 kiwoom 클라이언트에서 Port 추출), 주문 상태기계 확장(**SUBMITTING/UNKNOWN 포함** — 타임아웃은 실패가 아니라 UNKNOWN→Reconciliation), ClientOrderId 가독 포맷+DB UNIQUE, Reconciliation 일급 기능(Broker=Source of Truth), CQRS Lite(View DTO), TradingSystemStatus 상태기계, Functional Core 명문화
+- **점진 재편**: 모듈 재구성(marketdata→market, newsintel→analysis, execution→trading/execution 분리, portfolio 신설)은 별도 사이클에서 일괄 — 진행 중 작업 보호
+- **조정**: FE는 현 단계 vanilla 유지(4-1절), 화면 3개 초과 시 React+TS+TanStack Query
+- **기각 유지**: Event Sourcing(현행 event_store는 감사·리플레이 로그이지 ES 아님), Full CQRS, Saga
+- **기존 결정과 일치 확인**: "Strategy는 주문하지 않는다"(RiskGate 단일 관문), 백테스트=라이브 동형, 주문 무조건 재시도 금지, Modulith 경계 테스트
+
 **ADR-4. 유지 사항**
 PostgreSQL(v2 결정), Java 21 + Spring Boot(사용자 스택), 과최적화 방지 게이트(DSR/PBO, walk-forward), 리스크 계층 명세, 정량 게이트는 그대로 유지. 시계열 볼륨 증가 시 TimescaleDB 확장 검토.
 
