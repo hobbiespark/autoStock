@@ -1,6 +1,9 @@
 # autoStock 진행 현황
 
-기준일: 2026-08-13 | 계획 문서: [PLAN.md](PLAN.md) v4 | 리포: github.com/hobbiespark/autoStock
+기준일: 2026-08-13 (2차 갱신) | 계획: [PLAN.md](PLAN.md) v4 (ADR 6건) | 아키텍처: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 리포: github.com/hobbiespark/autoStock
+
+> **작업 방침 (확정)**: 실제 API(모의 포함) 호출 검증 금지 — 회사망 모니터링 사유.
+> 계획·문서 기반 예상 구현 + `TODO 실측` 표기로 진행하고, 실측은 자택망에서 별도 수행.
 
 ---
 
@@ -56,14 +59,21 @@
 ### 게이트 현황 (PLAN 1절)
 게이트 ① (백테스트→모의): **미통과** (판정 도구 교정 후 재판정 예정) / 게이트 ②·③: 해당 없음
 
+## 3-1. 완료 추가 기록 (2차 갱신)
+
+- ✅ **DSR 교정 + 포트폴리오 슬리브 러너** (커밋 0b5d7c2): OOS 레벨 DSR(`deflatedSharpeAcrossFamilies`, N=전략 계열 수), 5종목 슬리브 포트폴리오(교차 자금이동 없음·carry-forward·공통 시작일)
+- ✅ **엔지니어링 고도화 ADR-5** (커밋 2b50208): 가상 스레드(+EventFeed ReentrantLock 핀닝 회피), Caffeine 캐시(stockPrice 1s/dailyChart 1h, 히트율 계측), 비동기 감사(@Async+@Transactional), JDBC 배치, Micrometer(`kiwoom.api.latency`·`order.submit.latency`), 공통 유틸(KiwoomNumbers·MarketConstants). 테스트 80건 통과
+- ✅ **ADR-6 아키텍처 원칙 확정**: 외부 제안 검토 → docs/ARCHITECTURE.md 기준서 작성 (설계 규칙 20)
+- 🔶 **WIP (컴파일·테스트 통과, 미완)**: 주문 영속화 1차(OrderStatus 4상태, V2__orders.sql), 게이트① 포트폴리오 재판정 테스트(RealDataPortfolioGateTest) — ADR-6 상태기계 확장(UNKNOWN 등)과 통합해 완성 예정
+
 ## 4. 다음 작업 (우선순위 순)
 
-1. **[계획 확정됨] DSR 교정 + 포트폴리오 백테스트**: PerformanceCalculator에 OOS 레벨 DSR(N=계열 수), PortfolioBacktestRunner(5종목 슬리브 등분, 교차 자금이동 없음) → 게이트 ① 재판정. C(모멘텀) 포트폴리오의 MDD<15% 달성 여부가 관건
-2. **[사용자] 로컬 WS 실측**: `python3 scripts/ws_probe.py` (장중) → 출력으로 체결통보 FID 매핑 확정 → Phase 2 완전 종료
-3. DB 통합 잔여: 멱등키·brokerOrderId 맵의 DB 이전(재시작 복원), 미체결 타임아웃 취소
-4. Phase 5 착수: macro-intel 규칙 기반 필터(ECOS/FRED/DART 키 발급 필요)
+1. **아키텍처 정렬 사이클 (ADR-6 구현)**: 주문 영속화 WIP를 확장 상태기계(CREATED~UNKNOWN)로 완성 + ClientOrderId 포맷 + BrokerPort 추출 + Reconciliation 골격(REST 호출부는 TODO 실측). 전부 순수 코드 — API 호출 없음
+2. **게이트 ① 재판정 실행**: RealDataPortfolioGateTest(로컬 CSV만) 결과 확정 → 3전략 포트폴리오 vs 게이트 기준
+3. 모듈 재편(market/trading/portfolio/analysis) — 별도 사이클
+4. Phase 5: macro-intel 규칙 기반 필터 (수집 클라이언트는 예상 구현 + TODO 실측)
 5. 텔레그램 알림/원격 킬스위치 (monitor)
-6. **[계획 확정됨] 엔지니어링 고도화 (PLAN ADR-5)**: 가상 스레드, Caffeine 캐시(+히트율 계측), 트랜잭션 경계·JDBC 배치, Micrometer 성능 계측, 공통 상수·유틸 집약
+6. **[자택망에서]** WS 실측(`scripts/ws_probe.py`), 주문 왕복 재검증, KiwoomSmokeIT 키 주입 실행
 
 ## 5. 보안 메모
 
