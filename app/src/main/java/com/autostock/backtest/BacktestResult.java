@@ -16,6 +16,12 @@ import java.util.List;
  * @param tradeCount    체결(매수+매도) 횟수
  * @param dsrConfidence DSR(Deflated Sharpe Ratio) — "이 샤프비율이 여러 번 시도 중 우연히
  *                       나온 최댓값이 아니라 진짜 실력일 확률"을 0~1 신뢰수준으로 표현한 값.
+ *                       <b>주의</b>: {@link WalkForwardRunner}의 OOS 결과({@code oosResult})에서
+ *                       이 필드는 trials = "파라미터 후보 수 × 창 수"로 계산된 값이다 — 이건
+ *                       train 단계의 파라미터 선택 편향을 보정한 값이지, 최종 게이트(전략
+ *                       계열 간 비교) 판정에 쓸 값이 아니다. OOS 최종 게이트에는
+ *                       {@link PerformanceCalculator#deflatedSharpeAcrossFamilies}로 다시
+ *                       계산한 DSR을 써야 한다(그 메서드 Javadoc 참고).
  */
 public record BacktestResult(
         List<Double> dailyReturns,

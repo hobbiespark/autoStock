@@ -77,4 +77,45 @@ class PerformanceCalculatorTest {
         assertEquals(7.466740412615168, result.sharpe(), 1e-9);
         assertEquals(0.020000000000000035, result.mdd(), 1e-9);
     }
+
+    // ── deflatedSharpeAcrossFamilies (OOS 레벨, 게이트 판정용 DSR) ──
+
+    @Test
+    void 계열간DSR_계열이_하나뿐이면_기존_단일시도_CDF와_일치한다() {
+        // N=1(계열이 자기 자신뿐)이면 SR0=0이 되어 deflatedSharpeRatio(trials=1)과 완전히 같은
+        // 값이 나와야 한다 — RETURNS 자체의 daily 샤프를 계열 배열에 그대로 하나만 넣는다.
+        double srDaily = 0.4703604341917986; // RETURNS로부터 계산되는 daily 샤프(다른 테스트와 동일)
+        double dsr = calculator.deflatedSharpeAcrossFamilies(RETURNS, new double[]{srDaily});
+
+        assertEquals(0.8257186878197822, dsr, 1e-9,
+                "N=1일 때는 기존 deflatedSharpeRatio(trials=1)과 정확히 일치해야 함");
+    }
+
+    @Test
+    void 계열간DSR_비교_계열_수가_늘면_신뢰수준이_감소한다() {
+        double srDaily = 0.4703604341917986;
+
+        double dsrOneFamily = calculator.deflatedSharpeAcrossFamilies(RETURNS, new double[]{srDaily});
+        double dsrThreeFamilies = calculator.deflatedSharpeAcrossFamilies(
+                RETURNS, new double[]{srDaily, srDaily + 0.15, srDaily - 0.15});
+
+        assertTrue(dsrThreeFamilies < dsrOneFamily,
+                "비교 대상 전략 계열 수가 늘고(N=3) 계열 간 샤프비율 분산이 0보다 크면, "
+                        + "SR0(운으로 기대되는 최대 샤프)가 커져 DSR은 낮아져야 함");
+    }
+
+    @Test
+    void 계열간DSR_계열간_분산이_0이면_0으로_나누지_않고_N1과_같은_결과를_낸다() {
+        // 비교 대상 계열이 여러 개(N=3)라도 그 계열들의 OOS 샤프비율이 전부 똑같으면
+        // (분산=0) SR0 계산식(sqrt(V)*...)에서 sqrt(0)=0이 되어 SR0=0이다. 이는 N=1일 때와
+        // 수학적으로 동일한 결과이며, trialsVariance가 0이어도 예외 없이 안정적으로 처리돼야 한다.
+        double srDaily = 0.4703604341917986;
+
+        double dsrOneFamily = calculator.deflatedSharpeAcrossFamilies(RETURNS, new double[]{srDaily});
+        double dsrThreeIdenticalFamilies = calculator.deflatedSharpeAcrossFamilies(
+                RETURNS, new double[]{srDaily, srDaily, srDaily});
+
+        assertEquals(dsrOneFamily, dsrThreeIdenticalFamilies, 1e-9,
+                "계열 간 분산이 0이면 N과 무관하게 SR0=0이 되어 N=1과 같은 결과가 나와야 함(0 나눗셈 없이 안정적)");
+    }
 }
