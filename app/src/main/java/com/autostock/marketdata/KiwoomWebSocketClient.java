@@ -1,5 +1,6 @@
 package com.autostock.marketdata;
 
+import com.autostock.common.event.MarketDataStale;
 import com.autostock.kiwoom.KiwoomProperties;
 import com.autostock.kiwoom.TokenManager;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,9 +19,13 @@ import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.net.URI;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -47,12 +52,17 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p><b>가장 중요한 설계: 단절 대응.</b> 커뮤니티 사고 사례 1순위가
  * "WS가 끊긴 줄 모르고 시세 없이 매매가 멈춰 있었다"이다. (PLAN 3절)
- * 대응 3단계:
+ * 대응 4단계:
  * <ol>
  *   <li>watchdog이 10초마다 연결 상태 점검</li>
  *   <li>끊겼으면 자동 재연결</li>
  *   <li>재연결 직후 기존 구독 종목 전체 재등록 — 이걸 빼먹으면
  *       "연결은 됐는데 시세는 안 오는" 더 찾기 어려운 상태가 된다</li>
+ *   <li><b>장시간 단절이면 킬스위치까지 연동</b>: 자동 재연결로도 해소되지 않고 연속 단절이
+ *       {@code autostock.ws.stale-after}(기본 180초)를 넘으면 {@link MarketDataStale} 이벤트를
+ *       발행한다. risk 모듈의 리스너가 이걸 구독해 킬스위치를 켠다 — "끊긴 걸 알고 있지만
+ *       그래도 계속 매매하는" 사고까지 막는다(risk.MarketDataStaleListener 참고). 이 모듈은
+ *       risk의 존재를 몰라도 되도록 이벤트만 던진다(모듈 경계 원칙).</li>
  * </ol>
  *
  * <p>autostock.ws.enabled=true일 때만 동작 (앱키 필요).
@@ -68,20 +78,31 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     private final ApplicationEventPublisher publisher;
     private final ObjectMapper objectMapper;
     private final boolean enabled;
+    private final Clock clock;
+    private final long staleAfterSeconds;
 
     private final Set<String> subscribedSymbols = ConcurrentHashMap.newKeySet();
     private final AtomicReference<WebSocketSession> session = new AtomicReference<>();
+
+    /** 단절이 시작된 것으로 판단한 시각. null이면 현재 연결 정상(또는 아직 단절 관측 전). */
+    private final AtomicReference<Instant> disconnectedSince = new AtomicReference<>();
+    /** MarketDataStale을 이미 발행했는지 — 같은 단절 구간에서 중복 발행 방지(재연결 성공 시 리셋). */
+    private final AtomicBoolean staleEventFired = new AtomicBoolean(false);
 
     public KiwoomWebSocketClient(KiwoomProperties kiwoomProperties,
                                  TokenManager tokenManager,
                                  ApplicationEventPublisher publisher,
                                  ObjectMapper objectMapper,
-                                 @Value("${autostock.ws.enabled:false}") boolean enabled) {
+                                 @Value("${autostock.ws.enabled:false}") boolean enabled,
+                                 Clock clock,
+                                 @Value("${autostock.ws.stale-after:180}") long staleAfterSeconds) {
         this.kiwoomProperties = kiwoomProperties;
         this.tokenManager = tokenManager;
         this.publisher = publisher;
         this.objectMapper = objectMapper;
         this.enabled = enabled;
+        this.clock = clock;
+        this.staleAfterSeconds = staleAfterSeconds;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -108,9 +129,36 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
             return;
         }
         WebSocketSession current = session.get();
-        if (current == null || !current.isOpen()) {
+        boolean connected = current != null && current.isOpen();
+        trackDisconnection(connected);
+        if (!connected) {
             log.warn("WS 단절 감지 — 재연결 시도");
             connect();
+        }
+    }
+
+    /**
+     * 단절 지속시간을 추적하고, 임계치({@code staleAfterSeconds})를 넘으면 {@link MarketDataStale}을
+     * 발행한다. {@link #connect()}(실제 재연결 시도, 네트워크 부작용) 호출과 의도적으로 분리했다 —
+     * 이 메서드만 따로 단위테스트할 수 있게 하기 위해서다(패키지 접근 — 테스트 전용 공개 수준).
+     *
+     * @param connected 이번 watchdog 틱에서 관측한 연결 상태(true=정상)
+     */
+    void trackDisconnection(boolean connected) {
+        if (connected) {
+            // 연결 정상 — 단절 구간이 있었다면 종료. 다음 단절부터 다시 새로 잰다.
+            disconnectedSince.set(null);
+            staleEventFired.set(false);
+            return;
+        }
+
+        // 이번이 단절의 첫 관측이면 지금을 시작 시각으로 기록, 이미 있으면 그대로 유지(단절 지속 중).
+        Instant since = disconnectedSince.updateAndGet(existing -> existing != null ? existing : Instant.now(clock));
+        long elapsedSeconds = Duration.between(since, Instant.now(clock)).getSeconds();
+
+        if (elapsedSeconds >= staleAfterSeconds && staleEventFired.compareAndSet(false, true)) {
+            log.error("WS 장시간 단절({}초) — MarketDataStale 발행, risk 모듈이 킬스위치를 켤 것이다", elapsedSeconds);
+            publisher.publishEvent(new MarketDataStale(since, elapsedSeconds));
         }
     }
 
@@ -131,6 +179,10 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     @Override
     public void afterConnectionEstablished(WebSocketSession newSession) throws Exception {
         session.set(newSession);
+        // 재연결 성공 — 단절 구간 종료. watchdog의 다음 틱을 기다리지 않고 즉시 리셋한다
+        // ("재연결 성공 시 리셋" 스펙 — watchdog에서도 connected=true면 리셋하므로 이중 방어).
+        disconnectedSince.set(null);
+        staleEventFired.set(false);
         // 로그인
         newSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(
                 Map.of("trnm", "LOGIN", "token", tokenManager.accessToken()))));

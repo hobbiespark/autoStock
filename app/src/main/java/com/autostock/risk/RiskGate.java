@@ -5,6 +5,7 @@ import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.TradingCalendar;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -12,8 +13,10 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 /**
  * 리스크 게이트 — <b>모든 주문이 반드시 통과해야 하는 유일한 관문</b>.
@@ -24,19 +27,28 @@ import java.time.LocalDate;
  *
  * <p>검사 순서 — 순서가 중요하다:
  * <ol>
- *   <li><b>킬스위치</b>: 비상 정지 상태면 무조건 거부. 가장 싸고 빠른 검사라 맨 앞.</li>
+ *   <li><b>장 시간 가드</b>: 정규장(09:00~15:30 KST) 외 시간의 시그널은 거부.
+ *       외부 상태(시계)만 보면 되는 가장 값싼 검사라 맨 앞에 둔다.</li>
+ *   <li><b>킬스위치</b>: 비상 정지 상태면 무조건 거부.</li>
  *   <li><b>사이징</b>: 몇 주를 살/팔 수 있는지 계산. 0주면 여기서 끝 —
  *       주문 슬롯(일 한도)을 낭비하지 않기 위해 한도 검사보다 먼저 한다.</li>
  *   <li><b>일 주문 한도</b>: 하루 주문 횟수 상한. 폭주(버그로 인한 연속 주문)의 마지막 방어선.</li>
  * </ol>
  *
  * <pre>
- *  Signal ──▶ [킬스위치?] ──▶ [사이징 &gt; 0?] ──▶ [일 한도 OK?] ──▶ OrderRequest 발행
- *                │ 거부            │ 거부              │ 거부
- *                ▼                ▼                  ▼
+ *  Signal ──▶ [장시간?] ──▶ [킬스위치?] ──▶ [사이징 &gt; 0?] ──▶ [일 한도 OK?] ──▶ OrderRequest 발행
+ *                │ 거부         │ 거부            │ 거부              │ 거부
+ *                ▼             ▼                ▼                  ▼
  *              (로그만 남기고 조용히 버린다 — 예외를 던지지 않는 이유:
  *               시그널 거부는 "정상 동작"이지 오류가 아니기 때문)
  * </pre>
+ *
+ * <p><b>장 시간 가드 설계</b>: {@code risk.enforce-market-hours}(기본 true)로 켜고 끌 수 있다.
+ * SIM 모드 테스트에서 매번 "지금이 장중"이 되도록 시각을 맞추는 건 번거롭고 깨지기 쉬우므로,
+ * 테스트는 이 플래그를 false로 준 {@link RiskProperties}를 생성해 가드 자체를 끄고 검증할 수
+ * 있게 했다. 실제 장 시간 판정 자체는 {@link Clock}을 주입받아 계산한다 —
+ * {@code StaleOrderCanceller}와 같은 이유로, System 시계를 직접 부르지 않아야 테스트가
+ * 결정론적이다(가드를 켠 채로 특정 시각을 검증하고 싶을 때 {@link Clock#fixed}로 고정).
  */
 @Component
 public class RiskGate {
@@ -49,19 +61,25 @@ public class RiskGate {
     private final PositionSizer sizer;
     private final PositionBook positionBook;
     private final DailyLimitTracker dailyLimits;
+    private final EquitySource equitySource;
+    private final Clock clock;
 
     public RiskGate(ApplicationEventPublisher publisher,
                     KillSwitch killSwitch,
                     RiskProperties properties,
                     PositionSizer sizer,
                     PositionBook positionBook,
-                    DailyLimitTracker dailyLimits) {
+                    DailyLimitTracker dailyLimits,
+                    EquitySource equitySource,
+                    Clock clock) {
         this.publisher = publisher;
         this.killSwitch = killSwitch;
         this.properties = properties;
         this.sizer = sizer;
         this.positionBook = positionBook;
         this.dailyLimits = dailyLimits;
+        this.equitySource = equitySource;
+        this.clock = clock;
     }
 
     /**
@@ -71,6 +89,14 @@ public class RiskGate {
      */
     @EventListener
     public void onSignal(Signal signal) {
+        // ── 0단계: 장 시간 가드 ─────────────────────────────────────────
+        // 정규장 외 시간에 들어온 시그널(예: 배치 재처리, 테스트 데이터 오발행 등)은
+        // 애초에 체결될 수 없거나 의도치 않은 시점에 주문이 나가는 사고로 이어질 수 있다.
+        if (properties.enforceMarketHours() && !isMarketHours()) {
+            log.info("장 시간 외 — 시그널 거부: {}", signal.symbol());
+            return;
+        }
+
         // ── 1단계: 킬스위치 ─────────────────────────────────────────────
         // 텔레그램 명령·일 손실 한도·WS 단절 등 어떤 이유로든 비상 정지 상태면
         // 신규 주문은 전면 차단된다.
@@ -148,9 +174,10 @@ public class RiskGate {
                     properties.maxConcurrentPositions(), signal.symbol());
             return 0;
         }
-        // TODO Phase 2 후반: LIVE 모드에서는 브로커 잔고 조회로 equity를 실시간 갱신한다.
-        //  지금은 설정값(paper-equity)을 쓰므로 SIM/모의 전용.
-        BigDecimal equity = BigDecimal.valueOf(properties.paperEquity());
+        // equity 조회는 EquitySource에 위임한다 — SIM은 설정값 고정(PaperEquitySource),
+        // LIVE는 브로커 잔고 조회(execution.BrokerEquitySource, 60초 캐시)로 실행 모드에 따라
+        // 조건부로 갈린다(RiskGate는 둘 중 무엇이 떠 있는지 모른다).
+        BigDecimal equity = equitySource.equity();
         double confidence = clampConfidence(signal);
         long qty = sizer.sizeBuy(equity, signal.refPrice(), confidence);
         if (qty <= 0) {
@@ -186,5 +213,11 @@ public class RiskGate {
             return 0;
         }
         return position.quantity();
+    }
+
+    /** 지금이 정규장 시간(09:00~15:30 KST)인지 — {@link #clock}으로 얻은 시각을 KST로 환산해 판정한다. */
+    private boolean isMarketHours() {
+        LocalDateTime now = LocalDateTime.now(clock.withZone(MarketConstants.KST));
+        return TradingCalendar.isMarketHours(now);
     }
 }
