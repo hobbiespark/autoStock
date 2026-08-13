@@ -20,10 +20,8 @@ import java.util.Map;
  * </pre>
  * 이 클래스는 아직 "조회"만 한다 — 위 두 가지 활용은 TODO(Phase 2 후반)로 남긴다.
  *
- * <p>TODO Phase 2 실측: 응답 JSON에서 미체결 목록이 정확히 어떤 필드 키에
- * 담기는지(예: "oso" 등) 문서만으로는 확정할 수 없었다. 그래서 응답에서
- * List 타입인 첫 값을 찾아 반환하는 방어적 방식을 쓴다 — 실측 후 정확한
- * 필드명으로 고정할 것.
+ * <p>실측 확정(2026-08-13, mockapi): 미체결 목록은 응답의 {@code "oso"} 키에 배열로 담긴다.
+ * 예: {@code {"oso":[],"return_code":0,"return_msg":" 조회가 완료되었습니다."}}
  */
 @Service
 public class OutstandingOrderService {
@@ -36,22 +34,21 @@ public class OutstandingOrderService {
         this.client = client;
     }
 
+    /** 실측 확정된 미체결 목록 응답 키. */
+    private static final String OUTSTANDING_LIST_KEY = "oso";
+
     /** @return 미체결 주문 목록 (각 원소는 키움 응답의 원본 필드를 그대로 담은 맵) */
     @SuppressWarnings("unchecked")
     public List<Map<String, Object>> outstandingOrders() {
-        // all_stk_tp=0(전체 종목 유형), trde_tp=0(전체 매매구분), stk_cd=""(전 종목),
-        // stex_tp=0(전체 거래소) — 문서 기반 추정, 실측 TODO
+        // all_stk_tp=1(전체), trde_tp=0(전체 매매구분), stex_tp=0(전체 거래소) — 실측 통과 파라미터
         Map<String, Object> response = client.call(TrId.OUTSTANDING_ORDERS, OUTSTANDING_PATH, Map.of(
-                "all_stk_tp", "0",
+                "all_stk_tp", "1",
                 "trde_tp", "0",
-                "stk_cd", "",
                 "stex_tp", "0"));
 
-        for (Object value : response.values()) {
-            if (value instanceof List<?> list) {
-                // 실측 전이라 정확한 키를 모르므로, 응답에서 List 타입인 첫 값을 미체결 목록으로 간주한다
-                return (List<Map<String, Object>>) list;
-            }
+        Object list = response.get(OUTSTANDING_LIST_KEY);
+        if (list instanceof List<?> orders) {
+            return (List<Map<String, Object>>) orders;
         }
         return List.of();
     }
