@@ -9,6 +9,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -44,6 +45,15 @@ public class ExecutionService {
 
     /** SIM 모드 가상 주문번호 시퀀스 (SIM-1, SIM-2, ...) */
     private final AtomicLong simOrderSeq = new AtomicLong(0);
+
+    /**
+     * LIVE 모드 전용: 브로커 주문번호 → 원 주문요청 맵.
+     * WS 체결통보(OrderNotice)는 brokerOrderId만 들고 오기 때문에, 이걸 원래
+     * OrderRequest(멱등키·수량·매수매도 방향 등)로 되돌려 찾을 방법이 있어야
+     * Fill을 만들 수 있다. {@link OrderNoticeHandler}가 이 맵을 조회한다.
+     * TODO Phase 2 후반: 인메모리라 재시작 시 유실 — DB(orders 테이블)로 이전 필요.
+     */
+    private final Map<String, OrderRequest> brokerOrderIdToRequest = new ConcurrentHashMap<>();
 
     private final ExecutionProperties properties;
     private final KiwoomOrderService orderService;
@@ -95,11 +105,24 @@ public class ExecutionService {
 
     /**
      * LIVE: 키움 주문 API 호출. 여기서는 "접수"까지만 —
-     * 실제 체결은 비동기로 일어나므로 WS 체결통보를 받아 Fill을 발행해야 한다.
+     * 실제 체결은 비동기로 일어나므로 WS 체결통보(OrderNotice)를 받아
+     * {@link OrderNoticeHandler}가 Fill을 발행한다. 그 매핑을 위해 여기서
+     * brokerOrderId → 원 주문요청을 기억해 둔다.
      */
     private void executeLive(OrderRequest request) {
         String brokerOrderId = orderService.placeOrder(request);
+        brokerOrderIdToRequest.put(brokerOrderId, request);
         log.info("[LIVE] 주문 접수: {} → 주문번호 {}", request.symbol(), brokerOrderId);
-        // TODO Phase 2 후반: WS 체결통보 수신 → Fill 발행, 미체결 타임아웃 자동 취소
+        // TODO Phase 2 후반: 미체결 타임아웃 자동 취소 (OutstandingOrderService 활용)
+    }
+
+    /**
+     * brokerOrderId로 원 주문요청을 찾는다. OrderNoticeHandler 전용 조회 API.
+     *
+     * @return 매핑이 있으면 원 주문요청, 없으면 null (수동 주문 등 이 서비스가
+     *         모르는 주문일 수 있음 — 호출자가 경고 로그를 남기고 무시해야 한다)
+     */
+    OrderRequest findByBrokerOrderId(String brokerOrderId) {
+        return brokerOrderIdToRequest.get(brokerOrderId);
     }
 }

@@ -1,6 +1,5 @@
 package com.autostock.marketdata;
 
-import com.autostock.common.event.MarketTick;
 import com.autostock.kiwoom.KiwoomProperties;
 import com.autostock.kiwoom.TokenManager;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -18,9 +17,7 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
-import java.math.BigDecimal;
 import java.net.URI;
-import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -38,10 +35,15 @@ import java.util.concurrent.atomic.AtomicReference;
  * <p>메시지 프로토콜 (trnm 필드로 구분):
  * <pre>
  *   → LOGIN {token}          연결 직후 토큰으로 인증
- *   → REG   {item, type}     종목 구독 등록 (type 0B = 주식체결)
+ *   → REG   {item, type}     종목/이벤트 구독 등록 (type 0B = 주식체결, type 00 = 주문체결통보)
  *   ← PING                   서버 생존 확인 — 같은 내용 그대로 되돌려줘야 연결 유지
- *   ← REAL  {data[]}         실시간 데이터 — 파싱해서 MarketTick 이벤트로 변환
+ *   ← REAL  {data[]}         실시간 데이터 — {@link RealMessageParser}가 type별로
+ *                            MarketTick(0B) 또는 OrderNotice(00) 이벤트로 변환한다
  * </pre>
+ *
+ * <p>type 00(주문체결통보)은 특정 종목이 아니라 "내 계좌"에 걸린 이벤트라서
+ * 시세 구독(grp_no 1)과 분리된 그룹(grp_no 2)으로 연결 시 1회 등록한다.
+ * (item을 빈 배열로 등록하는 것이 맞는지는 문서상 불명확 — 실측 TODO)
  *
  * <p><b>가장 중요한 설계: 단절 대응.</b> 커뮤니티 사고 사례 1순위가
  * "WS가 끊긴 줄 모르고 시세 없이 매매가 멈춰 있었다"이다. (PLAN 3절)
@@ -134,6 +136,8 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                 Map.of("trnm", "LOGIN", "token", tokenManager.accessToken()))));
         // 재구독 (재연결 시 등록 누락 방지)
         subscribedSymbols.forEach(symbol -> sendRegister(newSession, symbol));
+        // 주문체결통보(계좌 단위)는 종목과 무관하게 별도 그룹으로 1회 등록
+        registerOrderNotice(newSession);
         log.info("WS 연결 완료, 재구독 {}종목", subscribedSymbols.size());
     }
 
@@ -152,6 +156,26 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * 주문체결통보(type 00) 등록. 시세와 달리 종목 단위가 아니라 계좌 단위 이벤트라서
+     * item을 빈 배열로 두고 grp_no를 시세(1)와 분리된 "2"로 등록한다.
+     * TODO Phase 2 실측: item 빈 배열이 "전 종목 통보"로 동작하는지 문서상 불명확 — 확인 필요.
+     */
+    private void registerOrderNotice(WebSocketSession target) {
+        try {
+            target.sendMessage(new TextMessage(objectMapper.writeValueAsString(Map.of(
+                    "trnm", "REG",
+                    "grp_no", "2",
+                    "refresh", "1",
+                    "data", new Object[]{Map.of(
+                            "item", new String[]{},
+                            "type", new String[]{"00"}   // 주문체결통보
+                    )}))));
+        } catch (Exception e) {
+            log.error("주문체결통보 등록 실패", e);
+        }
+    }
+
     @Override
     protected void handleTextMessage(WebSocketSession current, TextMessage message) throws Exception {
         JsonNode root = objectMapper.readTree(message.getPayload());
@@ -162,20 +186,12 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         }
         if ("REAL".equals(trnm)) {
             for (JsonNode data : root.path("data")) {
-                publishTick(data);
+                // type에 따라 MarketTick(0B) 또는 OrderNotice(00)로 변환됨. 그 외 타입은 null.
+                Object event = RealMessageParser.parse(data);
+                if (event != null) {
+                    publisher.publishEvent(event);
+                }
             }
         }
-    }
-
-    private void publishTick(JsonNode data) {
-        // TODO Phase 2 검증: 실시간 필드 번호(10=현재가, 15=거래량 등) 실측 확인
-        String symbol = data.path("item").asText();
-        String priceRaw = data.path("values").path("10").asText("");
-        if (symbol.isEmpty() || priceRaw.isEmpty()) {
-            return;
-        }
-        BigDecimal price = new BigDecimal(priceRaw.replace("+", "").replace("-", ""));
-        long volume = data.path("values").path("15").asLong(0);
-        publisher.publishEvent(new MarketTick(symbol, price, volume, Instant.now(), MarketTick.Source.LIVE));
     }
 }
