@@ -4,6 +4,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderNotice;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -41,7 +42,8 @@ class OrderNoticeHandlerTest {
             }
         };
         executionService = new ExecutionService(
-                new ExecutionProperties(ExecutionProperties.Mode.LIVE), fakeOrderService, publisher);
+                new ExecutionProperties(ExecutionProperties.Mode.LIVE), fakeOrderService, publisher,
+                new SimpleMeterRegistry());
         handler = new OrderNoticeHandler(executionService, publisher);
     }
 

@@ -15,7 +15,11 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-websocket'   // 키움 실시간 WS
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
-    implementation 'org.springframework.boot:spring-boot-starter-actuator'
+    implementation 'org.springframework.boot:spring-boot-starter-actuator'    // micrometer-core 포함 — 별도 의존성 불필요
+
+    // Caffeine 로컬 캐시 — 단일 JVM 모놀리스(PLAN ADR-1)라 Redis 없이 인메모리로 충분 (PLAN ADR-5)
+    implementation 'org.springframework.boot:spring-boot-starter-cache'
+    implementation 'com.github.ben-manes.caffeine:caffeine'
 
     implementation 'org.springframework.modulith:spring-modulith-starter-core'
     implementation 'org.springframework.modulith:spring-modulith-starter-jpa' // 이벤트 발행 로그(아웃박스)

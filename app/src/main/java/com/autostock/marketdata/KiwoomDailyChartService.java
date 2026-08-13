@@ -1,11 +1,11 @@
 package com.autostock.marketdata;
 
 import com.autostock.common.event.Candle;
+import com.autostock.common.util.KiwoomNumbers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -77,43 +77,22 @@ public class KiwoomDailyChartService {
         return candles;
     }
 
-    private Candle toCandle(String symbol, Map<String, Object> bar) {
-        LocalDate date = LocalDate.parse(String.valueOf(bar.get("dt")), BASE_DATE_FORMAT);
-        return new Candle(
-                symbol,
-                date,
-                stripSign(bar.get("open_pric")),
-                stripSign(bar.get("high_pric")),
-                stripSign(bar.get("low_pric")),
-                stripSign(bar.get("cur_prc")),
-                stripSignToLong(bar.get("trde_qty")));
-    }
-
     /**
      * 키움 REST 응답의 가격류 필드는 등락 표시를 위해 {@code "+13500"}/{@code "-13500"}처럼
      * 부호가 붙어 올 수 있다(실측: ka10081의 {@code pred_pre}. {@code cur_prc}도 다른 TR에서는
      * 부호가 붙는 관례가 있어, 여기서도 안전하게 방어적으로 부호를 벗겨낸다). 캔들의 OHLC는
      * 항상 0 이상이어야 하므로 부호를 제거한 절대값으로 취급한다.
+     * 부호 정규화는 {@link KiwoomNumbers}로 공통화했다(marketdata·WS 파서 중복 제거, PLAN ADR-5).
      */
-    private static BigDecimal stripSign(Object raw) {
-        String cleaned = stripSignChar(raw);
-        return cleaned.isEmpty() ? BigDecimal.ZERO : new BigDecimal(cleaned);
-    }
-
-    /** {@link #stripSign(Object)}과 같은 이유로 거래량 필드도 방어적으로 부호를 제거한다. */
-    private static long stripSignToLong(Object raw) {
-        String cleaned = stripSignChar(raw);
-        return cleaned.isEmpty() ? 0L : Long.parseLong(cleaned);
-    }
-
-    private static String stripSignChar(Object raw) {
-        if (raw == null) {
-            return "";
-        }
-        String s = String.valueOf(raw).trim();
-        if (s.startsWith("+") || s.startsWith("-")) {
-            s = s.substring(1);
-        }
-        return s;
+    private Candle toCandle(String symbol, Map<String, Object> bar) {
+        LocalDate date = LocalDate.parse(String.valueOf(bar.get("dt")), BASE_DATE_FORMAT);
+        return new Candle(
+                symbol,
+                date,
+                KiwoomNumbers.toBigDecimal(bar.get("open_pric")),
+                KiwoomNumbers.toBigDecimal(bar.get("high_pric")),
+                KiwoomNumbers.toBigDecimal(bar.get("low_pric")),
+                KiwoomNumbers.toBigDecimal(bar.get("cur_prc")),
+                KiwoomNumbers.toLong(bar.get("trde_qty")));
     }
 }

@@ -2,6 +2,8 @@ package com.autostock.execution;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -58,17 +60,23 @@ public class ExecutionService {
     private final ExecutionProperties properties;
     private final KiwoomOrderService orderService;
     private final ApplicationEventPublisher publisher;
+    private final MeterRegistry meterRegistry;
 
     public ExecutionService(ExecutionProperties properties,
                             KiwoomOrderService orderService,
-                            ApplicationEventPublisher publisher) {
+                            ApplicationEventPublisher publisher,
+                            MeterRegistry meterRegistry) {
         this.properties = properties;
         this.orderService = orderService;
         this.publisher = publisher;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
      * 주문 요청 수신 → 멱등성 검사 → 모드별 실행.
+     *
+     * <p>{@code order.submit.latency}: 주문 요청을 받아 "접수"(SIM은 즉시 체결, LIVE는
+     * 키움 API 접수 완료)까지 걸린 시간을 잰다 — 주문 라운드트립 지연 계측(PLAN ADR-5).
      */
     @EventListener
     public void onOrderRequest(OrderRequest request) {
@@ -77,9 +85,17 @@ public class ExecutionService {
             log.warn("중복 주문 거부 (멱등키 재사용): {}", request.idempotencyKey());
             return;
         }
-        switch (properties.mode()) {
-            case SIM -> executeSim(request);
-            case LIVE -> executeLive(request);
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            switch (properties.mode()) {
+                case SIM -> executeSim(request);
+                case LIVE -> executeLive(request);
+            }
+        } finally {
+            sample.stop(Timer.builder("order.submit.latency")
+                    .description("주문 요청 수신부터 접수 완료까지 걸린 시간")
+                    .tag("mode", properties.mode().name())
+                    .register(meterRegistry));
         }
     }
 

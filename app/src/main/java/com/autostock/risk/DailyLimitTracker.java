@@ -1,9 +1,9 @@
 package com.autostock.risk;
 
+import com.autostock.common.util.MarketConstants;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -15,17 +15,17 @@ import java.util.concurrent.atomic.AtomicReference;
  * 마지막 방어선. (일 손실 한도는 잔고 연동 후 Phase 2 후반 추가)
  *
  * <p>날짜 롤오버 주의점: "오늘"의 기준은 KST(한국시간)다. 서버가 UTC로 돌아도
- * 자정(KST)에 카운터가 리셋되도록 ZoneId를 명시했다.
+ * 자정(KST)에 카운터가 리셋되도록 {@link MarketConstants#KST}를 명시했다
+ * (여러 모듈이 각자 ZoneId를 선언하던 것을 공용 상수로 통합, PLAN ADR-5).
  * compareAndSet을 쓰는 이유: 자정 직후 여러 스레드가 동시에 리셋을 시도해도
  * 정확히 한 번만 리셋되게 하기 위해서다.
  */
 @Component
 public class DailyLimitTracker {
 
-    static final ZoneId KST = ZoneId.of("Asia/Seoul");
-
     private final RiskProperties properties;
-    private final AtomicReference<LocalDate> currentDay = new AtomicReference<>(LocalDate.now(KST));
+    private final AtomicReference<LocalDate> currentDay =
+            new AtomicReference<>(LocalDate.now(MarketConstants.KST));
     private final AtomicInteger orderCount = new AtomicInteger(0);
 
     public DailyLimitTracker(RiskProperties properties) {
@@ -44,7 +44,7 @@ public class DailyLimitTracker {
     }
 
     private void rollDayIfNeeded() {
-        LocalDate today = LocalDate.now(KST);
+        LocalDate today = LocalDate.now(MarketConstants.KST);
         LocalDate known = currentDay.get();
         if (!today.equals(known) && currentDay.compareAndSet(known, today)) {
             orderCount.set(0);

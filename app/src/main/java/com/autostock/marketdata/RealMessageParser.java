@@ -2,6 +2,7 @@ package com.autostock.marketdata;
 
 import com.autostock.common.event.MarketTick;
 import com.autostock.common.event.OrderNotice;
+import com.autostock.common.util.KiwoomNumbers;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
@@ -57,7 +58,9 @@ final class RealMessageParser {
         if (symbol.isEmpty() || priceRaw.isEmpty()) {
             return null;
         }
-        BigDecimal price = new BigDecimal(stripSign(priceRaw));
+        // 키움 REST/WS는 등락 부호(+/-)를 숫자 앞에 붙여 보내는 경우가 있어 제거 후 파싱한다.
+        // 부호 정규화는 KiwoomNumbers로 공통화했다(marketdata REST 파서와 중복 제거, PLAN ADR-5).
+        BigDecimal price = KiwoomNumbers.toBigDecimal(priceRaw);
         long volume = data.path("values").path("15").asLong(0);
         return new MarketTick(symbol, price, volume, Instant.now(), MarketTick.Source.LIVE);
     }
@@ -75,27 +78,11 @@ final class RealMessageParser {
         }
         String symbol = values.path("9001").asText("");
         String status = values.path("913").asText("");
-        long filledQuantity = parseLongOrZero(values.path("911").asText(""));
+        // 필드 번호가 아직 실측 미확정(문서 기반 추정)이라 방어적으로 0 처리하는 toLongOrZero를 쓴다.
+        long filledQuantity = KiwoomNumbers.toLongOrZero(values.path("911").asText(""));
         String fillPriceRaw = values.path("910").asText("");
-        BigDecimal fillPrice = fillPriceRaw.isEmpty() ? null : new BigDecimal(stripSign(fillPriceRaw));
+        BigDecimal fillPrice = fillPriceRaw.isEmpty() ? null : KiwoomNumbers.toBigDecimal(fillPriceRaw);
         return new OrderNotice(brokerOrderId, symbol, status, filledQuantity, fillPrice,
                 TYPE_ORDER_NOTICE, Instant.now());
-    }
-
-    /** 키움 REST/WS는 등락 부호(+/-)를 숫자 앞에 붙여 보내는 경우가 있어 제거 후 파싱한다. */
-    private static String stripSign(String raw) {
-        return raw.replace("+", "").replace("-", "").trim();
-    }
-
-    private static long parseLongOrZero(String raw) {
-        String cleaned = stripSign(raw);
-        if (cleaned.isEmpty()) {
-            return 0L;
-        }
-        try {
-            return Long.parseLong(cleaned);
-        } catch (NumberFormatException e) {
-            return 0L; // 예상치 못한 포맷 — 실측 전이므로 방어적으로 0 처리
-        }
     }
 }
