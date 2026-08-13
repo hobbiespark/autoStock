@@ -2,6 +2,8 @@ package com.autostock.kiwoom;
 
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -42,6 +44,7 @@ public class KiwoomRestClient {
     private final WebClient webClient;
     private final TokenManager tokenManager;
     private final TrRateLimiter rateLimiter;
+    private final MeterRegistry meterRegistry;
 
     /** 429(호출 한도 초과) 전용 재시도. 다른 오류는 재시도하지 않는다 — 주문 중복 위험 때문. */
     private final Retry retry;
@@ -49,10 +52,12 @@ public class KiwoomRestClient {
     public KiwoomRestClient(WebClient.Builder builder,
                             KiwoomProperties properties,
                             TokenManager tokenManager,
-                            TrRateLimiter rateLimiter) {
+                            TrRateLimiter rateLimiter,
+                            MeterRegistry meterRegistry) {
         this.webClient = builder.baseUrl(properties.restBaseUrl()).build();
         this.tokenManager = tokenManager;
         this.rateLimiter = rateLimiter;
+        this.meterRegistry = meterRegistry;
         this.retry = Retry.of("kiwoom-429", RetryConfig.custom()
                 .maxAttempts(4)                          // 최초 1회 + 재시도 3회
                 .waitDuration(Duration.ofMillis(600))    // 재시도 간격
@@ -73,24 +78,35 @@ public class KiwoomRestClient {
      */
     @SuppressWarnings("unchecked")
     public Map<String, Object> call(TrId trId, String path, Map<String, Object> body) {
-        // 바깥: rate limiter (통과할 때까지 대기) → 안쪽: 429 재시도 → 최심부: 실제 HTTP 호출
-        return rateLimiter.execute(trId, () ->
-                Retry.decorateSupplier(retry, () -> {
-                    Map<String, Object> response = (Map<String, Object>) webClient.post()
-                            .uri(path)
-                            .header("authorization", "Bearer " + tokenManager.accessToken())
-                            .header("api-id", trId.apiId())
-                            .contentType(MediaType.valueOf("application/json;charset=UTF-8"))
-                            .bodyValue(body)
-                            .retrieve()
-                            // 오류 응답이면 본문을 읽어 예외 메시지에 포함 — 디버깅 편의
-                            .onStatus(HttpStatusCode::isError, resp ->
-                                    resp.bodyToMono(String.class).map(msg ->
-                                            new KiwoomApiException("키움 API 오류 [" + trId.apiId() + "] " + msg)))
-                            .bodyToMono(Map.class)
-                            .block();
-                    return checkReturnCode(trId, response);
-                }).get());
+        // kiwoom.api.latency: TR(api_id)별 지연 분포를 태그로 나눠 기록한다. rate limiter 대기
+        // 시간까지 포함해서 재는데(의도적) — "얼마나 기다렸는지"가 rate limit 튜닝의 원천이고,
+        // 체결까지 걸린 총 시간은 슬리피지 분석의 기초 데이터이기 때문이다 (PLAN ADR-5).
+        Timer.Sample sample = Timer.start(meterRegistry);
+        try {
+            // 바깥: rate limiter (통과할 때까지 대기) → 안쪽: 429 재시도 → 최심부: 실제 HTTP 호출
+            return rateLimiter.execute(trId, () ->
+                    Retry.decorateSupplier(retry, () -> {
+                        Map<String, Object> response = (Map<String, Object>) webClient.post()
+                                .uri(path)
+                                .header("authorization", "Bearer " + tokenManager.accessToken())
+                                .header("api-id", trId.apiId())
+                                .contentType(MediaType.valueOf("application/json;charset=UTF-8"))
+                                .bodyValue(body)
+                                .retrieve()
+                                // 오류 응답이면 본문을 읽어 예외 메시지에 포함 — 디버깅 편의
+                                .onStatus(HttpStatusCode::isError, resp ->
+                                        resp.bodyToMono(String.class).map(msg ->
+                                                new KiwoomApiException("키움 API 오류 [" + trId.apiId() + "] " + msg)))
+                                .bodyToMono(Map.class)
+                                .block();
+                        return checkReturnCode(trId, response);
+                    }).get());
+        } finally {
+            sample.stop(Timer.builder("kiwoom.api.latency")
+                    .description("TR(api_id)별 키움 REST API 호출 지연(rate limit 대기 포함)")
+                    .tag("api_id", trId.apiId())
+                    .register(meterRegistry));
+        }
     }
 
     /**

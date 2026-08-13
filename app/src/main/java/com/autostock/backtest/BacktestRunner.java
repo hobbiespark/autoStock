@@ -4,6 +4,8 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -57,6 +59,8 @@ import java.util.UUID;
  */
 public final class BacktestRunner {
 
+    private static final Logger log = LoggerFactory.getLogger(BacktestRunner.class);
+
     private final CostModel costModel;
     private final BacktestExecutionHandler executionHandler;
     private final PerformanceCalculator performanceCalculator;
@@ -105,6 +109,19 @@ public final class BacktestRunner {
      *                       기존 동작과 완전히 동일).
      */
     public BacktestResult run(List<Candle> candles, BacktestStrategy strategy, BigDecimal initialCapital,
+                               int warmupCandles, int trials, double trialsVariance) {
+        // 처리 시간·처리량 계측 — 스프링/Micrometer 없이 System.nanoTime만 쓴다. 백테스트는
+        // 스프링 컨텍스트 없는 순수 자바 루프로 반복 실행(파라미터 스윕 등)되는 게 핵심이라,
+        // 계측기까지 주입받게 만들면 그 목적을 해친다 (PLAN ADR-5: "러너 자체 계측").
+        long startNanos = System.nanoTime();
+        BacktestResult result = doRun(candles, strategy, initialCapital, warmupCandles, trials, trialsVariance);
+        long elapsedMillis = (System.nanoTime() - startNanos) / 1_000_000;
+        log.info("백테스트 완료: {}봉 처리, {}ms 소요 ({}봉/ms)",
+                candles.size(), elapsedMillis, elapsedMillis == 0 ? "∞" : String.format("%.2f", candles.size() / (double) elapsedMillis));
+        return result;
+    }
+
+    private BacktestResult doRun(List<Candle> candles, BacktestStrategy strategy, BigDecimal initialCapital,
                                int warmupCandles, int trials, double trialsVariance) {
         List<Double> dailyReturns = new ArrayList<>();
         Ledger ledger = new Ledger(initialCapital);

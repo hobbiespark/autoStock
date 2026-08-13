@@ -3,6 +3,7 @@ package com.autostock.kiwoom;
 import com.autostock.common.event.Candle;
 import com.autostock.marketdata.KiwoomDailyChartService;
 import com.autostock.marketdata.MarketQueryService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 
@@ -58,7 +59,8 @@ class KiwoomSmokeIT {
 
         // ── 2) 잔고 조회(kt00018) — return_code==0 검증 ──────────────────────
         TrRateLimiter rateLimiter = new TrRateLimiter();
-        KiwoomRestClient restClient = new KiwoomRestClient(builder, properties, tokenManager, rateLimiter);
+        KiwoomRestClient restClient = new KiwoomRestClient(
+                builder, properties, tokenManager, rateLimiter, new SimpleMeterRegistry());
         Map<String, Object> balance = restClient.call(TrId.ACCOUNT_BALANCE, "/api/dostk/acnt",
                 Map.of("qry_tp", "1", "dmst_stex_tp", "KRX"));
         assertEquals(0, ((Number) balance.get("return_code")).intValue(),

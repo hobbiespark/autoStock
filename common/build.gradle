@@ -1,7 +1,12 @@
 apply plugin: 'java-library'
 
-// 이벤트 스키마(계약) 모듈 — 외부 의존성 최소 유지
+// 이벤트 스키마(계약) 모듈 — 외부 의존성 최소 유지 (메인 소스는 순수 자바 유지, PLAN ADR-5)
 dependencies {
     // Modulith 모듈 선언 애너테이션만 사용 (OPEN 계약 모듈)
     compileOnly 'org.springframework.modulith:spring-modulith-api:1.4.12'
+
+    // 유틸(KiwoomNumbers 등) 단위테스트용 — 테스트 스코프만, 메인 코드는 여전히 순수 자바
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }

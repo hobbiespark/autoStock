@@ -3,6 +3,14 @@ spring:
     name: autostock
   profiles:
     default: paper          # 기본은 반드시 모의 (실전 오적용 방지, PLAN 3절)
+  threads:
+    virtual:
+      # JDK21 가상 스레드 — 키움 REST 호출(.block())처럼 블로킹 I/O가 중심인 워크로드에 적합
+      # (PLAN ADR-5). 운영에서 이상 징후가 보이면 바로 false로 되돌릴 수 있는 플래그로 유지한다.
+      # 단, synchronized 블록 안에서 블로킹하면 가상 스레드가 캐리어에 "고정(pinning)"되는
+      # JDK21의 알려진 이슈가 있어, 핫패스의 synchronized는 ReentrantLock으로 교체했다
+      # (monitor/EventFeed 참고).
+      enabled: true
   datasource:
     url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:autostock}
     username: ${DB_USER:autostock}
@@ -11,6 +19,12 @@ spring:
     hibernate:
       ddl-auto: validate    # 스키마는 Flyway로만 관리
     open-in-view: false
+    properties:
+      hibernate:
+        # 이벤트 스토어 append가 다건일 때 INSERT를 모아 보내 왕복을 줄인다 (PLAN ADR-5).
+        jdbc:
+          batch_size: 50
+        order_inserts: true
   flyway:
     enabled: true
 
@@ -18,7 +32,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics
+        # caches: Caffeine 히트율 등 캐시 통계를 Micrometer 경유로 노출 (PLAN ADR-5, 목표 히트율 >90%)
+        include: health,info,metrics,caches
 
 risk:
   max-position-pct-per-symbol: 0.10
