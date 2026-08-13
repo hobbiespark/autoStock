@@ -40,14 +40,26 @@ infra/         docker-compose (PostgreSQL 등)
 docker compose -f infra/docker-compose.yml up -d postgres
 
 # 2. 환경변수 (커밋 금지)
-export KIWOOM_APP_KEY=...
+export KIWOOM_APP_KEY=...            # 키움 모의투자 앱키
 export KIWOOM_APP_SECRET=...
+export TELEGRAM_BOT_TOKEN=...        # (선택) 텔레그램 알림·원격 킬스위치
+export TELEGRAM_CHAT_ID=...
+export DATA_GO_KR_SERVICE_KEY=...    # (선택) 특일 API — 휴장일 DB 동기화
 
 # 3. 실행 (기본 프로필 = paper 모의투자)
 ./gradlew :app:bootRun
+# 대시보드: http://localhost:8080 — 운영 상태(시작/정지)·킬스위치·포지션·실현손익
 ```
 
-실전(`live`) 프로필은 PLAN.md 1절 게이트 ② 통과 전 사용 금지.
+기본값은 전부 안전측: `execution.mode=SIM`, `strategy.c3.enabled=false`,
+`autostock.ws.enabled=false`, 텔레그램·특일 API 비활성. 실전(`live`) 프로필은
+PLAN.md 1절 게이트 ② 통과 전 사용 금지.
+
+## 전략 현황
+
+C3(시계열 모멘텀 + KODEX200 SMA200 국면필터 + 변동성 타게팅) — 게이트 ① 후보 동결 상태.
+백테스트와 라이브가 동일 순수 계산(`MomentumMath`/`RegimeMath`/`VolTargetMath`)을 공유한다.
+검증 이력과 판정은 [PROGRESS.md](PROGRESS.md) 3절 참조.
 
 ## 검증
 
