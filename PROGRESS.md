@@ -68,8 +68,8 @@
 
 ## 4. 다음 작업 (우선순위 순)
 
-1. **아키텍처 정렬 사이클 (ADR-6 구현)**: 주문 영속화 WIP를 확장 상태기계(CREATED~UNKNOWN)로 완성 + ClientOrderId 포맷 + BrokerPort 추출 + Reconciliation 골격(REST 호출부는 TODO 실측). 전부 순수 코드 — API 호출 없음
-2. **게이트 ① 재판정 실행**: RealDataPortfolioGateTest(로컬 CSV만) 결과 확정 → 3전략 포트폴리오 vs 게이트 기준
+0. ✅ ~~아키텍처 정렬 사이클 (ADR-6 구현)~~ — 완료 (커밋 01e924f): 11상태 주문 상태기계(UNKNOWN 포함, 합법 전이표 강제), ClientOrderId 가독 포맷, BrokerPort/KiwoomBrokerAdapter(구 3개 서비스 흡수), Reconciliation·StaleOrderCanceller 골격. 브로커 필드명·취소 body는 `TODO 실측`
+1. **게이트 ① 재판정 실행**: RealDataPortfolioGateTest(로컬 CSV만) 결과 확정 → 3전략 포트폴리오 vs 게이트 기준
 3. 모듈 재편(market/trading/portfolio/analysis) — 별도 사이클
 4. Phase 5: macro-intel 규칙 기반 필터 (수집 클라이언트는 예상 구현 + TODO 실측)
 5. 텔레그램 알림/원격 킬스위치 (monitor)
