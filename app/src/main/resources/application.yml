@@ -62,6 +62,12 @@ autostock:
   ws:
     enabled: false              # 앱키 발급 후 true
 
+monitor:
+  telegram:
+    enabled: false                          # 자택망 검증 전 비활성 — Bot API 실측(sendMessage/getUpdates 응답 포맷) 전까지 켜지 말 것
+    bot-token: ${TELEGRAM_BOT_TOKEN:}       # BotFather 발급 토큰 — 커밋 금지, 환경변수로만 주입
+    chat-id: ${TELEGRAM_CHAT_ID:}           # 알림 수신 + 원격 명령 허용 chat_id (타인 명령 차단의 기준값)
+
 kiwoom:
   app-key: ${KIWOOM_APP_KEY:}
   app-secret: ${KIWOOM_APP_SECRET:}
