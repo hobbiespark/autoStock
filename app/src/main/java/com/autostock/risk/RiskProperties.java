@@ -12,6 +12,7 @@ public record RiskProperties(
         double stopLossPct,               // 손절 (기본 -0.03)
         double takeProfitPct,             // 익절 (기본 +0.05)
         double dailyMaxLossPct,           // 일 최대 손실 (기본 -0.02)
-        int dailyMaxOrders                // 일 주문 횟수 상한
+        int dailyMaxOrders,               // 일 주문 횟수 상한
+        double paperEquity                // 모의/시뮬레이션 계좌 평가액 (KRW)
 ) {
 }
