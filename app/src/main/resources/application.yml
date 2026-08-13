@@ -40,9 +40,12 @@ risk:
   max-concurrent-positions: 5
   stop-loss-pct: -0.03
   take-profit-pct: 0.05
-  daily-max-loss-pct: -0.02
+  daily-max-loss-pct: -0.02     # 일 최대 손실 -2% — 도달 시 DailyPnlTracker가 킬스위치 작동
   daily-max-orders: 30
-  paper-equity: 10000000        # 시뮬레이션 계좌 1천만원 — live 전환 시 잔고 연동
+  paper-equity: 10000000        # 시뮬레이션 계좌 1천만원 — LIVE는 BrokerEquitySource(잔고 연동)로 대체
+  fee-rate: 0.00015             # 매수/매도 수수료율 — 실현손익 추정용(backtest.CostModel과 동일값)
+  sell-tax-rate: 0.0015         # 매도 증권거래세율 — 실현손익 추정용(backtest.CostModel과 동일값)
+  enforce-market-hours: true    # 장 시간(09:00~15:30 KST) 외 Signal 거부 — SIM 테스트에서만 개별적으로 false
 
 execution:
   mode: SIM                     # SIM: 즉시 체결 시뮬레이션 / LIVE: 키움 주문 API
@@ -61,6 +64,7 @@ strategy:
 autostock:
   ws:
     enabled: false              # 앱키 발급 후 true
+    stale-after: 180             # 연속 단절이 이 초를 넘으면 MarketDataStale 발행 → risk가 킬스위치 작동(PLAN 3절)
 
 monitor:
   telegram:
