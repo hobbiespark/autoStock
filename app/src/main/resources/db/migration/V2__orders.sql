@@ -1,6 +1,6 @@
 -- 주문 Aggregate 영속화 (PLAN.md ADR-6). OrderEntity의 상태 전이(transitionTo)는 애플리케이션
 -- 코드에서 강제되지만, client_order_id UNIQUE 제약이 중복 주문 방지의 최종 방어선이다
--- (1차 방어선은 ExecutionService의 인메모리 Set).
+-- (1차 방어선은 TradingService의 인메모리 Set — ADR-6 재편으로 execution → trading 이동).
 --
 -- 아직 어떤 환경에도 배포된 적 없는 마이그레이션이라(Phase 2 진행 중), 별도 V3를 추가하지
 -- 않고 이 파일 자체를 ADR-6 스펙(11상태·client_order_id·filled_quantity·strategy_id)에 맞게

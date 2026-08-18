@@ -1,4 +1,4 @@
--- 시장 휴장일 테이블(marketdata 모듈).
+-- 시장 휴장일 테이블(market 모듈).
 --
 -- 공공데이터포털 "특일 정보"(한국천문연구원 SpcdeInfoService, getRestDeInfo 오퍼레이션)를
 -- 매년 11월 1일 자동 동기화해 채운다(HolidaySyncService). 다만 이 API는 "법정 공휴일"만

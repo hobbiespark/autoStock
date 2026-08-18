@@ -9,7 +9,7 @@ import java.math.BigDecimal;
  * (예: {@code "+13500"}, {@code "-13500"}). 캔들 OHLC·체결가·체결량 같은 값은
  * 항상 0 이상으로 취급해야 하므로, 어디서 받든 이 클래스로 부호를 벗겨 정규화한다.
  *
- * <p>왜 공통화했나 — marketdata의 {@code KiwoomDailyChartService}(REST 일봉)와
+ * <p>왜 공통화했나 — market의 {@code KiwoomDailyChartService}(REST 일봉)와
  * {@code RealMessageParser}(WS 실시간)가 각자 같은 로직(부호 제거 → BigDecimal/long
  * 변환)을 중복 구현하고 있었다. 파싱 규칙이 하나라도 어긋나면 두 곳을 따로 고쳐야
  * 하는 문제가 있어 여기 하나로 모은다(PLAN ADR-5).

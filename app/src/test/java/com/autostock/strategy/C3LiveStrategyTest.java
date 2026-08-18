@@ -4,12 +4,12 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
-import com.autostock.marketdata.KiwoomDailyChartService;
-import com.autostock.marketdata.MarketCalendarService;
-import com.autostock.marketdata.MarketHolidayRepository;
+import com.autostock.market.KiwoomDailyChartService;
+import com.autostock.market.MarketCalendarService;
+import com.autostock.market.MarketHolidayRepository;
 import com.autostock.monitor.TradingSystemManager;
 import com.autostock.monitor.TradingSystemStatus;
-import com.autostock.risk.PositionBook;
+import com.autostock.portfolio.PositionBook;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -27,7 +27,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 /**
- * C3LiveStrategy 검증 — marketdata 서비스는 스텁으로 대체하고(실제 REST 호출 없음),
+ * C3LiveStrategy 검증 — market 서비스는 스텁으로 대체하고(실제 REST 호출 없음),
  * 국면 ON/OFF와 종목별 모멘텀에 따른 Signal 발행, 종목 단위 예외 격리, enabled=false
  * no-op을 확인한다.
  */

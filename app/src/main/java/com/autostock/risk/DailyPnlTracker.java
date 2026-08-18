@@ -21,7 +21,8 @@ import java.util.concurrent.locks.ReentrantLock;
  * 도달하면 {@link KillSwitch}를 작동시킨다(PLAN 8절, 모의 무인 운영 전 필수 안전장치).
  *
  * <h2>왜 PositionBook의 평단을 그대로 쓰지 않고 자체 미니 장부를 따로 두나</h2>
- * {@link PositionBook}도 이 클래스도 같은 {@link Fill} 이벤트를 구독한다. 매도 체결이 오면
+ * {@link com.autostock.portfolio.PositionBook}(ADR-6 재편으로 portfolio 모듈 소유)도 이 클래스도
+ * 같은 {@link Fill} 이벤트를 구독한다. 매도 체결이 오면
  * "체결가 - 평단"으로 실현손익을 계산해야 하는데, 그 평단은 <b>이 매도로 갱신되기 전의
  * 값</b>이어야 한다. 문제는 Spring의 {@code @EventListener}는 리스너 등록 순서(빈 생성 순서)에
  * 따라 호출 순서가 정해지고, 그 순서는 코드만 봐서는 보장되지 않는다 — 만약 PositionBook이

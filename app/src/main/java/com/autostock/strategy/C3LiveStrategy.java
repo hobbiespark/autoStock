@@ -4,11 +4,11 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.util.MarketConstants;
-import com.autostock.marketdata.KiwoomDailyChartService;
-import com.autostock.marketdata.MarketCalendarService;
+import com.autostock.market.KiwoomDailyChartService;
+import com.autostock.market.MarketCalendarService;
 import com.autostock.monitor.TradingSystemManager;
 import com.autostock.monitor.TradingSystemStatus;
-import com.autostock.risk.PositionBook;
+import com.autostock.portfolio.PositionBook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -129,7 +129,7 @@ public class C3LiveStrategy {
         if (!marketCalendarService.isTradingDay(today)) {
             // cron은 MON-FRI만 걸지만 평일 중 공휴일(신정·설·추석 등)은 별도로 걸러야 한다 —
             // 휴장일에 일봉을 조회하면 "어제 종가"가 아니라 더 예전 데이터를 오늘 것으로
-            // 착각해 판단이 틀어질 수 있다. 판정은 marketdata 모듈의 MarketCalendarService에
+            // 착각해 판단이 틀어질 수 있다. 판정은 market 모듈의 MarketCalendarService에
             // 위임한다 — DB에 동기화된 특일 데이터가 있으면 그것을, 없으면 TradingCalendar
             // 하드코딩으로 폴백한다(MarketCalendarService 클래스 설명 참고).
             log.info("C3: 휴장일({}) — 이번 스케줄 스킵", today);

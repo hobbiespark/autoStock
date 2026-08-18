@@ -6,7 +6,7 @@ import org.springframework.context.annotation.Configuration;
 import java.time.Clock;
 
 /**
- * {@link Clock} 빈 등록 — 시간 판단이 필요한 코드(예: execution/StaleOrderCanceller)가
+ * {@link Clock} 빈 등록 — 시간 판단이 필요한 코드(예: trading/StaleOrderCanceller)가
  * {@code Instant.now()}를 직접 호출하지 않고 주입받은 Clock을 쓰게 하기 위함이다.
  * 테스트에서는 {@link Clock#fixed}로 갈아끼워 "시간이 흘렀다"를 결정론적으로 검증할 수 있다.
  *

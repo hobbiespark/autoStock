@@ -97,8 +97,7 @@
 0-5. ✅ **특일 API 휴장일 DB 동기화** (커밋 7f37936·d05e4d7): 공공데이터 SpcdeInfoService `getRestDeInfo`(공식 명세 확인, `_type=json` 지원). **매년 11/1 내년 일괄 + 매월 15일 향후 30일 창 재동기화**(대체공휴일 늦은 확정 흡수 — 명세: 임시공휴일 1일 내, 대체공휴일 대통령령 시행 후 반영). DB 우선·하드코딩 폴백 판정, MANUAL 등록으로 연말휴장 보완. 기본 비활성(서비스키 `DATA_GO_KR_SERVICE_KEY` 발급 후 활성화)
 0-6. ✅ **운영 상태기계 + CQRS Lite** (커밋 73b4184, 테스트 225건): TradingSystemStatus 6상태 전이표(STOPPED→STARTING→RUNNING→STOPPING, DEGRADED/ERROR), start/stop Command(`POST /api/trading/start|stop`, 응답은 STARTING — Backend가 Source of Truth), 킬스위치↔DEGRADED 자동 연동, View DTO+DashboardFacade(`GET /api/dashboard` 단일 폴링), FE 상태 배지·시작/정지 버튼·실현손익 표시
 1. ✅ ~~게이트 ① 재판정~~ — 완료 (3절 게이트 현황 참조: C3 잠정 통과 → N=6 보수 검증에서 철회, C3 후보 동결)
-1-1. **모듈 재편 (다음 세션)**: market/trading/portfolio/analysis 목표 구조 일괄 재편 (ADR-6, 사용자 선택 항목 — 이월)
-3. 모듈 재편(market/trading/portfolio/analysis) — 별도 사이클
+1-1. ✅ **모듈 재편 완료** (커밋: "refactor: ADR-6 모듈 재편 — market/analysis/portfolio/trading/execution 목표 구조 정렬"): marketdata→market, newsintel→analysis, risk 내 PositionBook→portfolio 신설, execution→trading/execution 분리(trading: 주문 생성·상태 관리·대사 / execution: 브로커 전달만, 단방향 의존). ModularityTests 통과(순환 없음), 테스트 253건 무손상(실패 0, 개수 동일)
 4. Phase 5: macro-intel 규칙 기반 필터 (수집 클라이언트는 예상 구현 + TODO 실측)
 5. 텔레그램 알림/원격 킬스위치 (monitor)
 6. **[자택망에서]** WS 실측(`scripts/ws_probe.py`), 주문 왕복 재검증, KiwoomSmokeIT 키 주입 실행

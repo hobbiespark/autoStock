@@ -6,7 +6,7 @@ import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.PaperEquitySource;
-import com.autostock.risk.PositionBook;
+import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.RiskProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
