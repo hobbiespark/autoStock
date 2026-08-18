@@ -8,6 +8,7 @@ import com.autostock.monitor.view.TradingStatusView;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
+import com.autostock.risk.MacroGuard;
 import com.autostock.portfolio.PositionBook;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -22,8 +23,9 @@ import java.util.List;
  *
  * <p>이 클래스가 참조하는 것: portfolio.PositionBook, risk.KillSwitch/DailyLimitTracker/
  * DailyPnlTracker(기존 DashboardController가 이미 참조하던 것과 동일 — DailyReportScheduler도
- * 같은 패턴), trading.TradingProperties(모드 표시용, ADR-6 재편으로 execution → trading 이동),
- * 그리고 monitor 자신의 EventFeed/TradingSystemManager.
+ * 같은 패턴), risk.MacroGuard(보수 모드 표시, PLAN 5절 macro-intel), trading.TradingProperties
+ * (모드 표시용, ADR-6 재편으로 execution → trading 이동), 그리고 monitor 자신의
+ * EventFeed/TradingSystemManager.
  * strategy 모듈 타입은 참조하지 않는다 — {@link com.autostock.monitor.view.SystemStatusView}
  * Javadoc에 설명된 순환(cycle) 회피 때문에 {@code strategy.c3.enabled}는 {@code @Value}로
  * 직접 읽는다.
@@ -36,6 +38,7 @@ public class DashboardFacade {
     private final KillSwitch killSwitch;
     private final DailyLimitTracker dailyLimitTracker;
     private final DailyPnlTracker dailyPnlTracker;
+    private final MacroGuard macroGuard;
     private final TradingSystemManager tradingSystemManager;
     private final TradingProperties tradingProperties;
     private final boolean c3Enabled;
@@ -46,6 +49,7 @@ public class DashboardFacade {
                            KillSwitch killSwitch,
                            DailyLimitTracker dailyLimitTracker,
                            DailyPnlTracker dailyPnlTracker,
+                           MacroGuard macroGuard,
                            TradingSystemManager tradingSystemManager,
                            TradingProperties tradingProperties,
                            @Value("${strategy.c3.enabled:false}") boolean c3Enabled,
@@ -55,6 +59,7 @@ public class DashboardFacade {
         this.killSwitch = killSwitch;
         this.dailyLimitTracker = dailyLimitTracker;
         this.dailyPnlTracker = dailyPnlTracker;
+        this.macroGuard = macroGuard;
         this.tradingSystemManager = tradingSystemManager;
         this.tradingProperties = tradingProperties;
         this.c3Enabled = c3Enabled;
@@ -84,7 +89,8 @@ public class DashboardFacade {
                 tradingSystemManager.status(),
                 killSwitch.isEngaged(),
                 dailyLimitTracker.todayOrderCount(),
-                dailyPnlTracker.todayRealizedPnl());
+                dailyPnlTracker.todayRealizedPnl(),
+                macroGuard.isConservativeMode());
     }
 
     /** 시스템(설정) 상태 View 조합. */

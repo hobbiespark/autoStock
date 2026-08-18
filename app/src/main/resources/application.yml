@@ -67,6 +67,14 @@ market:
     service-key: ${DATA_GO_KR_SERVICE_KEY:}       # 공공데이터포털 발급 서비스키 — 커밋 금지, 환경변수로만 주입
     base-url: https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService
 
+macrointel:
+  enabled: false                        # FRED/ECOS 키 발급 후 응답 포맷 실측 전까지 비활성 유지(PLAN 5절 1단계)
+  fred-api-key: ${FRED_API_KEY:}        # FRED 발급 키 — 커밋 금지, 환경변수로만 주입
+  ecos-api-key: ${ECOS_API_KEY:}        # ECOS 발급 키 — 커밋 금지, 환경변수로만 주입
+  vix-caution-threshold: 25.0           # VIX 이 값 이상이면 보수 모드(신규 매수 금지, 청산은 허용)
+  vix-severe-threshold: 35.0            # VIX 이 값 이상이면 킬스위치 작동(전면 정지)
+  usd-krw-caution-threshold: 1450.0     # 원/달러 환율 이 값 이상이면 보수 모드
+
 autostock:
   ws:
     enabled: false              # 앱키 발급 후 true

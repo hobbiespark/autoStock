@@ -3,6 +3,7 @@ package com.autostock.monitor;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
+import com.autostock.risk.MacroGuard;
 import com.autostock.portfolio.PositionBook;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -12,8 +13,9 @@ import org.springframework.stereotype.Component;
  *
  * <p>포함 내용: 현재 포지션 스냅샷(PositionBook), 오늘 주문 수(DailyLimitTracker),
  * 킬스위치 상태, 오늘 실현손익(DailyPnlTracker — PLAN 8절 일 손실 한도 안전장치와 같은
- * 데이터 소스를 그대로 보여준다). 계좌 평가액(총 자산)은 TODO — 이 리포트에는 아직 붙이지
- * 않았다(EquitySource는 risk 모듈에 있지만, 이 화면에 총자산까지 표시할지는 별도 판단 필요).
+ * 데이터 소스를 그대로 보여준다), 거시 국면 보수 모드 여부(MacroGuard, PLAN 5절 macro-intel).
+ * 계좌 평가액(총 자산)은 TODO — 이 리포트에는 아직 붙이지 않았다(EquitySource는 risk 모듈에
+ * 있지만, 이 화면에 총자산까지 표시할지는 별도 판단 필요).
  */
 @Component
 public class DailyReportScheduler {
@@ -22,17 +24,20 @@ public class DailyReportScheduler {
     private final DailyLimitTracker dailyLimits;
     private final KillSwitch killSwitch;
     private final DailyPnlTracker dailyPnl;
+    private final MacroGuard macroGuard;
     private final Notifier notifier;
 
     public DailyReportScheduler(PositionBook positionBook,
                                 DailyLimitTracker dailyLimits,
                                 KillSwitch killSwitch,
                                 DailyPnlTracker dailyPnl,
+                                MacroGuard macroGuard,
                                 Notifier notifier) {
         this.positionBook = positionBook;
         this.dailyLimits = dailyLimits;
         this.killSwitch = killSwitch;
         this.dailyPnl = dailyPnl;
+        this.macroGuard = macroGuard;
         this.notifier = notifier;
     }
 
@@ -49,6 +54,7 @@ public class DailyReportScheduler {
         sb.append("오늘 주문 수: ").append(dailyLimits.todayOrderCount()).append('\n');
         sb.append("오늘 실현손익: ").append(dailyPnl.todayRealizedPnl()).append("원\n");
         sb.append("킬스위치: ").append(killSwitch.isEngaged() ? "작동 중" : "정상").append('\n');
+        sb.append("보수 모드(거시 국면): ").append(macroGuard.isConservativeMode() ? "ON(신규 매수 금지)" : "OFF").append('\n');
         sb.append("보유 종목 수: ").append(positions.size());
         positions.forEach((symbol, position) ->
                 sb.append("\n- ").append(symbol).append(' ')

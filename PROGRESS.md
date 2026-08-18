@@ -16,13 +16,13 @@
 | 2. 매매 코어 (WS·risk·execution) | 🔶 90% | 주문 왕복 실측 완료. 잔여: WS 실측(로컬 ws_probe 실행 필요) |
 | 3. 백테스트 (리플레이·비용모델·DSR/PBO) | ✅ 완료 | walk-forward + DSR/PBO + 실데이터 검증 파이프라인 가동 |
 | 4. 전략+리스크 | 🔶 진행 중 | 전략 3안 실험 완료, **게이트 ① 미통과** — 판정 도구 교정 + 포트폴리오 검증 예정 |
-| 5. 거시 필터 (macro-intel) | ⬜ 미착수 | |
+| 5. 거시 필터 (macro-intel) | ✅ 1단계(규칙 기반) 완료 | FRED/ECOS 수집 배치(예상 구현), VIX/환율 임계치 → 보수 모드·킬스위치, DART 공시 블랙리스트 골격. 2단계 뉴스 감성은 Phase 7 |
 | 6. 운영 검증 (무인 모의 운영) | ⬜ 미착수 | |
 | 7. 확장 (news-intel·Kelly·CPCV) | ⬜ 미착수 | sidecar-nlp 골격만 존재 |
 
 부가 완료: 경량 대시보드 FE(킬스위치·테스트시그널·포지션·이벤트 피드), GitHub Actions CI(시크릿 연동 스모크 포함), Gradle Wrapper.
 
-테스트: **68건 통과** (Modulith 경계 검증 포함). 실행 위임 체계: 계획·조사·분석 = Fable 5, 코드 실행 = sonnet 에이전트.
+테스트: **278건 통과** (Modulith 경계 검증 포함). 실행 위임 체계: 계획·조사·분석 = Fable 5, 코드 실행 = sonnet 에이전트.
 
 ## 2. 실측 검증 기록 (mockapi.kiwoom.com, 2026-08-13)
 
@@ -98,9 +98,9 @@
 0-6. ✅ **운영 상태기계 + CQRS Lite** (커밋 73b4184, 테스트 225건): TradingSystemStatus 6상태 전이표(STOPPED→STARTING→RUNNING→STOPPING, DEGRADED/ERROR), start/stop Command(`POST /api/trading/start|stop`, 응답은 STARTING — Backend가 Source of Truth), 킬스위치↔DEGRADED 자동 연동, View DTO+DashboardFacade(`GET /api/dashboard` 단일 폴링), FE 상태 배지·시작/정지 버튼·실현손익 표시
 1. ✅ ~~게이트 ① 재판정~~ — 완료 (3절 게이트 현황 참조: C3 잠정 통과 → N=6 보수 검증에서 철회, C3 후보 동결)
 1-1. ✅ **모듈 재편 완료** (커밋: "refactor: ADR-6 모듈 재편 — market/analysis/portfolio/trading/execution 목표 구조 정렬"): marketdata→market, newsintel→analysis, risk 내 PositionBook→portfolio 신설, execution→trading/execution 분리(trading: 주문 생성·상태 관리·대사 / execution: 브로커 전달만, 단방향 의존). ModularityTests 통과(순환 없음), 테스트 253건 무손상(실패 0, 개수 동일)
-4. Phase 5: macro-intel 규칙 기반 필터 (수집 클라이언트는 예상 구현 + TODO 실측)
+4. ✅ **Phase 5: macro-intel 1단계(규칙 기반) 완료** (커밋: "feat: Phase 5 macro-intel — FRED/ECOS 수집 배치, VIX/환율 보수 모드·킬스위치 규칙, 공시 블랙리스트 골격"): `macrointel.FredClient`/`EcosClient`(예상 구현 + TODO 실측, HolidaySyncService의 callApi 오버라이드·부분 실패 격리 패턴 재사용) + `MacroSyncScheduler`(평일 08:30 KST, VIX/DXY/USDKRW/기준금리 → `MacroIndicator` 발행). 판단·차단은 "risk 소유" 원칙(risk/package-info.java)에 따라 `risk.MacroGuard`(VIX≥35 킬스위치, VIX≥25 또는 USDKRW≥1450 보수 모드 ON — 매수만 금지·매도는 허용, 두 조건 해제 시 자동 OFF)·`risk.DisclosureBlacklist`(DART 연동 전 수동 add/remove 골격)를 risk 모듈에 배치, macrointel은 수집·발행만 담당(단방향 참조, ModularityTests 통과). RiskGate 매수 경로에 보수 모드·블랙리스트 검사 추가, DashboardFacade/일일 리포트/FE에 보수 모드 표시. 테스트 278건 통과(신규 25건)
 5. 텔레그램 알림/원격 킬스위치 (monitor)
-6. **[자택망에서]** WS 실측(`scripts/ws_probe.py`), 주문 왕복 재검증, KiwoomSmokeIT 키 주입 실행
+6. **[자택망에서]** WS 실측(`scripts/ws_probe.py`), 주문 왕복 재검증, KiwoomSmokeIT 키 주입 실행, FRED/ECOS 키 발급 후 응답 포맷 실측
 
 ## 5. 보안 메모
 
