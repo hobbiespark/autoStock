@@ -4,6 +4,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
+import com.autostock.macrointel.MacroIntelProperties;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketHolidayRepository;
 import com.autostock.portfolio.PositionBook;
@@ -37,6 +38,11 @@ class RiskGateTest {
     // isMarketHours()는 DB를 전혀 보지 않고 TradingCalendar에 순수 위임하므로, repository는
     // 실제로 호출되지 않는다 — mock으로 충분하다(RiskGate 클래스 설명 "market 모듈 참조" 절 참고).
     private final MarketCalendarService marketCalendarService = new MarketCalendarService(mock(MarketHolidayRepository.class));
+    // 이 스위트는 사이징/한도/킬스위치가 관심 대상이라 macro-intel 관련 기본값(보수 모드
+    // OFF, 블랙리스트 비어있음)으로 둔다 — 두 장치 자체는 MacroGuardTest·RiskGateMacroTest에서
+    // 별도 검증한다.
+    private MacroGuard macroGuard;
+    private DisclosureBlacklist disclosureBlacklist;
     private RiskGate gate;
 
     @BeforeEach
@@ -51,9 +57,17 @@ class RiskGateTest {
         // 기존 단언들이 killSwitch.engage() 한 번에 깨진다(이 테스트는 OrderRequest만 관심 대상).
         killSwitch = new KillSwitch(event -> { });
         positionBook = new PositionBook();
+        macroGuard = new MacroGuard(defaultMacroIntelProperties(), killSwitch);
+        disclosureBlacklist = new DisclosureBlacklist();
         gate = new RiskGate(publisher, killSwitch, properties,
                 new PositionSizer(properties), positionBook, new DailyLimitTracker(properties),
-                new PaperEquitySource(properties), ANY_CLOCK, marketCalendarService);
+                new PaperEquitySource(properties), ANY_CLOCK, marketCalendarService,
+                macroGuard, disclosureBlacklist);
+    }
+
+    /** macro-intel 관련 테스트는 이 기본 임계치를 공유한다(PLAN 5절 기본값과 동일). */
+    static MacroIntelProperties defaultMacroIntelProperties() {
+        return new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0);
     }
 
     private Signal buySignal(String symbol, String price) {
@@ -156,7 +170,8 @@ class RiskGateTest {
                 10_000_000, 0.00015, 0.0015, true);
         return new RiskGate(publisher, killSwitch, guardedProperties,
                 new PositionSizer(guardedProperties), positionBook, new DailyLimitTracker(guardedProperties),
-                new PaperEquitySource(guardedProperties), clock, marketCalendarService);
+                new PaperEquitySource(guardedProperties), clock, marketCalendarService,
+                macroGuard, disclosureBlacklist);
     }
 
     @Test

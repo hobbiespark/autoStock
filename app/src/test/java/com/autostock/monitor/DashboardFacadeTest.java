@@ -10,6 +10,7 @@ import com.autostock.monitor.view.TradingStatusView;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
+import com.autostock.risk.MacroGuard;
 import com.autostock.portfolio.PositionBook;
 import org.junit.jupiter.api.Test;
 
@@ -34,8 +35,17 @@ class DashboardFacadeTest {
                                    DailyLimitTracker dailyLimitTracker, DailyPnlTracker dailyPnlTracker,
                                    TradingSystemManager tradingSystemManager, TradingProperties executionProperties,
                                    boolean c3Enabled, boolean wsEnabled) {
+        return facade(positionBook, eventFeed, killSwitch, dailyLimitTracker, dailyPnlTracker,
+                mock(MacroGuard.class), tradingSystemManager, executionProperties, c3Enabled, wsEnabled);
+    }
+
+    private DashboardFacade facade(PositionBook positionBook, EventFeed eventFeed, KillSwitch killSwitch,
+                                   DailyLimitTracker dailyLimitTracker, DailyPnlTracker dailyPnlTracker,
+                                   MacroGuard macroGuard,
+                                   TradingSystemManager tradingSystemManager, TradingProperties executionProperties,
+                                   boolean c3Enabled, boolean wsEnabled) {
         return new DashboardFacade(positionBook, eventFeed, killSwitch, dailyLimitTracker, dailyPnlTracker,
-                tradingSystemManager, executionProperties, c3Enabled, wsEnabled);
+                macroGuard, tradingSystemManager, executionProperties, c3Enabled, wsEnabled);
     }
 
     @Test
@@ -69,8 +79,11 @@ class DashboardFacadeTest {
         DailyPnlTracker dailyPnlTracker = mock(DailyPnlTracker.class);
         when(dailyPnlTracker.todayRealizedPnl()).thenReturn(new BigDecimal("-15000"));
 
+        MacroGuard macroGuard = mock(MacroGuard.class);
+        when(macroGuard.isConservativeMode()).thenReturn(true);
+
         DashboardFacade facade = facade(new PositionBook(), mock(EventFeed.class), killSwitch,
-                dailyLimitTracker, dailyPnlTracker, tradingSystemManager,
+                dailyLimitTracker, dailyPnlTracker, macroGuard, tradingSystemManager,
                 new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5)), false, false);
 
         TradingStatusView view = facade.trading();
@@ -79,6 +92,7 @@ class DashboardFacadeTest {
         assertTrue(view.killSwitchEngaged());
         assertEquals(7, view.todayOrderCount());
         assertEquals(new BigDecimal("-15000"), view.todayRealizedPnl());
+        assertTrue(view.conservativeMode(), "MacroGuard.isConservativeMode()를 그대로 조합해야 함");
     }
 
     @Test

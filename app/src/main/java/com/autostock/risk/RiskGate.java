@@ -61,6 +61,11 @@ import java.time.LocalDateTime;
  * risk 소유가 아니라 portfolio 모듈 소유다 — "무엇을 들고 있나"는 portfolio가, "그래서 주문을
  * 허용할지"는 risk가 답한다(책임 분리, ARCHITECTURE.md 2절). 일 손실 한도·킬스위치 등 리스크
  * 한도 판단 장치({@link DailyPnlTracker}, {@link KillSwitch})는 이 클래스와 함께 risk에 남는다.
+ *
+ * <p><b>거시 국면·공시 배제(PLAN 5절, macro-intel 1단계)</b>: {@link MacroGuard#isConservativeMode()}가
+ * true면 매수({@link #sizeBuy})를 거부한다(매도는 영향받지 않는다 — 청산은 항상 허용, 보수 모드는
+ * "신규 진입만 금지"). {@link DisclosureBlacklist}에 등록된 종목도 같은 자리에서 매수를 거부한다.
+ * 두 장치 모두 macrointel이 아니라 risk 소유다 — "한도·차단 판단은 risk 소유" 원칙(risk/package-info.java).
  */
 @Component
 public class RiskGate {
@@ -76,6 +81,8 @@ public class RiskGate {
     private final EquitySource equitySource;
     private final Clock clock;
     private final MarketCalendarService marketCalendarService;
+    private final MacroGuard macroGuard;
+    private final DisclosureBlacklist disclosureBlacklist;
 
     public RiskGate(ApplicationEventPublisher publisher,
                     KillSwitch killSwitch,
@@ -85,7 +92,9 @@ public class RiskGate {
                     DailyLimitTracker dailyLimits,
                     EquitySource equitySource,
                     Clock clock,
-                    MarketCalendarService marketCalendarService) {
+                    MarketCalendarService marketCalendarService,
+                    MacroGuard macroGuard,
+                    DisclosureBlacklist disclosureBlacklist) {
         this.publisher = publisher;
         this.killSwitch = killSwitch;
         this.properties = properties;
@@ -95,6 +104,8 @@ public class RiskGate {
         this.equitySource = equitySource;
         this.clock = clock;
         this.marketCalendarService = marketCalendarService;
+        this.macroGuard = macroGuard;
+        this.disclosureBlacklist = disclosureBlacklist;
     }
 
     /**
@@ -180,6 +191,18 @@ public class RiskGate {
      * 기존 전략들처럼 confidence=1.0이면 이 곱셈이 결과에 영향을 주지 않는다(수치 무변화).
      */
     private long sizeBuy(Signal signal) {
+        // ── 거시 국면 보수 모드(PLAN 5절) ──────────────────────────────────
+        // 킬스위치와 달리 매도는 막지 않는다 — sizeSell 경로는 이 검사를 거치지 않으므로
+        // 청산 시그널은 그대로 통과한다(MacroGuard 클래스 설명 "보수 모드 vs 킬스위치" 참고).
+        if (macroGuard.isConservativeMode()) {
+            log.info("보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부: {}", signal.symbol());
+            return 0;
+        }
+        // ── DART 공시 배제(PLAN 5절, 골격) ─────────────────────────────────
+        if (disclosureBlacklist.isBlacklisted(signal.symbol())) {
+            log.info("공시 블랙리스트 종목 — 매수 거부: {}", signal.symbol());
+            return 0;
+        }
         if (positionBook.holds(signal.symbol())) {
             log.info("이미 보유 중 — 추가 매수 차단: {}", signal.symbol());
             return 0;

@@ -2,9 +2,11 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
+import com.autostock.macrointel.MacroIntelProperties;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
+import com.autostock.risk.MacroGuard;
 import com.autostock.risk.PaperEquitySource;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.RiskProperties;
@@ -44,7 +46,10 @@ class DailyReportSchedulerTest {
         dailyLimits = new DailyLimitTracker(properties);
         Clock clock = Clock.fixed(Instant.parse("2026-08-13T02:00:00Z"), ZoneOffset.UTC);
         dailyPnl = new DailyPnlTracker(properties, new PaperEquitySource(properties), killSwitch, clock);
-        scheduler = new DailyReportScheduler(positionBook, dailyLimits, killSwitch, dailyPnl, fakeNotifier);
+        // 보수 모드는 이 테스트의 관심사가 아니라 기본값(OFF)으로 둔다 — MacroGuardTest 참고.
+        MacroGuard macroGuard = new MacroGuard(
+                new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0), killSwitch);
+        scheduler = new DailyReportScheduler(positionBook, dailyLimits, killSwitch, dailyPnl, macroGuard, fakeNotifier);
     }
 
     @Test

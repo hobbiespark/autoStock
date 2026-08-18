@@ -81,7 +81,9 @@
     <h2>오늘 실적</h2>
     <p>주문 수: <span id="today-order-count">-</span></p>
     <p>실현손익: <span id="today-pnl">-</span></p>
-    <p class="muted">실현손익만 반영 — 보유 중인 포지션의 미실현 평가손익은 포함하지 않음(TODO).</p>
+    <p>보수 모드(거시 국면): <span id="conservative-mode">-</span></p>
+    <p class="muted">실현손익만 반영 — 보유 중인 포지션의 미실현 평가손익은 포함하지 않음(TODO).
+      보수 모드는 VIX/환율 임계 초과 시 자동으로 켜지며, 신규 매수만 막고 청산은 그대로 허용합니다.</p>
   </div>
 
   <!-- 테스트 시그널 -->
@@ -144,6 +146,10 @@ async function refresh() {
     const pnlEl = document.getElementById('today-pnl');
     pnlEl.textContent = pnl.toLocaleString() + '원';
     pnlEl.className = pnl >= 0 ? 'pnl-pos' : 'pnl-neg';
+
+    const cmEl = document.getElementById('conservative-mode');
+    cmEl.textContent = view.trading.conservativeMode ? 'ON (신규 매수 금지)' : 'OFF (정상)';
+    cmEl.className = view.trading.conservativeMode ? 'ks-on' : 'ks-off';
 
     document.getElementById('positions').innerHTML = view.positions.length
       ? view.positions.map(p => `<tr><td>${p.symbol}</td><td>${p.quantity}</td><td>${Number(p.avgPrice).toLocaleString()}</td></tr>`).join('')
