@@ -10,10 +10,10 @@ import java.util.List;
  *
  * <p>{@link KiwoomBrokerAdapter}가 현재 유일한 구현체다. 다른 브로커로 교체하거나
  * 테스트에서 가짜 브로커로 바꿔치기할 때 이 인터페이스만 다시 구현하면 된다 —
- * ExecutionService/ReconciliationService/StaleOrderCanceller는 이 인터페이스만 의존하고
+ * TradingService/ReconciliationService/StaleOrderCanceller는 이 인터페이스만 의존하고
  * KiwoomRestClient·TrId 등 키움 구체 타입은 전혀 모른다.
  *
- * <p>SIM 모드는 이 포트를 거치지 않는다(ExecutionService 참고) — 브로커 없이
+ * <p>SIM 모드는 이 포트를 거치지 않는다(TradingService 참고) — 브로커 없이
  * 이벤트 루프만 검증하는 모드이기 때문이다.
  */
 public interface BrokerPort {

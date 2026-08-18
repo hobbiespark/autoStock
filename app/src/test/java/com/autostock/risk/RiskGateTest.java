@@ -4,8 +4,9 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
-import com.autostock.marketdata.MarketCalendarService;
-import com.autostock.marketdata.MarketHolidayRepository;
+import com.autostock.market.MarketCalendarService;
+import com.autostock.market.MarketHolidayRepository;
+import com.autostock.portfolio.PositionBook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -34,7 +35,7 @@ class RiskGateTest {
     private KillSwitch killSwitch;
     private PositionBook positionBook;
     // isMarketHours()는 DB를 전혀 보지 않고 TradingCalendar에 순수 위임하므로, repository는
-    // 실제로 호출되지 않는다 — mock으로 충분하다(RiskGate 클래스 설명 "marketdata 모듈 참조" 절 참고).
+    // 실제로 호출되지 않는다 — mock으로 충분하다(RiskGate 클래스 설명 "market 모듈 참조" 절 참고).
     private final MarketCalendarService marketCalendarService = new MarketCalendarService(mock(MarketHolidayRepository.class));
     private RiskGate gate;
 

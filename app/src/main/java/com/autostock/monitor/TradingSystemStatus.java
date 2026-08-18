@@ -7,7 +7,7 @@ import java.util.Set;
 
 /**
  * 자동매매 "운영" 상태기계 — 대시보드/시작·정지 명령이 보는 시스템 전체의 상태다
- * (docs/ARCHITECTURE.md 10절, PLAN.md ADR-6). {@code execution.OrderStatus}(주문 하나의 상태)와는
+ * (docs/ARCHITECTURE.md 10절, PLAN.md ADR-6). {@code trading.OrderStatus}(주문 하나의 상태)와는
  * 다른 개념이다 — 이쪽은 "시스템이 지금 매매를 해도 되는 상태인가"를 나타낸다.
  *
  * <pre>
@@ -24,7 +24,7 @@ import java.util.Set;
  * "장애로 매매가 막혔을 뿐 시스템은 살아있는지"(DEGRADED)를 구분해야 운영자가 상황을
  * 오판하지 않는다. 합법 전이표는 {@link #canTransitionTo(TradingSystemStatus)}가 강제하고,
  * 실제 전이는 {@link TradingSystemManager#transitionTo(TradingSystemStatus)}에서만 일어난다
- * (패턴은 {@code execution.OrderStatus}를 그대로 따랐다).
+ * (패턴은 {@code trading.OrderStatus}를 그대로 따랐다).
  */
 public enum TradingSystemStatus {
 

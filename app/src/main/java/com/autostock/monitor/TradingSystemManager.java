@@ -1,8 +1,8 @@
 package com.autostock.monitor;
 
 import com.autostock.common.event.KillSwitchChanged;
-import com.autostock.execution.ExecutionProperties;
-import com.autostock.execution.ReconciliationService;
+import com.autostock.trading.TradingProperties;
+import com.autostock.trading.ReconciliationService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -31,21 +31,27 @@ import java.util.concurrent.atomic.AtomicReference;
  * <h2>킬스위치 연동</h2>
  * risk 모듈의 {@link KillSwitchChanged} 이벤트를 구독해 RUNNING↔DEGRADED를 오간다 —
  * "매매가 막혔다"는 사실을 운영 상태기계에도 반영한다.
+ *
+ * <h2>trading 모듈 참조 (ADR-6 재편)</h2>
+ * 시작 절차에서 trading 모듈의 {@link ReconciliationService#reconcile()}을 직접 호출한다
+ * (LIVE 모드 준비 절차, ARCHITECTURE.md 8·10절) — 기존 execution 모듈이 execution/trading으로
+ * 분리되며 ReconciliationService는 trading 소유가 됐다. trading은 monitor를 참조하지 않으므로
+ * 순환은 없다.
  */
 @Component
 public class TradingSystemManager {
 
     private static final Logger log = LoggerFactory.getLogger(TradingSystemManager.class);
 
-    private final ExecutionProperties executionProperties;
+    private final TradingProperties tradingProperties;
     private final ReconciliationService reconciliationService;
 
     private final AtomicReference<TradingSystemStatus> status =
             new AtomicReference<>(TradingSystemStatus.STOPPED);
 
-    public TradingSystemManager(ExecutionProperties executionProperties,
+    public TradingSystemManager(TradingProperties tradingProperties,
                                 ReconciliationService reconciliationService) {
-        this.executionProperties = executionProperties;
+        this.tradingProperties = tradingProperties;
         this.reconciliationService = reconciliationService;
     }
 
@@ -71,7 +77,7 @@ public class TradingSystemManager {
      */
     private void runStartupSequence() {
         try {
-            if (executionProperties.mode() == ExecutionProperties.Mode.LIVE) {
+            if (tradingProperties.mode() == TradingProperties.Mode.LIVE) {
                 reconciliationService.reconcile();
             }
             transitionTo(TradingSystemStatus.RUNNING);

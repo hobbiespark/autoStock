@@ -23,18 +23,21 @@ Market → Strategy → Signal → Risk Policy → Position Sizing
 
 ## 2. 모듈 구조 — 현행과 목표
 
-현행 구현(왼쪽)은 이미 도메인 기준 분리이며, 목표 구조(오른쪽)로 **점진 재편**한다.
-리네이밍·분리는 진행 중 작업을 보호하기 위해 별도 사이클에서 일괄 수행한다.
+**2026-08-13 재편 완료** — 아래 표는 재편 후 확정된 모듈 구조다(ADR-6). 이전에는 marketdata/
+newsintel/execution(주문 생성+전달 혼재)/risk 내 PositionBook 구조였으나, 일괄 재편 사이클에서
+market/analysis/trading·execution 분리/portfolio 신설로 정리했다(커밋: "refactor: ADR-6 모듈
+재편 — market/analysis/portfolio/trading/execution 목표 구조 정렬").
 
-| 현행 | 목표 | 책임 |
-|---|---|---|
-| marketdata | market | 시세·시장 데이터 |
-| strategy | strategy | Signal 생성 (주문 금지) |
-| risk | risk | 거래 허용 판단 (Policy 조합) |
-| execution (주문 생성+전달 혼재) | **trading** / **execution** 분리 | trading: 주문 생성·상태 관리 / execution: 브로커 전달 |
-| risk 내 PositionBook | **portfolio** 신설 | 보유 포지션·손익 |
-| newsintel | analysis | 뉴스/FinBERT 분석 |
-| audit, backtest, monitor, kiwoom, common | 유지 | 감사·백테스트·운영·브로커어댑터·계약 |
+| 모듈 | 책임 |
+|---|---|
+| market | 시세·시장 데이터 |
+| strategy | Signal 생성 (주문 금지) |
+| risk | 거래 허용 판단 (Policy 조합) — 일 손실 한도·킬스위치 등 한도 판단 장치 소유 |
+| **trading** | 주문 생성·상태 관리·대사(Reconciliation) — trading → execution(BrokerPort) 단방향 의존 |
+| **execution** | 브로커 전달만 — BrokerPort/KiwoomBrokerAdapter, trading의 존재를 모른다 |
+| **portfolio** | 보유 포지션·손익(PositionBook) — risk에서 이동, 리프(leaf) 모듈 |
+| analysis | 뉴스/FinBERT 분석 (구 newsintel) |
+| audit, backtest, monitor, kiwoom, common | 유지 — 감사·백테스트·운영·브로커어댑터·계약 |
 
 모듈 내부는 규모가 커지는 모듈부터 Hexagonal 구조(domain/application/adapter)를 적용한다.
 `common`(shared)은 이벤트 계약·진짜 공통 유틸만 — 특정 도메인 개념이면 해당 모듈에 둔다.

@@ -1,7 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.risk.KillSwitch;
-import com.autostock.risk.PositionBook;
+import com.autostock.portfolio.PositionBook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;

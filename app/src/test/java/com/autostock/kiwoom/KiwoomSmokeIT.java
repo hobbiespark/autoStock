@@ -1,8 +1,8 @@
 package com.autostock.kiwoom;
 
 import com.autostock.common.event.Candle;
-import com.autostock.marketdata.KiwoomDailyChartService;
-import com.autostock.marketdata.MarketQueryService;
+import com.autostock.market.KiwoomDailyChartService;
+import com.autostock.market.MarketQueryService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;

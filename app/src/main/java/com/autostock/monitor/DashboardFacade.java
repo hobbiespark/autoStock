@@ -1,6 +1,6 @@
 package com.autostock.monitor;
 
-import com.autostock.execution.ExecutionProperties;
+import com.autostock.trading.TradingProperties;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
 import com.autostock.monitor.view.SystemStatusView;
@@ -8,7 +8,7 @@ import com.autostock.monitor.view.TradingStatusView;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
-import com.autostock.risk.PositionBook;
+import com.autostock.portfolio.PositionBook;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
@@ -17,12 +17,13 @@ import java.util.List;
 /**
  * 대시보드 Facade — 여러 모듈의 조회를 View DTO로 <b>조합만</b> 한다(CQRS Lite,
  * ARCHITECTURE.md 10절). 업무 규칙(주문 가능 여부 판단, 손익 재계산 등)은 여기 두지 않는다 —
- * 그건 이미 risk/execution/strategy 모듈이 가진 책임이고, 이 클래스가 하는 일은 그 결과값들을
- * "화면이 원하는 모양"으로 옮겨 담는 것뿐이다.
+ * 그건 이미 risk/trading/portfolio/strategy 모듈이 가진 책임이고, 이 클래스가 하는 일은 그
+ * 결과값들을 "화면이 원하는 모양"으로 옮겨 담는 것뿐이다.
  *
- * <p>이 클래스가 참조하는 것: risk.PositionBook/KillSwitch/DailyLimitTracker/DailyPnlTracker
- * (기존 DashboardController가 이미 참조하던 것과 동일 — DailyReportScheduler도 같은 패턴),
- * execution.ExecutionProperties(모드 표시용), 그리고 monitor 자신의 EventFeed/TradingSystemManager.
+ * <p>이 클래스가 참조하는 것: portfolio.PositionBook, risk.KillSwitch/DailyLimitTracker/
+ * DailyPnlTracker(기존 DashboardController가 이미 참조하던 것과 동일 — DailyReportScheduler도
+ * 같은 패턴), trading.TradingProperties(모드 표시용, ADR-6 재편으로 execution → trading 이동),
+ * 그리고 monitor 자신의 EventFeed/TradingSystemManager.
  * strategy 모듈 타입은 참조하지 않는다 — {@link com.autostock.monitor.view.SystemStatusView}
  * Javadoc에 설명된 순환(cycle) 회피 때문에 {@code strategy.c3.enabled}는 {@code @Value}로
  * 직접 읽는다.
@@ -36,7 +37,7 @@ public class DashboardFacade {
     private final DailyLimitTracker dailyLimitTracker;
     private final DailyPnlTracker dailyPnlTracker;
     private final TradingSystemManager tradingSystemManager;
-    private final ExecutionProperties executionProperties;
+    private final TradingProperties tradingProperties;
     private final boolean c3Enabled;
     private final boolean wsEnabled;
 
@@ -46,7 +47,7 @@ public class DashboardFacade {
                            DailyLimitTracker dailyLimitTracker,
                            DailyPnlTracker dailyPnlTracker,
                            TradingSystemManager tradingSystemManager,
-                           ExecutionProperties executionProperties,
+                           TradingProperties tradingProperties,
                            @Value("${strategy.c3.enabled:false}") boolean c3Enabled,
                            @Value("${autostock.ws.enabled:false}") boolean wsEnabled) {
         this.positionBook = positionBook;
@@ -55,7 +56,7 @@ public class DashboardFacade {
         this.dailyLimitTracker = dailyLimitTracker;
         this.dailyPnlTracker = dailyPnlTracker;
         this.tradingSystemManager = tradingSystemManager;
-        this.executionProperties = executionProperties;
+        this.tradingProperties = tradingProperties;
         this.c3Enabled = c3Enabled;
         this.wsEnabled = wsEnabled;
     }
@@ -89,7 +90,7 @@ public class DashboardFacade {
     /** 시스템(설정) 상태 View 조합. */
     public SystemStatusView system() {
         return new SystemStatusView(
-                executionProperties.mode().name(),
+                tradingProperties.mode().name(),
                 c3Enabled,
                 wsEnabled);
     }

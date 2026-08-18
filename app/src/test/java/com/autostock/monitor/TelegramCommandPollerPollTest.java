@@ -1,7 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.risk.KillSwitch;
-import com.autostock.risk.PositionBook;
+import com.autostock.portfolio.PositionBook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;

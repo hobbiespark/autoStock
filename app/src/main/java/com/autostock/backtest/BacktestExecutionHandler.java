@@ -9,7 +9,7 @@ import java.math.BigDecimal;
  * 백테스트용 "가짜 거래소" — 주문을 받으면 그 자리에서 즉시 체결시켜준다.
  *
  * <p>라이브에서는 주문(OrderRequest)을 브로커에 보내고 비동기로 체결(Fill) 이벤트를
- * 스프링 이벤트로 받는다({@code ExecutionService} 참고). 백테스트에는 브로커가 없으므로,
+ * 스프링 이벤트로 받는다({@code TradingService} 참고). 백테스트에는 브로커가 없으므로,
  * 대신 이 클래스가 "지금 이 가격이면 체결됐을 것이다"를 {@link CostModel}로 계산해
  * 즉시 {@link Fill}을 만들어 돌려준다.
  *

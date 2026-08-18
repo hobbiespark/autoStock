@@ -11,7 +11,7 @@ import org.springframework.modulith.Modulithic;
  *
  * <p>sharedModules: 업무 이벤트 흐름이 아니라 여러 모듈이 공용으로 참조하는 순수 인프라
  * 배선이라 예외적으로 직접 참조를 허용한다 — kiwoom(REST/WS 클라이언트), config(CacheConfig의
- * 캐시 이름 상수를 marketdata가 직접 참조, PLAN ADR-5).
+ * 캐시 이름 상수를 market이 직접 참조, PLAN ADR-5).
  */
 @Modulithic(systemName = "autostock", sharedModules = {"kiwoom", "config"})
 @SpringBootApplication

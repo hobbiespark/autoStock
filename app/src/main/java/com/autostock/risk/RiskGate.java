@@ -5,7 +5,8 @@ import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
-import com.autostock.marketdata.MarketCalendarService;
+import com.autostock.market.MarketCalendarService;
+import com.autostock.portfolio.PositionBook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -50,11 +51,16 @@ import java.time.LocalDateTime;
  * {@code StaleOrderCanceller}와 같은 이유로, System 시계를 직접 부르지 않아야 테스트가
  * 결정론적이다(가드를 켠 채로 특정 시각을 검증하고 싶을 때 {@link Clock#fixed}로 고정).
  *
- * <p><b>marketdata 모듈 참조</b>: 장 시간 판정은 {@code common.util.TradingCalendar} 정적
- * 호출 대신 {@link MarketCalendarService}(marketdata의 공개 API)를 주입받아 위임한다.
- * risk가 marketdata를 직접 참조하는 것은 {@code monitor}가 {@code risk}를 참조하는 것과
+ * <p><b>market 모듈 참조</b>: 장 시간 판정은 {@code common.util.TradingCalendar} 정적
+ * 호출 대신 {@link MarketCalendarService}(market의 공개 API)를 주입받아 위임한다.
+ * risk가 market을 직접 참조하는 것은 {@code monitor}가 {@code risk}를 참조하는 것과
  * 같은 성격의 허용된 모듈 간 참조다(둘 다 어느 모듈에도 {@code allowedDependencies} 제한이
  * 없는 공개 패키지 최상위 타입만 참조 — {@code ModularityTests}가 이 경계를 검증한다).
+ *
+ * <p><b>portfolio 모듈 참조</b>(ADR-6 재편): 사이징·매도 수량 판단에 쓰는 {@link PositionBook}은
+ * risk 소유가 아니라 portfolio 모듈 소유다 — "무엇을 들고 있나"는 portfolio가, "그래서 주문을
+ * 허용할지"는 risk가 답한다(책임 분리, ARCHITECTURE.md 2절). 일 손실 한도·킬스위치 등 리스크
+ * 한도 판단 장치({@link DailyPnlTracker}, {@link KillSwitch})는 이 클래스와 함께 risk에 남는다.
  */
 @Component
 public class RiskGate {

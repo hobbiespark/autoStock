@@ -1,8 +1,8 @@
 package com.autostock.monitor;
 
 import com.autostock.common.event.KillSwitchChanged;
-import com.autostock.execution.ExecutionProperties;
-import com.autostock.execution.ReconciliationService;
+import com.autostock.trading.TradingProperties;
+import com.autostock.trading.ReconciliationService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
@@ -27,12 +27,12 @@ import static org.mockito.Mockito.verify;
  */
 class TradingSystemManagerTest {
 
-    private static ExecutionProperties simProperties() {
-        return new ExecutionProperties(ExecutionProperties.Mode.SIM, Duration.ofMinutes(5));
+    private static TradingProperties simProperties() {
+        return new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5));
     }
 
-    private static ExecutionProperties liveProperties() {
-        return new ExecutionProperties(ExecutionProperties.Mode.LIVE, Duration.ofMinutes(5));
+    private static TradingProperties liveProperties() {
+        return new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
     }
 
     @Test

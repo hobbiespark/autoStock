@@ -2,7 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
-import com.autostock.execution.ExecutionProperties;
+import com.autostock.trading.TradingProperties;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
 import com.autostock.monitor.view.SystemStatusView;
@@ -10,7 +10,7 @@ import com.autostock.monitor.view.TradingStatusView;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
-import com.autostock.risk.PositionBook;
+import com.autostock.portfolio.PositionBook;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -32,7 +32,7 @@ class DashboardFacadeTest {
 
     private DashboardFacade facade(PositionBook positionBook, EventFeed eventFeed, KillSwitch killSwitch,
                                    DailyLimitTracker dailyLimitTracker, DailyPnlTracker dailyPnlTracker,
-                                   TradingSystemManager tradingSystemManager, ExecutionProperties executionProperties,
+                                   TradingSystemManager tradingSystemManager, TradingProperties executionProperties,
                                    boolean c3Enabled, boolean wsEnabled) {
         return new DashboardFacade(positionBook, eventFeed, killSwitch, dailyLimitTracker, dailyPnlTracker,
                 tradingSystemManager, executionProperties, c3Enabled, wsEnabled);
@@ -45,7 +45,7 @@ class DashboardFacadeTest {
 
         DashboardFacade facade = facade(positionBook, mock(EventFeed.class), mock(KillSwitch.class),
                 mock(DailyLimitTracker.class), mock(DailyPnlTracker.class), mock(TradingSystemManager.class),
-                new ExecutionProperties(ExecutionProperties.Mode.SIM, Duration.ofMinutes(5)), false, false);
+                new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5)), false, false);
 
         List<PositionView> views = facade.positions();
 
@@ -71,7 +71,7 @@ class DashboardFacadeTest {
 
         DashboardFacade facade = facade(new PositionBook(), mock(EventFeed.class), killSwitch,
                 dailyLimitTracker, dailyPnlTracker, tradingSystemManager,
-                new ExecutionProperties(ExecutionProperties.Mode.SIM, Duration.ofMinutes(5)), false, false);
+                new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5)), false, false);
 
         TradingStatusView view = facade.trading();
 
@@ -85,7 +85,7 @@ class DashboardFacadeTest {
     void system_View는_실행모드와_설정플래그를_그대로_조합한다() {
         DashboardFacade facade = facade(new PositionBook(), mock(EventFeed.class), mock(KillSwitch.class),
                 mock(DailyLimitTracker.class), mock(DailyPnlTracker.class), mock(TradingSystemManager.class),
-                new ExecutionProperties(ExecutionProperties.Mode.LIVE, Duration.ofMinutes(5)), true, false);
+                new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5)), true, false);
 
         SystemStatusView view = facade.system();
 
@@ -104,7 +104,7 @@ class DashboardFacadeTest {
 
         DashboardFacade facade = facade(new PositionBook(), mock(EventFeed.class), mock(KillSwitch.class),
                 dailyLimitTracker, dailyPnlTracker, tradingSystemManager,
-                new ExecutionProperties(ExecutionProperties.Mode.SIM, Duration.ofMinutes(5)), false, false);
+                new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5)), false, false);
 
         DashboardView view = facade.dashboard();
 
