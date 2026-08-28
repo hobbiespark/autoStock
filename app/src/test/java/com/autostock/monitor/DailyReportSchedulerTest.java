@@ -49,7 +49,9 @@ class DailyReportSchedulerTest {
         // 보수 모드는 이 테스트의 관심사가 아니라 기본값(OFF)으로 둔다 — MacroGuardTest 참고.
         MacroGuard macroGuard = new MacroGuard(
                 new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0), killSwitch);
-        scheduler = new DailyReportScheduler(positionBook, dailyLimits, killSwitch, dailyPnl, macroGuard, fakeNotifier);
+        scheduler = new DailyReportScheduler(positionBook, dailyLimits, killSwitch, dailyPnl, macroGuard,
+                new SlippageTracker(java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+                fakeNotifier);
     }
 
     @Test

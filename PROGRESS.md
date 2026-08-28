@@ -144,6 +144,7 @@ B4. ✅ 재판정 완료: FAIL. **2026-08-28 결정(사용자 확정): 모의 �
 
 C1. 4주+ 무인 모의 운영 (3절 방향 ② — 백테스트가 아닌 새 데이터로 검증 연장)
 C2. **격차 계측 기준 확정**: 라이브 Sharpe 기대치 = 백테스트의 1/3~1/2 ([Suhonen 2017](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757113) 중앙값 −73% 기저). 슬리피지는 [Perold(1988) Implementation Shortfall](https://jpm.pm-research.com/content/14/3/4) 방식(결정 시점 가격 vs 체결 가격)으로 일별 기록
+    - ✅ 계측 코드 구현 완료 (2026-08-28): `monitor.SlippageTracker` — OrderRequest 결정가 vs Fill 체결가, bps(양수=불리)·수량 가중 평균·최대치, KST 롤오버. 대시보드(`GET /api/dashboard`의 slippage 필드)·일일 리포트·Micrometer(`order.slippage.bps`) 노출. Reconciliation 복구 체결은 제외(추정 오염 방지), 부분체결 확장은 WS 실측 후. 실측 수치 축적은 모의 운영에서
 C3. 복구 훈련(재시작·Reconciliation·킬스위치 발동/해제), 21일 vs 5일 판단주기 paper A/B
 C4. 게이트 ② 판정 → 실계좌 소액. **실전 전환 전 키 전량 재발급(5절)**
 

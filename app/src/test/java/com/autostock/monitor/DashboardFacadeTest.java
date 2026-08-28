@@ -45,7 +45,9 @@ class DashboardFacadeTest {
                                    TradingSystemManager tradingSystemManager, TradingProperties executionProperties,
                                    boolean c3Enabled, boolean wsEnabled) {
         return new DashboardFacade(positionBook, eventFeed, killSwitch, dailyLimitTracker, dailyPnlTracker,
-                macroGuard, tradingSystemManager, executionProperties, c3Enabled, wsEnabled);
+                macroGuard, tradingSystemManager, executionProperties,
+                new SlippageTracker(java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
+                c3Enabled, wsEnabled);
     }
 
     @Test

@@ -1,6 +1,7 @@
 package com.autostock.monitor.view;
 
 import com.autostock.monitor.EventFeed;
+import com.autostock.monitor.SlippageTracker;
 
 import java.util.List;
 
@@ -16,11 +17,13 @@ import java.util.List;
  * @param recentEvents 최근 이벤트 피드(최신순 최대 100건)
  * @param trading      매매 상태(운영 상태기계 + 오늘 실적)
  * @param system       시스템(설정) 상태
+ * @param slippage     오늘 슬리피지 요약(결정가 대비 체결가, bps 양수=불리 — 트랙 C2)
  */
 public record DashboardView(
         List<PositionView> positions,
         List<EventFeed.FeedItem> recentEvents,
         TradingStatusView trading,
-        SystemStatusView system
+        SystemStatusView system,
+        SlippageTracker.SlippageSummary slippage
 ) {
 }
