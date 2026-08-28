@@ -25,6 +25,7 @@ public class DailyReportScheduler {
     private final KillSwitch killSwitch;
     private final DailyPnlTracker dailyPnl;
     private final MacroGuard macroGuard;
+    private final SlippageTracker slippageTracker;
     private final Notifier notifier;
 
     public DailyReportScheduler(PositionBook positionBook,
@@ -32,12 +33,14 @@ public class DailyReportScheduler {
                                 KillSwitch killSwitch,
                                 DailyPnlTracker dailyPnl,
                                 MacroGuard macroGuard,
+                                SlippageTracker slippageTracker,
                                 Notifier notifier) {
         this.positionBook = positionBook;
         this.dailyLimits = dailyLimits;
         this.killSwitch = killSwitch;
         this.dailyPnl = dailyPnl;
         this.macroGuard = macroGuard;
+        this.slippageTracker = slippageTracker;
         this.notifier = notifier;
     }
 
@@ -55,6 +58,11 @@ public class DailyReportScheduler {
         sb.append("오늘 실현손익: ").append(dailyPnl.todayRealizedPnl()).append("원\n");
         sb.append("킬스위치: ").append(killSwitch.isEngaged() ? "작동 중" : "정상").append('\n');
         sb.append("보수 모드(거시 국면): ").append(macroGuard.isConservativeMode() ? "ON(신규 매수 금지)" : "OFF").append('\n');
+        var slip = slippageTracker.todaySummary();
+        sb.append("오늘 슬리피지: ").append(slip.fills() == 0
+                ? "체결 없음"
+                : "%d건, 평균 %.2fbps, 최대 %.2fbps(%s) — 양수=불리, 백테스트 가정 5bps 대비"
+                        .formatted(slip.fills(), slip.avgBps(), slip.maxBps(), slip.maxBpsSymbol())).append('\n');
         sb.append("보유 종목 수: ").append(positions.size());
         positions.forEach((symbol, position) ->
                 sb.append("\n- ").append(symbol).append(' ')

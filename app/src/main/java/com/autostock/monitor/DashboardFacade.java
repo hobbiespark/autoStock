@@ -41,6 +41,7 @@ public class DashboardFacade {
     private final MacroGuard macroGuard;
     private final TradingSystemManager tradingSystemManager;
     private final TradingProperties tradingProperties;
+    private final SlippageTracker slippageTracker;
     private final boolean c3Enabled;
     private final boolean wsEnabled;
 
@@ -52,6 +53,7 @@ public class DashboardFacade {
                            MacroGuard macroGuard,
                            TradingSystemManager tradingSystemManager,
                            TradingProperties tradingProperties,
+                           SlippageTracker slippageTracker,
                            @Value("${strategy.c3.enabled:false}") boolean c3Enabled,
                            @Value("${autostock.ws.enabled:false}") boolean wsEnabled) {
         this.positionBook = positionBook;
@@ -62,13 +64,15 @@ public class DashboardFacade {
         this.macroGuard = macroGuard;
         this.tradingSystemManager = tradingSystemManager;
         this.tradingProperties = tradingProperties;
+        this.slippageTracker = slippageTracker;
         this.c3Enabled = c3Enabled;
         this.wsEnabled = wsEnabled;
     }
 
     /** 대시보드 전체 조합 — GET /api/dashboard 하나가 부르는 진입점. */
     public DashboardView dashboard() {
-        return new DashboardView(positions(), recentEvents(), trading(), system());
+        return new DashboardView(positions(), recentEvents(), trading(), system(),
+                slippageTracker.todaySummary());
     }
 
     /** 포지션 View 목록. */
