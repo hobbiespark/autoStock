@@ -129,22 +129,27 @@ A2. FRED/ECOS 키 발급 후 응답 포맷 실측, 특일 API 서비스키 발�
 A3. 텔레그램 봇 실행 검증 — [공식 Bot API](https://core.telegram.org/bots/api) 보안 기준: chat_id 화이트리스트(적용됨) + 킬스위치 해제(/resume) 등 위험 명령 2단계 확인 추가 + 토큰 회전 절차 문서화
 A4. 키움 [공식 GitHub](https://github.com/Kiwoom-Securities/Kiwoom-REST-API) 대조 — 커뮤니티 래퍼 기반 구현(필드명·rate limit)을 공식 샘플과 대사
 
-### 트랙 B — 검증 고도화 (Phase 5.5 신설, 게이트 ① 신뢰도 회복)
+### 트랙 B — 검증 고도화 ✅ 완료 (2026-08-28, 커밋 d7887c2 — 결과는 3절 "T 확장 재검증")
 
-B1. **비용 상수 갱신**: 2026 세율(매도 0.20% + 수수료 0.015% ≒ 왕복 0.23% + 슬리피지) 반영. 기존 0.35% 가정은 보수 상한으로 유지, 이중 시나리오 재판정
-B2. **관측 T 확장**: 데이터 기간 2015년~으로 확장 재검증(더 많은 국면 포함) — DSR의 T 증가는 정당한 신뢰도 개선 수단(3절 방향 ①)
-B3. **CPCV 러너 구현**: walk-forward와 병행 이중 판정 ([Arian 2024](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110) 근거, [AFML](https://www.wiley.com/en-us/Advances+in+Financial+Machine+Learning-p-9781119482086) 7·12장 구현 참조). **C3 동결은 유지** — 새 튜닝 금지, 동결된 C3를 확장 데이터·CPCV로 재평가만
-B4. 게이트 ① 재판정: B1~B3 완료 후 1회. 통과 시 트랙 C 진입, 미달 시 C3 폐기·전략 재설계(trial 기록 보존)
+B1. ✅ 비용 상수 갱신: sellTax 0.0020(2026 세율), CostModel·RiskProperties·yml·테스트 일괄
+B2. ✅ 관측 T 확장: 5종목 2015-01-02~2026-08-28(2,857봉) 수집, 동결 C3 재평가 → **게이트 ① 확정 FAIL** (MDD 25.0%, DSR(N=6) 0.058)
+B3. ⏸ CPCV 러너: **후순위 이동** — C3 판정이 두 기준에서 확정되어 CPCV로 뒤집힐 수 없음. 다음 전략 재설계 사이클의 후보 검증 인프라로 구현(트랙 D로)
+B4. ✅ 재판정 완료: FAIL. **2026-08-28 결정(사용자 확정): 모의 무인 운영 개시** — C3를 실계좌 후보가 아닌 "검증 연장 + 시스템 무인 운영 검증" 대상으로 운영. 실계좌 게이트는 잠금 유지
+부수: KiwoomSmokeIT kiwoom→smoke 패키지 이동으로 kiwoom↔market 모듈 순환 해소(재편 잔재), 전 테스트 250건 통과(실데이터 실험 제외 시) 확인
 
-### 트랙 C — Phase 6 운영 검증 (모의 무인 운영 = 진행형 검증)
+### 트랙 C — Phase 6 운영 검증 (모의 무인 운영 = 진행형 검증) ← **현재 트랙 (2026-08-28 개시 결정)**
+
+전제: 트랙 A(호스트 실측 — RUNBOOK 1~4단계)가 선행돼야 5단계(무인 운영 개시) 진입 가능.
+성격 명확화: C3는 게이트 ① FAIL이므로 이 운영은 "수익 후보 검증"이 아니라 **① 시스템 무인 운영 능력 검증(주문 왕복·Reconciliation·킬스위치·복구) ② C3의 새 데이터 성과 축적(검증 연장) ③ 슬리피지 실측(비용 모델 교정)**이 목적. 실계좌 전환 근거로 쓰지 않는다.
 
 C1. 4주+ 무인 모의 운영 (3절 방향 ② — 백테스트가 아닌 새 데이터로 검증 연장)
 C2. **격차 계측 기준 확정**: 라이브 Sharpe 기대치 = 백테스트의 1/3~1/2 ([Suhonen 2017](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757113) 중앙값 −73% 기저). 슬리피지는 [Perold(1988) Implementation Shortfall](https://jpm.pm-research.com/content/14/3/4) 방식(결정 시점 가격 vs 체결 가격)으로 일별 기록
 C3. 복구 훈련(재시작·Reconciliation·킬스위치 발동/해제), 21일 vs 5일 판단주기 paper A/B
 C4. 게이트 ② 판정 → 실계좌 소액. **실전 전환 전 키 전량 재발급(5절)**
 
-### 트랙 D — Phase 7 확장 (게이트 ② 통과 후)
+### 트랙 D — Phase 7 확장 (게이트 ② 통과 후) + 전략 재설계 사이클
 
+D0. **CPCV 러너 구현**(B3에서 이동) + 전략 재설계: 새 가설(예: 지수 중심 자산배분형, 목표변동성 10~12%로 MDD 기준과 정합) 수립 시 walk-forward+CPCV 이중 검증부터 적용 ([Arian 2024](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110), [AFML](https://www.wiley.com/en-us/Advances+in+Financial+Machine+Learning-p-9781119482086) 7·12장). trial 기록 누적 원칙 유지
 D1. news-intel: [KR-FinBert-SC](https://huggingface.co/snunlp/KR-FinBert-SC)(정확도 0.963, 월 다운로드 7.8만 — 한국어 금융 표준) 사이드카 가동, 필터 on/off 백테스트로 기여도 입증 후 도입
 D2. fractional Kelly(1/2~1/4) 전환 검토 — 거래 50~100건 축적 후 ([Thorp 2006](https://gwern.net/doc/statistics/decision/2006-thorp.pdf))
 D3. 물리 분리 트리거 평가(ADR-1), Modulith 이벤트 외부화 Kafka 경로는 [공식 문서](https://docs.spring.io/spring-modulith/reference/events.html) 확정

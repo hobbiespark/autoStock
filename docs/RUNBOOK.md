@@ -8,15 +8,20 @@
 
 ## 0. 사전 준비 (1회)
 
+> **2026-08-28 상태**: 트랙 B 완료 — 2026 세율 반영, T 확장 재검증으로 C3 게이트① FAIL 확정.
+> 이 운영은 "검증 연장 + 무인 운영 능력 검증"이다(PROGRESS 4-1 트랙 C). 실계좌 전환 근거 아님.
+> 테스트 250건 통과 확인(JDK 21), data/ 2015~2026 일봉 확보, KiwoomSmokeIT는 `com.autostock.smoke` 패키지로 이동됨.
+
 ```powershell
 # 필수 도구: JDK 21, Docker Desktop, Python 3.10+ (pip install websockets)
-cd C:\project\autoStock
+cd D:\myApp\autoStock
 git push                                  # 미푸시 커밋 반영
 ```
 
 - [ ] GitHub Actions 첫 CI **초록불** 확인 (gradlew 권한 수정 후 첫 실행 — 스모크 테스트까지 통과해야 함)
 - [ ] `.env` 존재 확인 (모의투자 일반 계좌 키). ⚠️ 채팅에 노출됐던 키이므로 **키움 홈페이지에서 재발급 권장**
 - [ ] PostgreSQL 기동: `docker compose -f infra/docker-compose.yml up -d postgres`
+- 참고: Windows에서는 `gradlew.bat` 사용(셸스크립트 gradlew는 CRLF 상태 — WSL/Git Bash에서 실행 시 `bash -c "tr -d '\r' < gradlew | bash -s -- test"` 또는 `git config core.autocrlf` 정리 필요)
 
 ## 1. WS 프로토콜 실측 (장중 09:00~15:30 권장)
 
