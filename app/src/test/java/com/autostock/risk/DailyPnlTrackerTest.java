@@ -23,9 +23,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class DailyPnlTrackerTest {
 
-    // risk.fee-rate=0.00015, risk.sell-tax-rate=0.0015 (CostModel과 동일값)
+    // risk.fee-rate=0.00015, risk.sell-tax-rate=0.0020 (CostModel과 동일값, 2026 세율)
     private static final double FEE_RATE = 0.00015;
-    private static final double SELL_TAX_RATE = 0.0015;
+    private static final double SELL_TAX_RATE = 0.0020;
 
     private final List<Object> killSwitchEvents = new ArrayList<>();
     private RiskProperties properties;
@@ -61,9 +61,9 @@ class DailyPnlTrackerTest {
         // 수작업 계산:
         //   grossPnl = (71000-70000)*10 = 10,000
         //   buyNotional = 70000*10 = 700,000, buyCost = 700,000*0.00015 = 105
-        //   sellNotional = 71000*10 = 710,000, sellCost = 710,000*(0.00015+0.0015) = 710,000*0.00165 = 1171.5
-        //   net = 10,000 - 105 - 1171.5 = 8,723.5
-        BigDecimal expected = new BigDecimal("8723.5");
+        //   sellNotional = 71000*10 = 710,000, sellCost = 710,000*(0.00015+0.0020) = 710,000*0.00215 = 1526.5
+        //   net = 10,000 - 105 - 1526.5 = 8,368.5
+        BigDecimal expected = new BigDecimal("8368.5");
         assertEquals(0, expected.compareTo(tracker.todayRealizedPnl()));
     }
 

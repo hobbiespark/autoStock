@@ -21,7 +21,8 @@ import java.math.BigDecimal;
  * </ul>
  *
  * <p>기본값(국내 주식 위탁 기준 근사치): 매수/매도 수수료 각 0.015%,
- * 매도 시 증권거래세 0.15%, 슬리피지 0.05%.
+ * 매도 시 증권거래세 0.20%(2026-01-01 시행 세율: 코스피 거래세 0.05%+농특세 0.15%,
+ * 코스닥 0.20% — 기재부 2025 세제개편안), 슬리피지 0.05%.
  *
  * @param buyFeePct   매수 수수료율 (예: 0.00015 = 0.015%)
  * @param sellFeePct  매도 수수료율
@@ -37,7 +38,7 @@ public record CostModel(
 
     /** 기본 비용 모델 — PLAN 스펙에 명시된 기본값. */
     public static CostModel defaults() {
-        return new CostModel(0.00015, 0.00015, 0.0015, 0.0005);
+        return new CostModel(0.00015, 0.00015, 0.0020, 0.0005);
     }
 
     /**
