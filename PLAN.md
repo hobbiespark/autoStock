@@ -1,7 +1,7 @@
-# autoStock 개발 계획 v4 (최종 조정)
+# autoStock 개발 계획 v4.1
 
 키움증권 REST API 기반 국내주식 자동매매 시스템
-작성: 2026-08-13 | 스택: Java 21 + Spring Boot 3.x (Spring Modulith) + PostgreSQL
+작성: 2026-08-13 | v4.1 갱신: 2026-08-28 (근거 문헌 1차 자료·고인용 원전으로 교체, CPCV 병행 도입, 2026 세율 반영) | 스택: Java 21 + Spring Boot 3.x (Spring Modulith) + PostgreSQL
 진행 현황: [PROGRESS.md](PROGRESS.md) 참조 (Phase별 체크·실측 기록·전략 실험 결과)
 
 ---
@@ -29,7 +29,7 @@ v1 단순 자동매매 → v2 검증 방법론 강화(이벤트 기반, DSR/PBO)
 → **결정: 매매 코어 루프(시세→시그널→리스크→주문→체결→감사)의 모의투자 검증이 최우선.** 인텔리전스는 2단계로: (a) 규칙 기반 최소형 필터(VIX·환율 임계치, DART 공시 종목 배제) 먼저, (b) KR-FinBERT 뉴스 감성은 필터 on/off 백테스트로 기여도 입증 후 도입.
 
 **ADR-5. 엔지니어링 고도화 (2026-08-13 추가, 조사 기반 결정)**
-- **스레드**: Java 21 가상 스레드 활성화(`spring.threads.virtual.enabled=true`) — 블로킹 I/O(키움 REST `.block()`) 중심 워크로드에 적합. JDK21의 synchronized 핀닝 이슈 대응으로 핫패스의 `synchronized`는 `ReentrantLock`으로 교체. 운영 관찰 전까지 되돌릴 수 있는 플래그로 유지 ([production rollout 가이드](https://www.momentslog.com/development/spring-boot-virtual-threads-in-production-capacity-limits-jdk-differences-and-a-safe-rollout))
+- **스레드**: Java 21 가상 스레드 활성화(`spring.threads.virtual.enabled=true`) — 블로킹 I/O(키움 REST `.block()`) 중심 워크로드에 적합. JDK 21의 synchronized 핀닝 이슈 대응으로 핫패스의 `synchronized`는 `ReentrantLock`으로 교체. **핀닝은 [JEP 491](https://openjdk.org/jeps/491)로 JDK 24에서 해결됨** — LTS인 JDK 25 업그레이드 시 이 제약 소멸(업그레이드 검토 항목). 운영 관찰 전까지 되돌릴 수 있는 플래그로 유지
 - **캐시**: Redis가 아닌 **Caffeine 로컬 캐시** — 단일 JVM 모놀리스(ADR-1)에서 Redis는 네트워크 홉·운영 부담만 추가. `recordStats()`로 히트율을 Micrometer에 노출(목표 >90%), 물리 분리 시점에 Caffeine(L1)+Redis(L2) 계층화로 확장 ([멀티레벨 캐시 패턴](https://blog.devops-monk.com/2026/05/spring-boot-caching-caffeine-redis/)). 대상: 현재가(TTL 1s)·일봉(TTL 1h)·토큰(자체 캐시 유지)
 - **트랜잭션/CRUD**: 이벤트 스토어 append는 `@Transactional` 경계 명시 + Hibernate JDBC 배치(`batch_size`) 활성화. 감사 기록은 `@Async`(가상 스레드)로 핫패스에서 분리 — 매매 경로 지연에 영향 금지
 - **성능 계측**: Micrometer `Timer`/`@Timed`로 키움 API 지연·주문 라운드트립·이벤트 처리 시간 계측, Actuator `/actuator/metrics` 노출. 백테스트 처리량은 러너 자체 계측. JMH는 필요 시점까지 보류(개인 프로젝트 과잉)
@@ -43,8 +43,8 @@ v1 단순 자동매매 → v2 검증 방법론 강화(이벤트 기반, DSR/PBO)
 - **기각 유지**: Event Sourcing(현행 event_store는 감사·리플레이 로그이지 ES 아님), Full CQRS, Saga
 - **기존 결정과 일치 확인**: "Strategy는 주문하지 않는다"(RiskGate 단일 관문), 백테스트=라이브 동형, 주문 무조건 재시도 금지, Modulith 경계 테스트
 
-**ADR-4. 유지 사항**
-PostgreSQL(v2 결정), Java 21 + Spring Boot(사용자 스택), 과최적화 방지 게이트(DSR/PBO, walk-forward), 리스크 계층 명세, 정량 게이트는 그대로 유지. 시계열 볼륨 증가 시 TimescaleDB 확장 검토.
+**ADR-4. 유지 사항 (2026-08-28 갱신)**
+PostgreSQL(v2 결정), Java 21 + Spring Boot(사용자 스택), 과최적화 방지 게이트(DSR/PBO, walk-forward — CPCV 병행 추가는 2절 (2)), 리스크 계층 명세, 정량 게이트는 그대로 유지. 시계열 확장은 **PostgreSQL [네이티브 선언적 파티셔닝](https://www.postgresql.org/docs/current/ddl-partitioning.html) 우선** — 개인 규모(일봉+분봉)에 충분하고 확장 의존성이 없다. TimescaleDB(개발사 Timescale→TigerData로 사명 변경, 2025-06)는 [Apache 2.0/TSL 이중 라이선스](https://www.tigerdata.com/legal/licenses)로 자가 호스팅 무료이나, 틱 단위 대량 수집 전환 시점에만 재검토. Spring Modulith는 1.4.x(Boot 3.5/Java 21 라인) 추종 — [2.0 GA(2025-11)는 Boot 4 기준선](https://spring.io/blog/2025/11/21/spring-modulith-2-0-ga-1-4-5-and-1-3-11-released/)이므로 Boot 4 전환 시 함께 이관. 이벤트 외부화(Kafka)는 [공식 문서](https://docs.spring.io/spring-modulith/reference/events.html)의 `spring-modulith-events-kafka` + `@Externalized` 경로 확정.
 
 ### 조정 후 총평
 
@@ -70,13 +70,18 @@ PostgreSQL(v2 결정), Java 21 + Spring Boot(사용자 스택), 과최적화 방
 벡터화 백테스트는 룩어헤드 바이어스에 취약하고 라이브 코드와 이원화됨. 이벤트 기반 엔진은 시장데이터/시그널/주문/체결을 모두 이벤트로 처리해 백테스트와 실거래가 컴포넌트 교체만으로 전환됨 ([QuantStart](https://www.quantstart.com/articles/Event-Driven-Backtesting-with-Python-Part-I/), [IBKR Quant](https://www.interactivebrokers.com/campus/ibkr-quant-news/a-practical-breakdown-of-vector-based-vs-event-based-backtesting/)). 국내 사례: LEAN 기반 한국주식 툴킷 ([buylow](https://github.com/JeongSeongMok/buylow)).
 
 **(2) 과최적화 방지 — 통계적 검증 내장**
-소수 전략 구성만 반복 백테스트해도 높은 성과가 쉽게 나오며, 과최적화 전략은 OOS에서 체계적으로 언더퍼폼 (Bailey & López de Prado). 대응: walk-forward 기본 적용, [Deflated Sharpe Ratio](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551)로 다중검정·비정규성 보정, 전략 trial 횟수 DB 기록 → PBO 산출, 고도화 시 [CPCV](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110) 도입.
+소수 전략 구성만 반복 백테스트해도 높은 성과가 쉽게 나오며, 과최적화 전략은 OOS에서 체계적으로 언더퍼폼. 대응 3중: walk-forward 기본, [Deflated Sharpe Ratio](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551) (Bailey & López de Prado 2014, JPM)로 다중검정·비정규성 보정, 전략 trial 횟수 DB 기록 → [PBO](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2326253) (Bailey et al. 2017, J. Computational Finance) 산출. 최신 실증 근거 2건 반영:
+- [Arian, Norouzi & Seco (2024, Knowledge-Based Systems)](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110): 통제 실험에서 **CPCV가 walk-forward·k-fold 대비 PBO/DSR 모두 우수, walk-forward 단독은 false discovery 방지에 취약** — 게이트 ① 재판정부터 walk-forward에 CPCV를 병행한다 (Phase 7 → 앞당김)
+- [Suhonen et al. (2017, JPM)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757113): 글로벌 IB 판매 215개 실전 전략에서 **라이브 Sharpe가 백테스트 대비 중앙값 73% 하락**, 복잡한 전략일수록 저하 폭 확대 — "라이브 기대 성과 = 백테스트의 1/3~1/2" 가정과 게이트 ②의 격차 계측 기준의 직접 근거
 
 **(3) 리스크 우선 포지션 사이징**
-고정비율(fixed fractional)로 시작 — 엣지 추정 불확실 초기에 Kelly보다 강건. 거래 50~100건 축적 후 fractional Kelly(1/2 이하) 전환 검토 ([QuantInsti](https://blog.quantinsti.com/position-sizing/)). 변동성 타게팅으로 변동성 상승 시 자동 축소.
+고정비율(fixed fractional)로 시작 — 엣지 추정 불확실 초기에 Kelly보다 강건. 거래 50~100건 축적 후 fractional Kelly(1/2 이하) 전환 검토 — 근거: [Thorp (2006)](https://gwern.net/doc/statistics/decision/2006-thorp.pdf), Princeton Newport Partners 실전 적용(약 20년 연 19%+); 실무 표준은 추정오차 대응을 위한 1/2~1/4 Kelly. 변동성 타게팅은 [Moreira & Muir (2017, Journal of Finance)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2659431) 및 [Harvey et al. (2018, JPM)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3175538) (Man AHL 실무진 저술·Bernstein Fabozzi 수상) 근거 — 주식·위험자산에서 Sharpe 개선 + 꼬리위험 축소. **한계 명시**: [Cederburg et al. (2020, JFE)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3357038)은 팩터 전략 전반으로의 일반화에 부정적(실시간 구현 시 Sharpe 저하) — 본 시스템처럼 시장지수·단일 위험자산 계열에 적용하는 것이 문헌상 안전 영역.
 
-**(4) 감사 추적 + 킬스위치는 필수 인프라**
-2025~2026 규제 흐름: 자동 주문은 발원자 추적, 작동하는 킬스위치, 검색 가능한 감사 로그 요구 ([NURP](https://nurp.com/algorithmic-trading-blog/future-of-algorithmic-trading-trends-and-predictions/)). 전 주문 이벤트 소싱 기록, 텔레그램 원격 킬스위치.
+**(4) 감사 추적 + 킬스위치는 필수 인프라 (규제 1차 자료 기준)**
+- [SEC Rule 15c3-5](https://www.ecfr.gov/current/title-17/chapter-II/part-240/section-240.15c3-5) (Market Access Rule): 사전 리스크 통제·감독 절차 의무화. **최초 집행 사례가 Knight Capital(2012)** — 배포 오류로 45분간 400만+ 주문 오발주, 손실 $460M+, [SEC 제재 $12M](https://www.sec.gov/newsroom/press-releases/2013-222) ([명령서 원문](https://www.sec.gov/files/litigation/admin/2013/34-70694.pdf)). 킬스위치·통제된 배포·사전 한도검증의 실증 사례
+- [MiFID II RTS 6 (EU 2017/589)](https://eur-lex.europa.eu/eli/reg_del/2017/589/oj/eng): Art.12 Kill functionality(전 미체결 즉시 취소 + 주문별 책임 알고리즘 식별), 배포 전 테스트, 연간 자체평가 의무
+- 한국: KRX 파생상품시장 2025 제도개선으로 고빈도 알고리즘 거래자 사전 등록·식별 ID 도입(회원사 의무). 개인 API 매매에 별도 등록 의무는 현재 없으나 **시장질서 교란·시세조종 규제는 알고리즘 매매에 동일 적용** ([증선위 과징금 사례](https://fsc.go.kr/no010101/79339)). 초단타 규제 입법 논의 진행 중(2025-12 발의, 계류)
+→ 설계 반영: 전 주문 이벤트 영속화(발원 추적), ClientOrderId로 주문별 전략 식별(RTS 6 Art.12 정합), 텔레그램 원격 킬스위치 + 자동 트리거, 배포 전 paper 프로필 강제.
 
 ## 3. 키움 REST API 실전 제약 (커뮤니티 검증 사항)
 
@@ -88,7 +93,9 @@ PostgreSQL(v2 결정), Java 21 + Spring Boot(사용자 스택), 과최적화 방
 - WebSocket 단절 감지 실패 → 매매 정지 사고 — heartbeat 감시, 자동 재연결+재구독
 - 장 시간 외 주문 → 무효 주문 누적 — 거래 캘린더/시간 가드
 - 지원 범위: 국내주식(ETF/ETN 포함), Java 공식 지원 확인
+- **공식 GitHub 저장소 개설 확인** (2025~2026): [Kiwoom-Securities/Kiwoom-REST-API](https://github.com/Kiwoom-Securities/Kiwoom-REST-API) — 공식 클라이언트·샘플·CLI(kwcli). 커뮤니티 래퍼보다 우선 참조
 - 참고 구현: [kiwoom-rest-api (207 엔드포인트+WS 19종)](https://github.com/younghwan91/kiwoom-rest-api)
+- rate limit 공식 수치는 문서 미공개 — 커뮤니티 관측치(TR당 약 1req/s) 기반 구현 + 429 백오프 유지, 구현 시점마다 [공식 공지](https://openapi.kiwoom.com/guide/index) 재확인
 
 ## 4. 아키텍처 — 논리적 MSA, 물리적 모놀리스 (Spring Modulith)
 
@@ -154,7 +161,7 @@ autoStock/
 | [DART OpenAPI](https://huggingface.co/datasets/eddmpython/dartlab-data) | 공시, 지분 변동 | 유상증자·소송 등 발생 종목 진입 배제 |
 | 키움 REST | 선물 베이시스, 외국인 수급 | 수급 악화 시 보수 모드 |
 
-**2단계 — 뉴스 감성 (Phase 7)**: 뉴스 수집(RSS/주요 언론) → 종목·섹터 매핑 → KR-FinBERT 사이드카 스코어링 → `NewsSentiment`. 국내 실증: [KOSPI 예측](https://www.dbpia.co.kr/journal/articleDetail?nodeId=NODE11227781), [공모주 시초가 예측](https://www.kci.go.kr/kciportal/landing/article.kci?arti_id=ART002932250), [감성-주가 딥러닝](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART002869886). 지정학 리스크는 뉴스 스코어로 자체 산출, 임계 초과 시 킬스위치 후보 → 텔레그램 승인 요청.
+**2단계 — 뉴스 감성 (Phase 7)**: 뉴스 수집(RSS/주요 언론) → 종목·섹터 매핑 → KR-FinBERT 사이드카 스코어링 → `NewsSentiment`. 모델 선정 근거: [snunlp/KR-FinBert-SC](https://huggingface.co/snunlp/KR-FinBert-SC) — 뉴스 44만건+애널리스트 리포트 1.1만건 추가 사전학습, 감성분류 정확도 0.963(KoBERT 0.817 대비), **월 다운로드 7.8만회로 한국어 금융 감성분석의 사실상 표준** (2026-08 확인). 이론 계보: FinBERT — [Araci (2019, arXiv)](https://arxiv.org/abs/1908.10063) 및 [Huang, Wang & Yang (2023, Contemporary Accounting Research)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3910214), 두 계열 합산 인용 1,400+. 국내 실증: [KOSPI 예측](https://www.dbpia.co.kr/journal/articleDetail?nodeId=NODE11227781), [공모주 시초가 예측](https://www.kci.go.kr/kciportal/landing/article.kci?arti_id=ART002932250), [감성-주가 딥러닝](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART002869886). 2024~2026 트렌드는 금융 LLM(FinGPT 등)으로 이동 중이나 한국어 금융 특화로 검증된 공개 대체재 부재 → KR-FinBert-SC 유지 + LLM 프롬프팅 병행 실험은 선택 과제. 지정학 리스크는 뉴스 스코어로 자체 산출, 임계 초과 시 킬스위치 후보 → 텔레그램 승인 요청.
 
 원칙: 감성·거시 시그널은 단독 매매 근거가 아닌 **필터/가중치**. 도입 전후 필터 on/off 백테스트로 기여도 입증 (DSR/PBO 검증 동일 적용).
 
@@ -181,11 +188,22 @@ autoStock/
 | 전략 trial 이력 | 백테스트 실행마다 기록 | PBO/DSR 계산 원천 |
 | 거시/공시/뉴스 | 배치 + 사이드카 | 모듈별 스키마 |
 
-비용 모델(위탁수수료 + 증권거래세 + 슬리피지 추정)을 SimExecution에 반영 — 단기 전략은 비용 모델 정확도가 성패 결정.
+비용 모델(위탁수수료 + 증권거래세 + 슬리피지 추정)을 SimExecution에 반영 — 단기 전략은 비용 모델 정확도가 성패 결정. 이론 원전: [Perold (1988) Implementation Shortfall](https://jpm.pm-research.com/content/14/3/4) (paper vs 실제 성과 갭 개념, 기관 TCA 표준), [Almgren & Chriss (2000)](https://www.smallake.kr/wp-content/uploads/2016/03/optliq.pdf) (인용 1,600+, 시장충격 모델).
+
+**세율 변경 반영 (2026-01-01 시행, [기재부 2025 세제개편안](https://www.moef.go.kr/nw/mosfnw/detailInfograpView.do?searchNttId1=MOSF_000000000074691&menuNo=4040500))**: 매도 시 코스피 증권거래세 0.05% + 농특세 0.15% = **0.20%**, 코스닥 0.20% (2025년까지는 양 시장 0.15%). 키움 온라인 위탁수수료 0.015%. → 백테스트 비용 상수를 왕복 기준 약 0.23% + 슬리피지로 갱신하고, 기존 실험(0.35% 가정)은 보수적 상한으로 유지.
 
 ## 7. 전략 연구 프로세스
 
-후보 (국내 실증 문헌 기반): 변동성 돌파 ([한국콘텐츠학회](https://koreascience.kr/article/JAKO202211258153666.pub?lang=ko&orgId=kocon)), 저변동성/변동성 조정 (KOSPI +3.23%p·KOSDAQ +15.70%p 실증, [서울대](https://www.dbpia.co.kr/journal/detail?nodeId=T15120779)), 모멘텀 ([숙명여대](https://scholarworks.sookmyung.ac.kr/item/0f2d4e15-f730-47ad-add3-23536003d26f)).
+후보 — 국제 고인용 원전 + 국내 실증의 이중 근거로 선정:
+
+| 전략 요소 | 국제 원전 (인용) | 실무 적용 | 국내 실증 |
+|---|---|---|---|
+| 시계열 모멘텀 (C 계열 핵심) | [Moskowitz, Ooi & Pedersen (2012, JFE)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2089463) 1,400+ | AQR Managed Futures ([AQMIX](https://funds.aqr.com/funds/alternatives/aqr-managed-futures-strategy-fund/aqmix), AUM ~$3.4B). [137년 실증](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2993026) (Hurst et al. 2017): 60/40 최대 낙폭 10회 중 8회 양(+) 수익 | [모멘텀](https://scholarworks.sookmyung.ac.kr/item/0f2d4e15-f730-47ad-add3-23536003d26f) |
+| 국면 필터 (SMA 추세) | [Faber (2007, J. Wealth Mgmt)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=962461) — SSRN 최다 다운로드급 | Cambria 계열 ETF로 상품화 | — |
+| 변동성 타게팅 | [Moreira & Muir (2017, JF)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2659431), [Harvey et al. (2018, JPM)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3175538) | Man AHL 실무진 저술 | [변동성 조정](https://www.dbpia.co.kr/journal/detail?nodeId=T15120779) (KOSPI +3.23%p·KOSDAQ +15.70%p) |
+| 변동성 돌파 (실험 1·2에서 비용 드래그로 폐기) | — | — | [한국콘텐츠학회](https://koreascience.kr/article/JAKO202211258153666.pub?lang=ko&orgId=kocon) |
+
+현행 C3(`VolTarget(RegimeFilter(TSMomentum))`)는 위 세 고인용 계열의 교집합 — 임의 조합이 아니라 각각 독립적으로 검증된 요소의 결합. 최근 재검증(2025 arXiv: [CTA 재현](https://arxiv.org/abs/2507.15876), [Trend Premia 구조](https://arxiv.org/abs/2510.23150))도 3~12개월 TSM의 유의성 유지를 확인.
 
 ```
 가설 → 인샘플 백테스트 → walk-forward OOS → DSR/PBO 검증
@@ -224,33 +242,52 @@ ML 확장(선택): gradient boosting 시그널 필터부터 — [ML4T 워크플�
 | 3. 백테스트 | 2~3주 | 리플레이 러너, 비용 모델, walk-forward, DSR/PBO | 동일 전략이 백테스트/모의 동일 코드 구동 |
 | 4. 전략+리스크 | 3주 | 변동성 돌파 v1, 리스크 전 계층, 킬스위치, monitor | **게이트 ① 통과 = 트레이딩 MVP** |
 | 5. 거시 필터 | 2주 | macro-intel (ECOS/FRED/DART 규칙 기반) | 필터 on/off 백테스트로 기여도 검증 |
-| 6. 운영 검증 | 2주+ | 무인 운영, 슬리피지 계측, 복구 훈련 | 게이트 ② 통과 → 실계좌 소액 |
-| 7. 확장 | 지속 | news-intel(KR-FinBERT 사이드카), fractional Kelly, CPCV, 물리 분리 트리거 평가 | 게이트 ③ 통과 후 본운영 |
+| 5.5 검증 고도화 | 1~2주 | **T 확장(2015~) 재검증 + CPCV 러너** (Arian 2024 근거로 Phase 7에서 앞당김), 비용 상수 2026 세율 갱신 | C3 동결 유지 하에 CPCV·walk-forward 이중 판정 |
+| 6. 운영 검증 | 4주+ | 무인 모의 운영 = **진행형 검증**(새 데이터로 성과 축적), 슬리피지·백테스트 격차 계측(Suhonen 2017의 73% 저하를 기저 기대치로), 복구 훈련 | 게이트 ② 통과 → 실계좌 소액 |
+| 7. 확장 | 지속 | news-intel(KR-FinBert-SC 사이드카), fractional Kelly(1/2~1/4, Thorp 2006), 물리 분리 트리거 평가, JDK 25 검토 | 게이트 ③ 통과 후 본운영 |
 
-## 11. 참고 문헌·자료
+## 11. 참고 문헌·자료 (2026-08-28 전면 개편 — 인용 수는 Semantic Scholar/OpenAlex 기준, Google Scholar는 통상 이보다 높음)
 
-**논문/학술**
-- Bailey & López de Prado, *The Deflated Sharpe Ratio* (2014) — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551)
-- Bailey et al., *Statistical Overfitting and Backtest Performance* — [LBL](https://sdm.lbl.gov/oapapers/ssrn-id2507040-bailey.pdf)
-- *Backtest overfitting in the ML era: CPCV 비교* (2024) — [ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110)
-- *Walk-Forward Validation Framework for Microstructure Signals* (2025) — [arXiv](https://arxiv.org/pdf/2512.12924)
-- KR-FinBERT 뉴스 감성분석 KOSPI 예측 — [DBpia](https://www.dbpia.co.kr/journal/articleDetail?nodeId=NODE11227781)
-- 뉴스 감성 딥러닝 주가 예측 — [KCI](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART002869886)
-- 뉴스·댓글 기반 공모주 시초가 예측 — [KCI](https://www.kci.go.kr/kciportal/landing/article.kci?arti_id=ART002932250)
-- 신다슬, 변동성 조정 투자전략 — [DBpia](https://www.dbpia.co.kr/journal/detail?nodeId=T15120779)
-- 심층신경망 변동성 돌파 전략 — [KoreaScience](https://koreascience.kr/article/JAKO202211258153666.pub?lang=ko&orgId=kocon)
-- 융합적 모멘텀 전략 — [ScholarWorks](https://scholarworks.sookmyung.ac.kr/item/0f2d4e15-f730-47ad-add3-23536003d26f)
+**A. 전략 근거 — 고인용 원전 + 실무 적용**
+- Moskowitz, Ooi & Pedersen, *Time Series Momentum* (2012, JFE) — 인용 1,400+ — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2089463) · [무료 PDF](https://w4.stern.nyu.edu/facdir/lpederse/papers/TimeSeriesMomentum.pdf) | 실무: AQR
+- Hurst, Ooi & Pedersen, *A Century of Evidence on Trend-Following Investing* (2017, JPM) — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2993026) · [AQR](https://www.aqr.com/Insights/Research/Journal-Article/A-Century-of-Evidence-on-Trend-Following-Investing) | 1880~2016, 67개 시장
+- Moreira & Muir, *Volatility-Managed Portfolios* (2017, Journal of Finance) — 인용 500+ — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2659431)
+- Harvey et al., *The Impact of Volatility Targeting* (2018, JPM) — Man AHL 실무진, Bernstein Fabozzi 수상 — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3175538)
+- Cederburg et al., *On the performance of volatility-managed portfolios* (2020, JFE) — **비판·한계 연구** — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3357038)
+- Faber, *A Quantitative Approach to Tactical Asset Allocation* (2007/2013) — SSRN 최다 다운로드급 — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=962461)
+- Thorp, *The Kelly Criterion in Blackjack, Sports Betting, and the Stock Market* (2006) — [PDF](https://gwern.net/doc/statistics/decision/2006-thorp.pdf)
+- 최신 재검증(2025): [CTA 재현](https://arxiv.org/abs/2507.15876) · [Network Momentum](https://arxiv.org/abs/2501.07135) · [Trend Premia 구조](https://arxiv.org/abs/2510.23150)
 
-**커뮤니티/실무**
-- 키움 REST API 자동매매 가이드 2026 — [알고랩](https://algolab.co.kr/blog/kiwoom-rest-api-algotrading-guide-2026)
-- 키움 공식 문서·FAQ — [openapi.kiwoom.com](https://openapi.kiwoom.com/)
-- kiwoom-rest-api 래퍼 — [GitHub](https://github.com/younghwan91/kiwoom-rest-api)
-- buylow (LEAN 기반 한국주식 툴킷) — [GitHub](https://github.com/JeongSeongMok/buylow)
-- Event-Driven Backtesting — [QuantStart](https://www.quantstart.com/articles/Event-Driven-Backtesting-with-Python-Part-I/), [IBKR](https://www.interactivebrokers.com/campus/ibkr-quant-news/a-practical-breakdown-of-vector-based-vs-event-based-backtesting/)
-- Position Sizing — [QuantInsti](https://blog.quantinsti.com/position-sizing/), [QuantifiedStrategies](https://www.quantifiedstrategies.com/position-sizing-strategies/)
-- ECOS/FRED 수집 가이드 — [wikidocs](https://wikidocs.net/366487), [PublicDataReader](https://github.com/WooilJeong/PublicDataReader/blob/main/assets/docs/ecos/ecos.md)
+**B. 검증 방법론 — 과최적화·라이브 갭**
+- Bailey & López de Prado, *The Deflated Sharpe Ratio* (2014, JPM) — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551)
+- Bailey, Borwein, López de Prado & Zhu, *The Probability of Backtest Overfitting* (2017, J. Computational Finance) — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2326253)
+- López de Prado, *Advances in Financial Machine Learning* (2018, Wiley) — CPCV 원전 — [Wiley](https://www.wiley.com/en-us/Advances+in+Financial+Machine+Learning-p-9781119482086)
+- Arian, Norouzi & Seco, *Backtest Overfitting in the Machine Learning Era* (2024, Knowledge-Based Systems) — CPCV > walk-forward 정량 입증 — [ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110)
+- Suhonen et al., *Quantifying Backtest Overfitting in Alternative Beta Strategies* (2017, JPM) — 215개 실전 전략, 라이브 Sharpe 중앙값 −73% — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757113)
+- Perold, *The Implementation Shortfall* (1988, JPM) — [JPM](https://jpm.pm-research.com/content/14/3/4) / Almgren & Chriss, *Optimal Execution* (2000) — 인용 1,600+ — [PDF](https://www.smallake.kr/wp-content/uploads/2016/03/optliq.pdf)
 
-**강의/서적**
+**C. 규제·안전 — 1차 자료**
+- SEC Rule 15c3-5 — [eCFR 원문](https://www.ecfr.gov/current/title-17/chapter-II/part-240/section-240.15c3-5) · [SEC FAQ](https://www.sec.gov/rules-regulations/staff-guidance/trading-markets-frequently-asked-questions/divisionsmarketregfaq-0)
+- Knight Capital 제재(2013) — [SEC 보도자료](https://www.sec.gov/newsroom/press-releases/2013-222) · [명령서 원문](https://www.sec.gov/files/litigation/admin/2013/34-70694.pdf)
+- MiFID II RTS 6 (EU 2017/589) — [EUR-Lex](https://eur-lex.europa.eu/eli/reg_del/2017/589/oj/eng) · [ESMA 리뷰(2021)](https://www.esma.europa.eu/sites/default/files/library/esma70-156-4572_mifid_ii_final_report_on_algorithmic_trading.pdf)
+- 한국: [증선위 알고리즘 매매 과징금 사례](https://fsc.go.kr/no010101/79339) · [알고리즘 거래 금융규제 연구(KCI)](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART003241840)
+- 거래 비용: [기재부 2025 세제개편안(2026 시행 세율)](https://www.moef.go.kr/nw/mosfnw/detailInfograpView.do?searchNttId1=MOSF_000000000074691&menuNo=4040500)
+
+**D. 감성분석·데이터**
+- Araci, *FinBERT* (2019, arXiv) — 인용 700+ — [arXiv](https://arxiv.org/abs/1908.10063) / Huang, Wang & Yang, *FinBERT* (2023, Contemporary Accounting Research) — 인용 700+ — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3910214)
+- KR-FinBert-SC (snunlp, 서울대) — 월 다운로드 7.8만, 정확도 0.963 — [HuggingFace](https://huggingface.co/snunlp/KR-FinBert-SC)
+- 국내 실증: [KOSPI 예측(DBpia)](https://www.dbpia.co.kr/journal/articleDetail?nodeId=NODE11227781) · [공모주 시초가(KCI)](https://www.kci.go.kr/kciportal/landing/article.kci?arti_id=ART002932250) · [감성-주가 딥러닝(KCI)](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART002869886)
+- 국내 전략 실증: [변동성 조정(DBpia)](https://www.dbpia.co.kr/journal/detail?nodeId=T15120779) · [변동성 돌파(KoreaScience)](https://koreascience.kr/article/JAKO202211258153666.pub?lang=ko&orgId=kocon) · [모멘텀(ScholarWorks)](https://scholarworks.sookmyung.ac.kr/item/0f2d4e15-f730-47ad-add3-23536003d26f)
+- ECOS/FRED 수집 — [wikidocs](https://wikidocs.net/366487) · [PublicDataReader](https://github.com/WooilJeong/PublicDataReader/blob/main/assets/docs/ecos/ecos.md)
+
+**E. 구현·인프라 — 공식 문서 우선**
+- 키움 REST API — [공식 포털](https://openapi.kiwoom.com/guide/index) · [공식 GitHub](https://github.com/Kiwoom-Securities/Kiwoom-REST-API) · [커뮤니티 래퍼](https://github.com/younghwan91/kiwoom-rest-api) · [알고랩 가이드](https://algolab.co.kr/blog/kiwoom-rest-api-algotrading-guide-2026)
+- Spring Modulith — [이벤트 외부화 공식 문서](https://docs.spring.io/spring-modulith/reference/events.html) · [2.0 GA 공지](https://spring.io/blog/2025/11/21/spring-modulith-2-0-ga-1-4-5-and-1-3-11-released/) · [Kafka 예제](https://github.com/spring-projects/spring-modulith/blob/main/spring-modulith-examples/spring-modulith-example-kafka/readme.adoc)
+- JEP 491 (가상 스레드 핀닝 해결, JDK 24) — [openjdk.org](https://openjdk.org/jeps/491)
+- PostgreSQL 파티셔닝 — [공식 문서](https://www.postgresql.org/docs/current/ddl-partitioning.html) / TimescaleDB(TigerData) 라이선스 — [tigerdata.com](https://www.tigerdata.com/legal/licenses)
+- 텔레그램 봇 보안 — [Bot API 공식(secret_token)](https://core.telegram.org/bots/api): chat_id 화이트리스트(적용됨) + 토큰 회전 + 위험 명령 2단계 확인
+- Event-Driven Backtesting — [QuantStart](https://www.quantstart.com/articles/Event-Driven-Backtesting-with-Python-Part-I/) · [IBKR](https://www.interactivebrokers.com/campus/ibkr-quant-news/a-practical-breakdown-of-vector-based-vs-event-based-backtesting/) · [buylow](https://github.com/JeongSeongMok/buylow)
+
+**F. 강의/서적**
 - Stefan Jansen, *Machine Learning for Trading* — [ml4t](https://stefan-jansen.github.io/machine-learning-for-trading/08_ml4t_workflow/01_multiple_testing/) (번역: 퀀트 투자를 위한 머신러닝·딥러닝 알고리듬 트레이딩 2/e, 에이콘)
-- 러닝스푼즈 퀀트 머신러닝 — [learningspoons](https://learningspoons.com/course/detail/quantml/)
-- 인프런 트레이딩 봇 개발 — [inflearn](https://www.inflearn.com/course/%EB%B9%84%ED%8A%B8%EC%BD%94%EC%9D%B8-%ED%8A%B8%EB%A0%88%EC%9D%B4%EB%94%A9-%EB%B4%87)
+- SBAI 백테스팅 가이드(업계 자율규제) — [PDF](https://www.sbai.org/static/a7fc0b57-9c84-4b72-adae25e4bfae1be2/ARP-Backtesting.pdf)

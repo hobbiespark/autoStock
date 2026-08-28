@@ -7,7 +7,7 @@ import java.math.BigDecimal;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
- * CostModel 검증 — 기본값(매수/매도 수수료 각 0.015%, 매도세 0.15%, 슬리피지 0.05%)에 대해
+ * CostModel 검증 — 기본값(매수/매도 수수료 각 0.015%, 매도세 0.20% — 2026 세율, 슬리피지 0.05%)에 대해
  * 구체적인 숫자로 비용이 정확히 계산되는지 확인한다.
  */
 class CostModelTest {
@@ -36,10 +36,10 @@ class CostModelTest {
     }
 
     @Test
-    void 매도_비용은_수수료_0_015퍼센트_플러스_거래세_0_15퍼센트() {
-        // 1,000,000 * (0.00015 + 0.0015) = 1,000,000 * 0.00165 = 1650
+    void 매도_비용은_수수료_0_015퍼센트_플러스_거래세_0_20퍼센트() {
+        // 1,000,000 * (0.00015 + 0.0020) = 1,000,000 * 0.00215 = 2150
         BigDecimal fee = costModel.sellFee(new BigDecimal("1000000"));
-        assertEquals(new BigDecimal("1650.00000"), fee);
+        assertEquals(new BigDecimal("2150.00000"), fee);
     }
 
     @Test

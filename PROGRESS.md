@@ -1,6 +1,6 @@
 # autoStock 진행 현황
 
-기준일: 2026-08-13 (2차 갱신) | 계획: [PLAN.md](PLAN.md) v4 (ADR 6건) | 아키텍처: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 리포: github.com/hobbiespark/autoStock
+기준일: 2026-08-28 (4차 갱신 — 남은 작업·고도화 순서를 조사 기반으로 재정리) | 계획: [PLAN.md](PLAN.md) v4.1 (ADR 6건) | 아키텍처: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 리포: github.com/hobbiespark/autoStock
 
 > **작업 방침 (확정)**: 실제 API(모의 포함) 호출 검증 금지 — 회사망 모니터링 사유.
 > 계획·문서 기반 예상 구현 + `TODO 실측` 표기로 진행하고, 실측은 자택망에서 별도 수행.
@@ -17,8 +17,9 @@
 | 3. 백테스트 (리플레이·비용모델·DSR/PBO) | ✅ 완료 | walk-forward + DSR/PBO + 실데이터 검증 파이프라인 가동 |
 | 4. 전략+리스크 | 🔶 진행 중 | 전략 3안 실험 완료, **게이트 ① 미통과** — 판정 도구 교정 + 포트폴리오 검증 예정 |
 | 5. 거시 필터 (macro-intel) | ✅ 1단계(규칙 기반) 완료 | FRED/ECOS 수집 배치(예상 구현), VIX/환율 임계치 → 보수 모드·킬스위치, DART 공시 블랙리스트 골격. 2단계 뉴스 감성은 Phase 7 |
-| 6. 운영 검증 (무인 모의 운영) | ⬜ 미착수 | |
-| 7. 확장 (news-intel·Kelly·CPCV) | ⬜ 미착수 | sidecar-nlp 골격만 존재 |
+| 5.5 검증 고도화 (신설, PLAN v4.1) | ⬜ 미착수 | 비용 상수 2026 세율 갱신 + T 확장(2015~) + CPCV 병행 → 게이트 ① 재판정 (4-1절 트랙 B) |
+| 6. 운영 검증 (무인 모의 운영) | ⬜ 미착수 | 격차 계측 기저치 확보(Suhonen 2017, 4-1절 트랙 C) |
+| 7. 확장 (news-intel·Kelly) | ⬜ 미착수 | sidecar-nlp 골격만 존재. CPCV는 5.5로 앞당김 |
 
 부가 완료: 경량 대시보드 FE(킬스위치·테스트시그널·포지션·이벤트 피드), GitHub Actions CI(시크릿 연동 스모크 포함), Gradle Wrapper.
 
@@ -80,6 +81,26 @@
 
 게이트 ②·③: 미도달
 
+### T 확장 재검증 결과 (2026-08-28, 자택망 — 트랙 B 실행)
+
+데이터를 2015-01-02~2026-08-28(약 11.6년, 기존 2019~ 대비 T 1.6배)로 확장하고 2026 세율(매도 0.20%)을 반영해 동결된 C3를 재평가했다. **튜닝 없음 — 동결 상태 그대로 관측 기간만 늘림.**
+
+| 항목 | 2019~ (기존) | 2015~ (확장) | 판정 |
+|---|---|---|---|
+| C3 OOS 수익률 | +124.1% | +152.0% | O (양수) |
+| C3 CAGR | 13.6% | 9.4% | — |
+| C3 MDD | 13.4% | **25.0%** | **X** (<15% 미달) |
+| C3 Sharpe | 1.05 | 0.77 | — |
+| C3 DSR(N=6) | 0.314 | **0.058** | **X** (>0.95 미달) |
+| KODEX200 B&H (동일 OOS) | — | +530.6% | 참고 기준선 |
+
+**게이트 ① 최종 확정: FAIL** — T 확장은 신뢰도를 올리지 못했고 오히려 반대를 입증했다:
+- MDD 13.4%는 2019~ 구간의 행운이었음 확인(2015~16 횡보·2018·2022 약세장 포함 시 25.0%). 목표변동성 20% 설정 자체가 10년+ 구간에서 MDD<15%와 구조적으로 긴장 관계라는 점도 드러남
+- DSR은 장기 구간에서 C3 Sharpe가 낮아지며(1.05→0.77) 더 하락. C 계열 내에서도 C3가 최선이 아님(C2 Sharpe 1.01, C0 0.98)
+- C3(+152%)는 동일 기간 KODEX200 단순보유(+531%)를 크게 하회 — "하방 방어" 특성 재확인이나, 방어 대가가 큼
+
+**의미**: 과최적화 방지 장치가 정확히 설계 목적대로 작동. 동결된 C3는 실계좌 진입 근거가 없음이 두 독립 경로(N=6 DSR, T 확장)로 확정됐다. 남은 정당한 선택지는 ① C3 폐기 + 새 가설로 재설계(trial 기록 누적) ② 모의 무인 운영을 "검증 연장"으로만 활용(실계좌 게이트는 잠금 유지) ③ 게이트 기준 자체의 재검토(MDD 기준과 목표변동성의 정합 — 단, 결과를 본 후의 기준 완화는 데이터 스누핑이므로 ADR로 명시적 결정 필요).
+
 ## 3-1. 완료 추가 기록 (2차 갱신)
 
 - ✅ **DSR 교정 + 포트폴리오 슬리브 러너** (커밋 0b5d7c2): OOS 레벨 DSR(`deflatedSharpeAcrossFamilies`, N=전략 계열 수), 5종목 슬리브 포트폴리오(교차 자금이동 없음·carry-forward·공통 시작일)
@@ -87,20 +108,53 @@
 - ✅ **ADR-6 아키텍처 원칙 확정**: 외부 제안 검토 → docs/ARCHITECTURE.md 기준서 작성 (설계 규칙 20)
 - 🔶 **WIP (컴파일·테스트 통과, 미완)**: 주문 영속화 1차(OrderStatus 4상태, V2__orders.sql), 게이트① 포트폴리오 재판정 테스트(RealDataPortfolioGateTest) — ADR-6 상태기계 확장(UNKNOWN 등)과 통합해 완성 예정
 
-## 4. 다음 작업 (우선순위 순)
+## 4. 완료 작업 로그 (요약)
 
-0. ✅ ~~아키텍처 정렬 사이클 (ADR-6 구현)~~ — 완료 (커밋 01e924f): 11상태 주문 상태기계(UNKNOWN 포함, 합법 전이표 강제), ClientOrderId 가독 포맷, BrokerPort/KiwoomBrokerAdapter(구 3개 서비스 흡수), Reconciliation·StaleOrderCanceller 골격. 브로커 필드명·취소 body는 `TODO 실측`
-0-1. ✅ **C3 라이브 탑재** (커밋 c06db04): Momentum/Regime/VolTarget Math를 strategy 모듈 순수 클래스로 동형화(백테스트가 참조 — 기존 실험 테스트 무수정 통과로 수치 동일성 증명), `C3LiveStrategy`(09:05 KST 스케줄, 기본 비활성 `strategy.c3.enabled=false`), confidence=투입비중 사이징. **판단 주기 결정: 21일 유지, 5일 변형은 백테스트 재검증 대신 모의 운영 paper A/B로 비교**(trial 수 증가 방지)
-0-2. ✅ **텔레그램 알림·원격 킬스위치·일일 리포트** (커밋 0b13a48): Notifier Port + TelegramNotifier(기본 비활성), /stop·/resume·/status 폴링 명령(chat_id 화이트리스트), KillSwitchChanged 이벤트, 15:50 일일 리포트. 실행 검증은 자택망
-0-3. ✅ CI 수정 (커밋 53c963e): gradlew 실행 권한 비트 — Actions Permission denied 해결
-0-4. ✅ **안전장치 잔여 완성** (커밋 7e0a3c4, 테스트 222건): 일 손실 한도(-2%) 실현손익 추적→킬스위치, WS 장시간 단절(180초)→MarketDataStale 이벤트→킬스위치, LIVE 잔고 연동 EquitySource(60초 캐시+2단 폴백), 거래 캘린더·장시간 가드
-0-5. ✅ **특일 API 휴장일 DB 동기화** (커밋 7f37936·d05e4d7): 공공데이터 SpcdeInfoService `getRestDeInfo`(공식 명세 확인, `_type=json` 지원). **매년 11/1 내년 일괄 + 매월 15일 향후 30일 창 재동기화**(대체공휴일 늦은 확정 흡수 — 명세: 임시공휴일 1일 내, 대체공휴일 대통령령 시행 후 반영). DB 우선·하드코딩 폴백 판정, MANUAL 등록으로 연말휴장 보완. 기본 비활성(서비스키 `DATA_GO_KR_SERVICE_KEY` 발급 후 활성화)
-0-6. ✅ **운영 상태기계 + CQRS Lite** (커밋 73b4184, 테스트 225건): TradingSystemStatus 6상태 전이표(STOPPED→STARTING→RUNNING→STOPPING, DEGRADED/ERROR), start/stop Command(`POST /api/trading/start|stop`, 응답은 STARTING — Backend가 Source of Truth), 킬스위치↔DEGRADED 자동 연동, View DTO+DashboardFacade(`GET /api/dashboard` 단일 폴링), FE 상태 배지·시작/정지 버튼·실현손익 표시
-1. ✅ ~~게이트 ① 재판정~~ — 완료 (3절 게이트 현황 참조: C3 잠정 통과 → N=6 보수 검증에서 철회, C3 후보 동결)
-1-1. ✅ **모듈 재편 완료** (커밋: "refactor: ADR-6 모듈 재편 — market/analysis/portfolio/trading/execution 목표 구조 정렬"): marketdata→market, newsintel→analysis, risk 내 PositionBook→portfolio 신설, execution→trading/execution 분리(trading: 주문 생성·상태 관리·대사 / execution: 브로커 전달만, 단방향 의존). ModularityTests 통과(순환 없음), 테스트 253건 무손상(실패 0, 개수 동일)
-4. ✅ **Phase 5: macro-intel 1단계(규칙 기반) 완료** (커밋: "feat: Phase 5 macro-intel — FRED/ECOS 수집 배치, VIX/환율 보수 모드·킬스위치 규칙, 공시 블랙리스트 골격"): `macrointel.FredClient`/`EcosClient`(예상 구현 + TODO 실측, HolidaySyncService의 callApi 오버라이드·부분 실패 격리 패턴 재사용) + `MacroSyncScheduler`(평일 08:30 KST, VIX/DXY/USDKRW/기준금리 → `MacroIndicator` 발행). 판단·차단은 "risk 소유" 원칙(risk/package-info.java)에 따라 `risk.MacroGuard`(VIX≥35 킬스위치, VIX≥25 또는 USDKRW≥1450 보수 모드 ON — 매수만 금지·매도는 허용, 두 조건 해제 시 자동 OFF)·`risk.DisclosureBlacklist`(DART 연동 전 수동 add/remove 골격)를 risk 모듈에 배치, macrointel은 수집·발행만 담당(단방향 참조, ModularityTests 통과). RiskGate 매수 경로에 보수 모드·블랙리스트 검사 추가, DashboardFacade/일일 리포트/FE에 보수 모드 표시. 테스트 278건 통과(신규 25건)
-5. 텔레그램 알림/원격 킬스위치 (monitor)
-6. **[자택망에서]** WS 실측(`scripts/ws_probe.py`), 주문 왕복 재검증, KiwoomSmokeIT 키 주입 실행, FRED/ECOS 키 발급 후 응답 포맷 실측
+0. ✅ 아키텍처 정렬 사이클 ADR-6 (커밋 01e924f): 11상태 주문 상태기계(UNKNOWN), ClientOrderId 가독 포맷, BrokerPort/KiwoomBrokerAdapter, Reconciliation·StaleOrderCanceller 골격 (브로커 필드명·취소 body `TODO 실측`)
+0-1. ✅ C3 라이브 탑재 (c06db04): Math 순수 클래스 동형화, C3LiveStrategy(기본 비활성), 판단 주기 21일 유지 — 5일 변형은 paper A/B로
+0-2. ✅ 텔레그램 알림·원격 킬스위치·일일 리포트 (0b13a48) — 실행 검증은 자택망
+0-3. ✅ CI 수정 (53c963e) | 0-4. ✅ 안전장치 잔여 완성 (7e0a3c4): 일 손실 한도·WS 단절 킬스위치·EquitySource·장시간 가드
+0-5. ✅ 특일 API 휴장일 DB 동기화 (7f37936·d05e4d7, 기본 비활성) | 0-6. ✅ 운영 상태기계 + CQRS Lite (73b4184)
+1. ✅ 게이트 ① 재판정 (3절: C3 잠정 통과 → N=6 검증에서 철회, C3 후보 동결) | 1-1. ✅ ADR-6 모듈 재편 (테스트 253건 무손상)
+4. ✅ Phase 5 macro-intel 1단계 (규칙 기반): FRED/ECOS 수집 배치, risk.MacroGuard(VIX≥35 킬스위치 등)·DisclosureBlacklist, 테스트 278건
+
+## 4-1. 남은 작업 및 고도화 계획 순서 (2026-08-28 확정 — 조사 근거 병기)
+
+조사 배경: PLAN v4.1에서 근거 문헌을 블로그 → 1차 자료·고인용 원전으로 교체 완료. 그 과정에서 확인된 신규 사실 3건이 우선순위를 바꾼다 — ① [Arian et al. 2024](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110): walk-forward 단독은 false discovery에 취약, CPCV 병행이 최신 권고 → CPCV를 Phase 7에서 5.5로 앞당김. ② [Suhonen et al. 2017](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757113): 실전 215개 전략의 라이브 Sharpe 중앙값 −73% → 게이트 ② 격차 계측의 정량 기저치 확보. ③ 2026-01-01 거래세 인상(매도 0.20%, [기재부](https://www.moef.go.kr/nw/mosfnw/detailInfograpView.do?searchNttId1=MOSF_000000000074691&menuNo=4040500)) → 비용 상수 갱신 필요.
+
+### 트랙 A — 실측 차단 해소 (자택망, 최우선: 이후 모든 트랙의 전제)
+
+A1. WS 실측(`scripts/ws_probe.py`), 주문 왕복 재검증, KiwoomSmokeIT 키 주입 실행
+A2. FRED/ECOS 키 발급 후 응답 포맷 실측, 특일 API 서비스키 발급·활성화
+A3. 텔레그램 봇 실행 검증 — [공식 Bot API](https://core.telegram.org/bots/api) 보안 기준: chat_id 화이트리스트(적용됨) + 킬스위치 해제(/resume) 등 위험 명령 2단계 확인 추가 + 토큰 회전 절차 문서화
+A4. 키움 [공식 GitHub](https://github.com/Kiwoom-Securities/Kiwoom-REST-API) 대조 — 커뮤니티 래퍼 기반 구현(필드명·rate limit)을 공식 샘플과 대사
+
+### 트랙 B — 검증 고도화 (Phase 5.5 신설, 게이트 ① 신뢰도 회복)
+
+B1. **비용 상수 갱신**: 2026 세율(매도 0.20% + 수수료 0.015% ≒ 왕복 0.23% + 슬리피지) 반영. 기존 0.35% 가정은 보수 상한으로 유지, 이중 시나리오 재판정
+B2. **관측 T 확장**: 데이터 기간 2015년~으로 확장 재검증(더 많은 국면 포함) — DSR의 T 증가는 정당한 신뢰도 개선 수단(3절 방향 ①)
+B3. **CPCV 러너 구현**: walk-forward와 병행 이중 판정 ([Arian 2024](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110) 근거, [AFML](https://www.wiley.com/en-us/Advances+in+Financial+Machine+Learning-p-9781119482086) 7·12장 구현 참조). **C3 동결은 유지** — 새 튜닝 금지, 동결된 C3를 확장 데이터·CPCV로 재평가만
+B4. 게이트 ① 재판정: B1~B3 완료 후 1회. 통과 시 트랙 C 진입, 미달 시 C3 폐기·전략 재설계(trial 기록 보존)
+
+### 트랙 C — Phase 6 운영 검증 (모의 무인 운영 = 진행형 검증)
+
+C1. 4주+ 무인 모의 운영 (3절 방향 ② — 백테스트가 아닌 새 데이터로 검증 연장)
+C2. **격차 계측 기준 확정**: 라이브 Sharpe 기대치 = 백테스트의 1/3~1/2 ([Suhonen 2017](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757113) 중앙값 −73% 기저). 슬리피지는 [Perold(1988) Implementation Shortfall](https://jpm.pm-research.com/content/14/3/4) 방식(결정 시점 가격 vs 체결 가격)으로 일별 기록
+C3. 복구 훈련(재시작·Reconciliation·킬스위치 발동/해제), 21일 vs 5일 판단주기 paper A/B
+C4. 게이트 ② 판정 → 실계좌 소액. **실전 전환 전 키 전량 재발급(5절)**
+
+### 트랙 D — Phase 7 확장 (게이트 ② 통과 후)
+
+D1. news-intel: [KR-FinBert-SC](https://huggingface.co/snunlp/KR-FinBert-SC)(정확도 0.963, 월 다운로드 7.8만 — 한국어 금융 표준) 사이드카 가동, 필터 on/off 백테스트로 기여도 입증 후 도입
+D2. fractional Kelly(1/2~1/4) 전환 검토 — 거래 50~100건 축적 후 ([Thorp 2006](https://gwern.net/doc/statistics/decision/2006-thorp.pdf))
+D3. 물리 분리 트리거 평가(ADR-1), Modulith 이벤트 외부화 Kafka 경로는 [공식 문서](https://docs.spring.io/spring-modulith/reference/events.html) 확정
+D4. JDK 25(LTS) 업그레이드 검토 — [JEP 491](https://openjdk.org/jeps/491)로 synchronized 핀닝 해소, ReentrantLock 제약 소멸
+D5. (선택) 변동성 타게팅 한계 모니터링 — [Cederburg 2020](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3357038)의 실시간 구현 성능 저하 경고를 라이브 데이터로 자체 검증
+
+### 상시 — 규제·환경 감시
+
+- 초단타 알고리즘 규제 입법(2025-12 발의, 계류) 통과 여부 추적 — 통과 시 개인 API 매매 영향 재평가
+- 시장질서 교란 규제는 알고리즘 매매에 현행 적용 ([증선위 사례](https://fsc.go.kr/no010101/79339)) — 허수성 호가로 오인될 수 있는 반복 정정·취소 패턴 금지를 risk 규칙에 유지
 
 ## 5. 보안 메모
 

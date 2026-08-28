@@ -44,7 +44,7 @@ risk:
   daily-max-orders: 30
   paper-equity: 10000000        # 시뮬레이션 계좌 1천만원 — LIVE는 BrokerEquitySource(잔고 연동)로 대체
   fee-rate: 0.00015             # 매수/매도 수수료율 — 실현손익 추정용(backtest.CostModel과 동일값)
-  sell-tax-rate: 0.0015         # 매도 증권거래세율 — 실현손익 추정용(backtest.CostModel과 동일값)
+  sell-tax-rate: 0.0020         # 매도 증권거래세율(2026-01-01 시행: 코스피 0.05%+농특세 0.15%, 코스닥 0.20%) — CostModel과 동일값
   enforce-market-hours: true    # 장 시간(09:00~15:30 KST) 외 Signal 거부 — SIM 테스트에서만 개별적으로 false
 
 execution:
