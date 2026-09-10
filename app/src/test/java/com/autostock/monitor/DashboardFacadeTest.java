@@ -9,6 +9,7 @@ import com.autostock.monitor.view.SystemStatusView;
 import com.autostock.monitor.view.TradingStatusView;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
+import com.autostock.risk.DisclosureBlacklist;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.MacroGuard;
 import com.autostock.portfolio.PositionBook;
@@ -45,7 +46,7 @@ class DashboardFacadeTest {
                                    TradingSystemManager tradingSystemManager, TradingProperties executionProperties,
                                    boolean c3Enabled, boolean wsEnabled) {
         return new DashboardFacade(positionBook, eventFeed, killSwitch, dailyLimitTracker, dailyPnlTracker,
-                macroGuard, tradingSystemManager, executionProperties,
+                macroGuard, mock(DisclosureBlacklist.class), tradingSystemManager, executionProperties,
                 new SlippageTracker(java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
                 c3Enabled, wsEnabled);
     }

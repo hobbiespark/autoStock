@@ -59,7 +59,8 @@ class RiskGateTest {
         killSwitch = new KillSwitch(event -> { });
         positionBook = new PositionBook();
         macroGuard = new MacroGuard(defaultMacroIntelProperties(), killSwitch);
-        disclosureBlacklist = new DisclosureBlacklist();
+        disclosureBlacklist = new DisclosureBlacklist(
+                mock(DisclosureBlacklistRepository.class), publisher, ANY_CLOCK);
         gate = new RiskGate(publisher, killSwitch, properties,
                 new PositionSizer(properties), positionBook, new DailyLimitTracker(properties),
                 new PaperEquitySource(properties), ANY_CLOCK, marketCalendarService,

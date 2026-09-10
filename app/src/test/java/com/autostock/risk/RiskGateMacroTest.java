@@ -53,7 +53,8 @@ class RiskGateMacroTest {
         positionBook = new PositionBook();
         macroGuard = new MacroGuard(
                 new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0), killSwitch);
-        disclosureBlacklist = new DisclosureBlacklist();
+        disclosureBlacklist = new DisclosureBlacklist(
+                mock(DisclosureBlacklistRepository.class), publisher, ANY_CLOCK);
         MarketCalendarService marketCalendarService = new MarketCalendarService(mock(MarketHolidayRepository.class));
         gate = new RiskGate(publisher, killSwitch, properties,
                 new PositionSizer(properties), positionBook, new DailyLimitTracker(properties),
