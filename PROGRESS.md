@@ -157,6 +157,13 @@ D3. 물리 분리 트리거 평가(ADR-1), Modulith 이벤트 외부화 Kafka �
 D4. JDK 25(LTS) 업그레이드 검토 — [JEP 491](https://openjdk.org/jeps/491)로 synchronized 핀닝 해소, ReentrantLock 제약 소멸
 D5. (선택) 변동성 타게팅 한계 모니터링 — [Cederburg 2020](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3357038)의 실시간 구현 성능 저하 경고를 라이브 데이터로 자체 검증
 
+### 트랙 E — 요구 확장 (v5, 2026-09-11 — PLAN 0-2절 ADR-7~10)
+
+E1. **FE React+TS 전환** (ADR-10, 사용자 확정): Vite+React+TS+TanStack Query, frontend/ 신설, 슬리피지·시스템 카드 + 피드 필터 + 모바일 반응형
+E2. **공모주 반자동** (ADR-9): 키움 API 청약 TR 부재 확정(공식 GitHub 전수 확인) → 일정 수집(DART/KIND)·경쟁률/확약 필터·텔레그램 알림·상장일 매도 규칙 기록. 실행은 수동
+E3. **ETF 롱·숏 C4 가설** (ADR-8): 국면 OFF 시 KODEX 인버스(114800, 1X만) 진입 백테스트 — CPCV/DSR 게이트, 114800 데이터 수집부터
+E4. **익절 +1.8%/손절 −1.5% 규칙** (ADR-7): 전략별 오버라이드로 구현 후 paper A/B — EV>0 필요조건 승률 52.4% 입증 전 라이브 금지
+
 ### 상시 — 규제·환경 감시
 
 - 초단타 알고리즘 규제 입법(2025-12 발의, 계류) 통과 여부 추적 — 통과 시 개인 API 매매 영향 재평가

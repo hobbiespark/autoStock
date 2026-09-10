@@ -1,7 +1,7 @@
-# autoStock 개발 계획 v4.1
+# autoStock 개발 계획 v5
 
 키움증권 REST API 기반 국내주식 자동매매 시스템
-작성: 2026-08-13 | v4.1 갱신: 2026-08-28 (근거 문헌 1차 자료·고인용 원전으로 교체, CPCV 병행 도입, 2026 세율 반영) | 스택: Java 21 + Spring Boot 3.x (Spring Modulith) + PostgreSQL
+작성: 2026-08-13 | v4.1: 2026-08-28 (근거 문헌 1차 자료 교체, CPCV 병행, 2026 세율) | **v5: 2026-09-11 (요구 확장 ADR-7~10: 단기 익절/손절 규칙, ETF 롱·숏, 공모주 반자동, FE React 전환 — 0-2절)** | 스택: Java 21 + Spring Boot 3.x (Spring Modulith) + PostgreSQL
 진행 현황: [PROGRESS.md](PROGRESS.md) 참조 (Phase별 체크·실측 기록·전략 실험 결과)
 
 ---
@@ -45,6 +45,43 @@ v1 단순 자동매매 → v2 검증 방법론 강화(이벤트 기반, DSR/PBO)
 
 **ADR-4. 유지 사항 (2026-08-28 갱신)**
 PostgreSQL(v2 결정), Java 21 + Spring Boot(사용자 스택), 과최적화 방지 게이트(DSR/PBO, walk-forward — CPCV 병행 추가는 2절 (2)), 리스크 계층 명세, 정량 게이트는 그대로 유지. 시계열 확장은 **PostgreSQL [네이티브 선언적 파티셔닝](https://www.postgresql.org/docs/current/ddl-partitioning.html) 우선** — 개인 규모(일봉+분봉)에 충분하고 확장 의존성이 없다. TimescaleDB(개발사 Timescale→TigerData로 사명 변경, 2025-06)는 [Apache 2.0/TSL 이중 라이선스](https://www.tigerdata.com/legal/licenses)로 자가 호스팅 무료이나, 틱 단위 대량 수집 전환 시점에만 재검토. Spring Modulith는 1.4.x(Boot 3.5/Java 21 라인) 추종 — [2.0 GA(2025-11)는 Boot 4 기준선](https://spring.io/blog/2025/11/21/spring-modulith-2-0-ga-1-4-5-and-1-3-11-released/)이므로 Boot 4 전환 시 함께 이관. 이벤트 외부화(Kafka)는 [공식 문서](https://docs.spring.io/spring-modulith/reference/events.html)의 `spring-modulith-events-kafka` + `@Externalized` 경로 확정.
+
+### 0-2. 요구 확장 ADR (v5, 2026-09-11) — 조사 기반 수용·재해석·설계
+
+**ADR-7. "일반거래: 1일 최소 +1.8% / −1.5% (수수료 제외)" — 목표가 아닌 트레이드 규칙으로 재해석**
+
+"매일 최소 +1.8%"를 **수익 보장 목표**로 받으면 연환산 수천%가 되어 어떤 검증도 통과할 수 없고, 실증도 정반대다: 대만 전체 데이트레이더 전수 연구(Barber, Lee, Liu & Odean)에서 반기 기준 **8할이 손실**, 지속적으로 수익을 내는 비율은 약 5% 미만 ([JFM 2014](https://www.sciencedirect.com/science/article/abs/pii/S1386418113000190), [원문 PDF](https://faculty.haas.berkeley.edu/odean/papers/day%20traders/The%20Cross-Section%20of%20Speculator%20Skill.pdf)). 본 시스템의 자체 실험 1·2에서도 고빈도 매매는 비용 드래그로 붕괴했다(PROGRESS 3절).
+
+→ **결정: 트레이드 단위 익절 +1.8% / 손절 −1.5% 리스크 규칙으로 수용** (현행 config 손절 −3%/익절 +5%의 전략별 오버라이드로 구현 — 8절 리스크 명세 호환).
+- **수학적 전제조건 명시**: 수수료 제외 기준이므로 총 익절 임계는 약 +2.03%(왕복 비용 0.23%). 손익비 1.2에서 EV>0 조건은 `p×1.8 − (1−p)×1.5 − 0.23 > 0` → **승률 p > 52.4%** 필요. 이 승률이 paper 운영에서 통계적으로 입증되기 전까지 이 규칙 기반 전략의 라이브 전환 금지(게이트 ① 동일 적용)
+- 손절 규칙의 근거와 한계: [Kaminski & Lo (2014, J. Financial Markets)](https://www.sciencedirect.com/science/article/abs/pii/S138641811300030X) — 수익률이 랜덤워크면 손절은 기대수익을 오히려 낮추고, **모멘텀·국면전환이 있을 때만 개선**. 따라서 이 규칙은 단독 전략이 아니라 기존 국면필터·모멘텀 계열 위에 얹는다
+- 검증 경로: 백테스트 trial 기록 → 모의 paper A/B (기존 C3 대비) — 반복 튜닝 금지 원칙 유지
+
+**ADR-8. ETF 롱·숏 — 인버스 ETF 매수로 숏 노출 구현**
+
+개인의 현물 공매도는 제도상 제한적이므로 숏은 **인버스 ETF 매수**로 구현한다(매수 자체는 일반 주문과 동일, 제도 제약 없음. 단 레버리지·인버스 ETP는 **금융투자교육원 사전교육 이수 + 기본예탁금** 요건(2020~) — 계좌 요건 사전 확인 필요).
+- 설계: 국면필터가 OFF(하락 국면)일 때 현금 대기 대신 KODEX 인버스(114800) 진입을 허용하는 **C4 가설(국면 롱/숏)** — 기존 C 계열의 자연 확장. trial 기록·CPCV/DSR 게이트 동일 적용
+- **안전 규칙**: ① 2X(252670 등) 금지, 1X만 — 일일 리밸런싱 복리 괴리(변동성 끌림)는 배수의 제곱에 비례 ([Cheng & Madhavan 2009, J. Investment Management](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1539120)) ② 보유기간 상한(초기값 20거래일, config) — 횡보 구간 음의 복리 방어 ③ 백테스트에 인버스 총보수·추적오차 반영. 국내 근거: [금감원 소비자경보(2026-03)](https://eiec.kdi.re.kr/policy/materialView.do?num=278124) — 레버리지·인버스 거래대금 급증(일평균 5.6조)과 "지수 횡보에도 원금이 녹는 음의 복리" 경고
+- 데이터: 114800 일봉을 백테스트 데이터셋에 추가 수집
+
+**ADR-9. 공모주 청약 — 전량 자동화 불가 확정, 반자동 파이프라인으로 설계**
+
+**실측 확정 (2026-09-11)**: 키움 REST API 공식 GitHub([Kiwoom-Securities/Kiwoom-REST-API](https://github.com/Kiwoom-Securities/Kiwoom-REST-API)) 전수 확인 결과 **공모주/청약 TR이 존재하지 않음** — 청약 실행은 영웅문S#/HTS 수동만 가능. 따라서 "청약 기능"은 판단·알림 자동화 + 실행 수동의 반자동으로 설계한다.
+
+| 단계 | 자동화 | 내용 |
+|---|---|---|
+| ① 일정 수집 | 자동 (배치) | DART/KIND 공모 일정 수집 → ipo 캘린더 테이블 |
+| ② 필터 판단 | 자동 | 기관경쟁률·의무보유확약비율 임계 필터 — 청약경쟁률→상장일 수익률 정(+) 관계 실증 ([KCI](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART001546569), [2023 제도 이후 분석](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART003117548)) |
+| ③ 알림 | 자동 | 텔레그램: 청약 권고/비권고 + 근거 지표 + 청약 기간·증거금 |
+| ④ 청약 실행 | **수동** | API 미지원 — 영웅문S#에서 직접 |
+| ⑤ 상장일 매도 | 반자동 | 배정 수량 수동 입력 → 상장일 시초 매도 규칙(기본) 알림·기록 |
+
+- **기대치 명시 (과대포장 금지)**: 2021~ 균등배정(일반물량 50%+, [중복청약 금지](https://www.fsc.go.kr/no010101/76078))에서 인기 딜은 계좌당 0~1주 추첨(예: 에이피알 균등 0.06주). 상장일 가격제한 60~400%(2023-06~). 시초 수익률은 2024 상반기 평균 +124% → 2025 상반기 +64.9%로 둔화·변동 큼 ([유진투자증권 IPO 리포트](https://www.eugenefn.com/common/files/amail/20250707_B90_jongsun.park_2402.pdf)). **성격: 계좌당 소액의 저위험 플러스 — 주 수익원이 아니라 부가 기능**
+- Phase 7의 공모주 시초가 예측 연구(기존 인용, KCI)와 결합해 ② 필터 고도화 가능
+
+**ADR-10. FE React+TypeScript 전환 (사용자 결정 2026-09-11)**
+
+ADR-6의 "vanilla 유지, 화면 3개 초과 시 전환" 기준을 사용자 결정으로 앞당긴다 — 공모주 캘린더(ADR-9)·운영 관측 강화로 화면 증가가 확정되어 전환 조건이 사실상 충족됨. Vite + React + TS + TanStack Query(2초 폴링 대체), `frontend/` 디렉터리 신설, 빌드 산출물을 monitor 정적 서빙으로 배포. **전역 상태 라이브러리는 여전히 미도입**(ADR-6 유지). 범위: 기존 6카드 + 슬리피지·시스템 설정 카드 + 이벤트 피드 필터·일시정지 + 모바일 반응형.
 
 ### 조정 후 총평
 
@@ -245,6 +282,7 @@ ML 확장(선택): gradient boosting 시그널 필터부터 — [ML4T 워크플�
 | 5.5 검증 고도화 | 1~2주 | **T 확장(2015~) 재검증 + CPCV 러너** (Arian 2024 근거로 Phase 7에서 앞당김), 비용 상수 2026 세율 갱신 | C3 동결 유지 하에 CPCV·walk-forward 이중 판정 |
 | 6. 운영 검증 | 4주+ | 무인 모의 운영 = **진행형 검증**(새 데이터로 성과 축적), 슬리피지·백테스트 격차 계측(Suhonen 2017의 73% 저하를 기저 기대치로), 복구 훈련 | 게이트 ② 통과 → 실계좌 소액 |
 | 7. 확장 | 지속 | news-intel(KR-FinBert-SC 사이드카), fractional Kelly(1/2~1/4, Thorp 2006), 물리 분리 트리거 평가, JDK 25 검토 | 게이트 ③ 통과 후 본운영 |
+| 8. 요구 확장 (v5) | 병행 | **8a** FE React 전환(ADR-10, 착수 확정) → **8b** 공모주 반자동(ADR-9: 일정 수집·필터·알림·기록) → **8c** ETF 롱·숏 C4 백테스트(ADR-8, CPCV/DSR 게이트) → **8d** 익절/손절 규칙 paper A/B(ADR-7, 승률>52.4% 입증 필요) | 8b는 독립 기능으로 즉시 사용 가능. 8c·8d는 게이트 ① 통과 전 라이브 금지 |
 
 ## 11. 참고 문헌·자료 (2026-08-28 전면 개편 — 인용 수는 Semantic Scholar/OpenAlex 기준, Google Scholar는 통상 이보다 높음)
 
@@ -257,6 +295,12 @@ ML 확장(선택): gradient boosting 시그널 필터부터 — [ML4T 워크플�
 - Faber, *A Quantitative Approach to Tactical Asset Allocation* (2007/2013) — SSRN 최다 다운로드급 — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=962461)
 - Thorp, *The Kelly Criterion in Blackjack, Sports Betting, and the Stock Market* (2006) — [PDF](https://gwern.net/doc/statistics/decision/2006-thorp.pdf)
 - 최신 재검증(2025): [CTA 재현](https://arxiv.org/abs/2507.15876) · [Network Momentum](https://arxiv.org/abs/2501.07135) · [Trend Premia 구조](https://arxiv.org/abs/2510.23150)
+
+**A-2. 요구 확장(v5) 근거 — 단기 규칙·인버스·공모주**
+- Kaminski & Lo, *When Do Stop-Loss Rules Stop Losses?* (2014, J. Financial Markets) — [ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S138641811300030X) · [MIT OA](https://dspace.mit.edu/bitstream/handle/1721.1/114876/Lo_When%20Do%20Stop-Loss.pdf) | 손절은 모멘텀 국면에서만 유효
+- Barber, Lee, Liu & Odean, *The Cross-Section of Speculator Skill* (2014, JFM) — [ScienceDirect](https://www.sciencedirect.com/science/article/abs/pii/S1386418113000190) | 대만 전수: 지속 수익 데이트레이더 <5%
+- Cheng & Madhavan, *The Dynamics of Leveraged and Inverse ETFs* (2009, JOIM) — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=1539120) | 일일 리밸런싱 복리 괴리 원전 / [금감원 소비자경보 2026-03](https://eiec.kdi.re.kr/policy/materialView.do?num=278124)
+- 공모주: [금융위 중복청약 금지(2021)](https://www.fsc.go.kr/no010101/76078) · [청약경쟁률→수익률 KCI](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART001546569) · [2023 제도 이후 주가행태 KCI](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART003117548) · [2025 상반기 IPO 리포트(유진)](https://www.eugenefn.com/common/files/amail/20250707_B90_jongsun.park_2402.pdf)
 
 **B. 검증 방법론 — 과최적화·라이브 갭**
 - Bailey & López de Prado, *The Deflated Sharpe Ratio* (2014, JPM) — [SSRN](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2460551)
