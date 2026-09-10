@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import com.autostock.common.util.MarketConstants;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
@@ -7,6 +8,9 @@ import com.autostock.risk.MacroGuard;
 import com.autostock.portfolio.PositionBook;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+
+import java.time.Clock;
+import java.time.LocalDate;
 
 /**
  * 일일 성과 리포트 — 매 평일 15:50(KST) 장 마감(15:30) 직후 오늘 하루 요약을 알림으로 보낸다.
@@ -16,6 +20,11 @@ import org.springframework.stereotype.Component;
  * 데이터 소스를 그대로 보여준다), 거시 국면 보수 모드 여부(MacroGuard, PLAN 5절 macro-intel).
  * 계좌 평가액(총 자산)은 TODO — 이 리포트에는 아직 붙이지 않았다(EquitySource는 risk 모듈에
  * 있지만, 이 화면에 총자산까지 표시할지는 별도 판단 필요).
+ *
+ * <p><b>일별 성과 스냅샷 저장(FE-2, PLAN.md ADR-10 확장표)</b>: 리포트 발송과 같은 스케줄
+ * 실행에서 {@link DailyPerformanceRecorder}로 그날의 집계를 upsert한다 — 리포트 본문과
+ * 같은 데이터 소스(DailyLimitTracker/DailyPnlTracker/SlippageTracker/MacroGuard/KillSwitch)를
+ * 그대로 재사용하므로 두 값이 어긋날 일이 없다.
  */
 @Component
 public class DailyReportScheduler {
@@ -27,6 +36,8 @@ public class DailyReportScheduler {
     private final MacroGuard macroGuard;
     private final SlippageTracker slippageTracker;
     private final Notifier notifier;
+    private final DailyPerformanceRecorder performanceRecorder;
+    private final Clock clock;
 
     public DailyReportScheduler(PositionBook positionBook,
                                 DailyLimitTracker dailyLimits,
@@ -34,7 +45,9 @@ public class DailyReportScheduler {
                                 DailyPnlTracker dailyPnl,
                                 MacroGuard macroGuard,
                                 SlippageTracker slippageTracker,
-                                Notifier notifier) {
+                                Notifier notifier,
+                                DailyPerformanceRecorder performanceRecorder,
+                                Clock clock) {
         this.positionBook = positionBook;
         this.dailyLimits = dailyLimits;
         this.killSwitch = killSwitch;
@@ -42,12 +55,30 @@ public class DailyReportScheduler {
         this.macroGuard = macroGuard;
         this.slippageTracker = slippageTracker;
         this.notifier = notifier;
+        this.performanceRecorder = performanceRecorder;
+        this.clock = clock;
     }
 
     /** 평일 15:50 KST 1회 실행. */
     @Scheduled(cron = "0 50 15 * * MON-FRI", zone = "Asia/Seoul")
     public void sendDailyReport() {
         notifier.notify(NoticeLevel.INFO, buildReport());
+        saveDailyPerformanceSnapshot();
+    }
+
+    /** 리포트와 같은 집계값으로 그날의 성과 스냅샷을 upsert한다(FE-2). */
+    private void saveDailyPerformanceSnapshot() {
+        LocalDate tradeDate = LocalDate.now(clock.withZone(MarketConstants.KST));
+        var slip = slippageTracker.todaySummary();
+        performanceRecorder.saveSnapshot(
+                tradeDate,
+                dailyPnl.todayRealizedPnl(),
+                dailyLimits.todayOrderCount(),
+                (int) slip.fills(),
+                slip.avgBps(),
+                slip.maxBps(),
+                macroGuard.isConservativeMode(),
+                killSwitch.isEngaged());
     }
 
     private String buildReport() {
