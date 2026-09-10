@@ -35,3 +35,6 @@ data/
 
 # 개인 확정 전략 문서 — 공개 리포에 올리지 않음
 /STRATEGY.md
+
+# FE(React+TS, ADR-10) — 빌드 산출물은 app/src/main/resources/static으로 배포되므로 의존성만 제외
+frontend/node_modules/

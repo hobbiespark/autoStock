@@ -1,0 +1,31 @@
+import type { DashboardView, Side } from './types';
+
+// 대시보드는 /api/dashboard 하나만 폴링한다(ARCHITECTURE.md 10절 CQRS Lite —
+// 여러 GET을 각자 부르지 않고 서버가 조합한 DashboardView 하나를 받는다).
+export async function fetchDashboard(): Promise<DashboardView> {
+  const res = await fetch('/api/dashboard');
+  if (!res.ok) {
+    throw new Error(`대시보드 조회 실패: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+async function postJson(path: string, body?: unknown): Promise<Response> {
+  const res = await fetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body ?? {}),
+  });
+  if (!res.ok) {
+    // 409 등 상태 부적합 오류도 여기서 던진다 — 호출부에서 무시하거나 표시.
+    throw new Error(`요청 실패: HTTP ${res.status}`);
+  }
+  return res;
+}
+
+export const startTrading = () => postJson('/api/trading/start');
+export const stopTrading = () => postJson('/api/trading/stop');
+export const setKillSwitch = (engage: boolean) =>
+  postJson('/api/dashboard/killswitch', { engage });
+export const sendTestSignal = (symbol: string, side: Side, price: string) =>
+  postJson('/api/dashboard/test-signal', { symbol, side, price });
