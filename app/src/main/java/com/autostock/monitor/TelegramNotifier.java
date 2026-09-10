@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -52,7 +53,10 @@ public class TelegramNotifier implements Notifier {
                     .block();
         } catch (Exception e) {
             // 알림 실패가 매매를 막으면 안 된다 — 여기서 끝낸다(재던지지 않음).
-            log.error("텔레그램 알림 발송 실패 — level={} message={}", level, message, e);
+            // 예외 메시지에 봇 토큰이 담긴 전체 URL(/bot{token}/sendMessage)이 그대로 들어있을
+            // 수 있어(WebClientResponseException 등) 마스킹 후 로그로 남긴다 — SecretMasking 참고.
+            log.error("텔레그램 알림 발송 실패 — level={} message={}", level, message,
+                    SecretMasking.sanitizeForLogging(e));
         }
     }
 }

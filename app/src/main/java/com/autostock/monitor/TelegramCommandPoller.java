@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.risk.KillSwitch;
 import com.autostock.portfolio.PositionBook;
+import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -85,7 +86,9 @@ public class TelegramCommandPoller {
             }
         } catch (Exception e) {
             // 폴링 한 번 실패해도(네트워크 순단 등) 다음 주기에 재시도된다 — 예외를 삼킨다.
-            log.error("텔레그램 명령 폴링 실패", e);
+            // 예외 메시지에 봇 토큰이 담긴 전체 URL(/bot{token}/getUpdates)이 그대로 들어있을
+            // 수 있어(WebClientResponseException 등) 마스킹 후 로그로 남긴다 — SecretMasking 참고.
+            log.error("텔레그램 명령 폴링 실패", SecretMasking.sanitizeForLogging(e));
         }
     }
 

@@ -1,5 +1,6 @@
 package com.autostock.macrointel;
 
+import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -76,7 +77,10 @@ public class MajorDisclosureDartClient {
         try {
             return parseList(callList(since, until));
         } catch (RuntimeException e) {
-            log.error("DART list.json(주요사항) 조회 실패(since={}, until={})", since, until, e);
+            // 예외 메시지에 crtfc_key가 담긴 전체 URL이 그대로 들어있을 수 있어 마스킹 후 로그
+            // (ipo.DartClient와 동일한 이유 — SecretMasking 참고).
+            log.error("DART list.json(주요사항) 조회 실패(since={}, until={})", since, until,
+                    SecretMasking.sanitizeForLogging(e));
             return List.of();
         }
     }

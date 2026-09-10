@@ -1,5 +1,6 @@
 package com.autostock.ipo;
 
+import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -89,7 +90,9 @@ public class DartClient {
         try {
             return parseList(callList(since, until));
         } catch (RuntimeException e) {
-            log.error("DART list.json 조회 실패(since={}, until={})", since, until, e);
+            // 예외 메시지에 crtfc_key가 담긴 전체 URL이 그대로 들어있을 수 있어(WebClientResponseException
+            // 등) 마스킹을 거친 뒤 로그로 남긴다(스택트레이스는 보존, 메시지만 마스킹) — SecretMasking 참고.
+            log.error("DART list.json 조회 실패(since={}, until={})", since, until, SecretMasking.sanitizeForLogging(e));
             return List.of();
         }
     }
@@ -104,7 +107,9 @@ public class DartClient {
         try {
             return parseDetail(callDetail(corpCode, since, until), rceptNo);
         } catch (RuntimeException e) {
-            log.error("DART estkRs.json 조회 실패(corpCode={}, rceptNo={})", corpCode, rceptNo, e);
+            // 위와 동일한 이유로 마스킹 후 로그(crtfc_key 유출 방지).
+            log.error("DART estkRs.json 조회 실패(corpCode={}, rceptNo={})", corpCode, rceptNo,
+                    SecretMasking.sanitizeForLogging(e));
             return Optional.empty();
         }
     }
