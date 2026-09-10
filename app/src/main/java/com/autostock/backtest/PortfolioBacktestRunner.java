@@ -98,6 +98,10 @@ public final class PortfolioBacktestRunner {
      * @param mdd           포트폴리오 최대낙폭
      * @param sharpe        포트폴리오 연율화 샤프비율
      * @param sleeveResults 종목별 개별 결과 목록(입력 Map의 순회 순서를 유지)
+     * @param dates         dailyReturns와 1:1 대응하는 날짜 목록(합집합 날짜, 공통 시작일 이후).
+     *                      기존 호출부는 이 필드를 몰라도 되므로(가장 뒤에 추가된 필드) 계산
+     *                      로직에는 전혀 영향이 없다 — F1/F2(부트스트랩·SPA) 실험 테스트가 여러
+     *                      계열의 날짜를 정렬해야 해서 추가됐다(트랙 F, ADR-13).
      */
     public record PortfolioResult(
             List<Double> dailyReturns,
@@ -105,7 +109,8 @@ public final class PortfolioBacktestRunner {
             double cagr,
             double mdd,
             double sharpe,
-            List<SleeveResult> sleeveResults
+            List<SleeveResult> sleeveResults,
+            List<LocalDate> dates
     ) {
     }
 
@@ -239,7 +244,7 @@ public final class PortfolioBacktestRunner {
 
         return new PortfolioResult(
                 combined.dailyReturns(), combined.totalReturn(), combined.cagr(), combined.mdd(),
-                combined.sharpe(), sleeveResults);
+                combined.sharpe(), sleeveResults, List.copyOf(unionDates));
     }
 
     private int sumTradeCount(List<SleeveResult> sleeveResults) {
