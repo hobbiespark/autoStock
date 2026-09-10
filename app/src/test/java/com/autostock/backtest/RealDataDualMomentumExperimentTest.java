@@ -219,6 +219,13 @@ class RealDataDualMomentumExperimentTest {
         List<Double> n10SharpesDaily = new ArrayList<>();
         List<Double> n10OosReturnsPct = new ArrayList<>();
 
+        // 선택풀 N=8(ADR-12 제안 검토용 병기) — OOS수익 양수 계열만: C0,C1,C2,C3,C4,D0,D1,D2(A,B 제외)
+        Double c0DsrN8 = null, c1DsrN8 = null, c2DsrN8 = null, c3DsrN8 = null, c4DsrN8 = null;
+        Double d0DsrN8 = null, d1DsrN8 = null, d2DsrN8 = null;
+        List<String> n8Labels = new ArrayList<>();
+        List<Double> n8SharpesDaily = new ArrayList<>();
+        List<Double> n8OosReturnsPct = new ArrayList<>();
+
         if (familyDataAvailable) {
             List<FamilyRun> priorFamilies = runPriorSevenFamilies(familyDataDir);
             double[] sharpesDailyN10 = new double[10];
@@ -248,12 +255,57 @@ class RealDataDualMomentumExperimentTest {
             assertFalse(Double.isNaN(d0DsrN10), "D0 DSR(N=10)이 NaN");
             assertFalse(Double.isNaN(d1DsrN10), "D1 DSR(N=10)이 NaN");
             assertFalse(Double.isNaN(d2DsrN10), "D2 DSR(N=10)이 NaN");
+
+            // ── 7) N=8 (재계산 전용, ADR-12 제안 검토용 병기) — 선택 후보 풀을 "OOS수익 양수 계열만"으로
+            //      한정: A,B는 OOS 수익이 음수라 애초에 "선택될 수 없는" 계열이므로 제외하고
+            //      C0,C1,C2,C3,C4,D0,D1,D2(N=8)만으로 DSR을 다시 계산한다. 새 백테스트/전략/파라미터
+            //      변경 없음 — 이미 위에서 계산된 priorFamilies/d0/d1/d2의 동일 일별수익률·샤프를
+            //      다른 N 풀 정의로 재조합만 한다.
+            double[] sharpesDailyN8 = new double[8];
+            for (int i = 0; i < 5; i++) { // C0~C4 = priorFamilies[2..6] (A=0, B=1 제외)
+                sharpesDailyN8[i] = priorFamilies.get(i + 2).result().sharpe() / Math.sqrt(TRADING_DAYS_PER_YEAR);
+                n8Labels.add(priorFamilies.get(i + 2).label());
+                n8SharpesDaily.add(sharpesDailyN8[i]);
+                n8OosReturnsPct.add(priorFamilies.get(i + 2).result().totalReturn() * 100);
+            }
+            sharpesDailyN8[5] = sharpesDailyN3[0];
+            sharpesDailyN8[6] = sharpesDailyN3[1];
+            sharpesDailyN8[7] = sharpesDailyN3[2];
+            n8Labels.add("D0.GEM듀얼모멘텀");
+            n8Labels.add("D1.+SMA210추세필터");
+            n8Labels.add("D2.+변동성타게팅10%");
+            n8SharpesDaily.add(sharpesDailyN8[5]);
+            n8SharpesDaily.add(sharpesDailyN8[6]);
+            n8SharpesDaily.add(sharpesDailyN8[7]);
+            n8OosReturnsPct.add(d0.totalReturn() * 100);
+            n8OosReturnsPct.add(d1.totalReturn() * 100);
+            n8OosReturnsPct.add(d2.totalReturn() * 100);
+
+            c0DsrN8 = performanceCalculator.deflatedSharpeAcrossFamilies(priorFamilies.get(2).result().dailyReturns(), sharpesDailyN8);
+            c1DsrN8 = performanceCalculator.deflatedSharpeAcrossFamilies(priorFamilies.get(3).result().dailyReturns(), sharpesDailyN8);
+            c2DsrN8 = performanceCalculator.deflatedSharpeAcrossFamilies(priorFamilies.get(4).result().dailyReturns(), sharpesDailyN8);
+            c3DsrN8 = performanceCalculator.deflatedSharpeAcrossFamilies(priorFamilies.get(5).result().dailyReturns(), sharpesDailyN8);
+            c4DsrN8 = performanceCalculator.deflatedSharpeAcrossFamilies(priorFamilies.get(6).result().dailyReturns(), sharpesDailyN8);
+            d0DsrN8 = performanceCalculator.deflatedSharpeAcrossFamilies(d0.dailyReturns(), sharpesDailyN8);
+            d1DsrN8 = performanceCalculator.deflatedSharpeAcrossFamilies(d1.dailyReturns(), sharpesDailyN8);
+            d2DsrN8 = performanceCalculator.deflatedSharpeAcrossFamilies(d2.dailyReturns(), sharpesDailyN8);
+
+            assertFalse(Double.isNaN(c0DsrN8), "C0 DSR(N=8)이 NaN");
+            assertFalse(Double.isNaN(c1DsrN8), "C1 DSR(N=8)이 NaN");
+            assertFalse(Double.isNaN(c2DsrN8), "C2 DSR(N=8)이 NaN");
+            assertFalse(Double.isNaN(c3DsrN8), "C3 DSR(N=8)이 NaN");
+            assertFalse(Double.isNaN(c4DsrN8), "C4 DSR(N=8)이 NaN");
+            assertFalse(Double.isNaN(d0DsrN8), "D0 DSR(N=8)이 NaN");
+            assertFalse(Double.isNaN(d1DsrN8), "D1 DSR(N=8)이 NaN");
+            assertFalse(Double.isNaN(d2DsrN8), "D2 DSR(N=8)이 NaN");
         }
 
         printReport(dataStart, dataEndCommon, oosStart, oosEnd, d0, d1, d2, d2StockTax,
                 kodexBuyHold, equalWeightBuyHold, d0DsrN3, d1DsrN3, d2DsrN3,
                 familyDataAvailable, n10Labels, n10SharpesDaily, n10OosReturnsPct,
-                d0DsrN10, d1DsrN10, d2DsrN10);
+                d0DsrN10, d1DsrN10, d2DsrN10,
+                n8Labels, n8OosReturnsPct,
+                c0DsrN8, c1DsrN8, c2DsrN8, c3DsrN8, c4DsrN8, d0DsrN8, d1DsrN8, d2DsrN8);
     }
 
     // ───────────────────────────── D계열 시뮬레이션 코어 ─────────────────────────────
@@ -594,7 +646,10 @@ class RealDataDualMomentumExperimentTest {
                               double d0DsrN3, double d1DsrN3, double d2DsrN3,
                               boolean familyDataAvailable, List<String> n10Labels, List<Double> n10SharpesDaily,
                               List<Double> n10OosReturnsPct,
-                              Double d0DsrN10, Double d1DsrN10, Double d2DsrN10) {
+                              Double d0DsrN10, Double d1DsrN10, Double d2DsrN10,
+                              List<String> n8Labels, List<Double> n8OosReturnsPct,
+                              Double c0DsrN8, Double c1DsrN8, Double c2DsrN8, Double c3DsrN8, Double c4DsrN8,
+                              Double d0DsrN8, Double d1DsrN8, Double d2DsrN8) {
         System.out.println();
         System.out.println("=== D계열(듀얼 모멘텀, ADR-11) 실험 — GEM/SMA210/변동성타게팅 3변형, 게이트① 평가 ===");
         System.out.println("(유니버스=" + D_SYMBOLS + " + 현금(수익률 0% 가정), 데이터 범위=" + dataStart + " ~ " + dataEndCommon
@@ -667,6 +722,29 @@ class RealDataDualMomentumExperimentTest {
         }
 
         System.out.println();
+        System.out.println("--- [DSR ③] 선택풀 N=8 (음수 수익 A/B 제외) — ADR-12 제안 검토용 병기 ---");
+        System.out.println("[방법론 캐비엇] 선택풀 한정은 ADR-12 제안 검토용 병기 수치 — 공식 게이트 기준은 ADR 채택 전까지");
+        System.out.println("현행(전체 N=10) 유지. 재계산 전용(새 백테스트/전략/파라미터 변경 없음) — A,B는 OOS 수익이 음수라");
+        System.out.println("애초에 \"선택될 수 없는\" 계열이므로 선택 후보 풀에서 제외하고, C0,C1,C2,C3,C4,D0,D1,D2(N=8)만으로");
+        System.out.println("DSR을 다시 계산한 것이다.");
+        if (!familyDataAvailable) {
+            System.out.println("  [스킵] A,B,C0~C4 재현에 필요한 5종목+인버스(114800) 데이터가 없어 N=8 DSR을 계산하지 못함.");
+        } else {
+            System.out.printf("%-24s | %10s | %10s%n", "전략계열", "OOS수익률", "DSR(N=8)");
+            System.out.println("-".repeat(50));
+            Double[] n8Dsrs = {c0DsrN8, c1DsrN8, c2DsrN8, c3DsrN8, c4DsrN8, d0DsrN8, d1DsrN8, d2DsrN8};
+            for (int i = 0; i < n8Labels.size(); i++) {
+                System.out.printf("%-24s | %9.2f%% | %10.3f%n", n8Labels.get(i), n8OosReturnsPct.get(i), n8Dsrs[i]);
+            }
+            System.out.println();
+            System.out.println("  선택풀 N=8 기준 게이트① DSR 항목(교정DSR(N=8)>0.95) 재판정 — 다른 두 기준(OOS수익>0, MDD<15%)");
+            System.out.println("  판정은 기존 수치를 그대로 병기함:");
+            printN8DsrGateLine("C3", c3DsrN8, 0.250);
+            printN8DsrGateLine("D1", d1DsrN8, 0.408);
+            printN8DsrGateLine("D2", d2DsrN8, 0.210);
+        }
+
+        System.out.println();
         System.out.println("--- [최종 판정] 게이트① = OOS수익>0 AND 교정DSR(N=10)>0.95 AND MDD<15% ---");
         printGateVerdict("D0", d0, d0DsrN10, familyDataAvailable);
         printGateVerdict("D1", d1, d1DsrN10, familyDataAvailable);
@@ -684,6 +762,17 @@ class RealDataDualMomentumExperimentTest {
             System.out.printf(" | %13.2f%%", r.timeInPositionPct().getOrDefault(k, 0.0));
         }
         System.out.println();
+    }
+
+    /**
+     * 선택풀 N=8 기준 게이트①의 DSR 항목만 재판정하는 행 — MDD는 기존(전체 N) 수치를 그대로
+     * 병기한다(재계산 아님). OOS수익>0 여부는 N=8 풀 정의상(음수 수익 계열 제외) 자명하게 O.
+     */
+    private void printN8DsrGateLine(String label, double dsrN8, double existingMdd) {
+        boolean dsrPass = dsrN8 > GATE_MIN_DSR;
+        System.out.printf("  %-4s N=8 게이트①-DSR항목 = %s  (OOS수익>0: O(병기, 선택풀 정의상 자명), " +
+                        "교정DSR(N=8)>0.95: %s(%.3f), MDD<15%%: X(병기, 기존수치 %.1f%%))%n",
+                label, dsrPass ? "PASS" : "FAIL", dsrPass ? "O" : "X", dsrN8, existingMdd * 100);
     }
 
     private void printGateVerdict(String label, SimResult r, Double dsrN10, boolean familyDataAvailable) {
