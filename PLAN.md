@@ -142,6 +142,24 @@ ADR-6의 "vanilla 유지, 화면 3개 초과 시 전환" 기준을 사용자 결
 | Meta-labeling | AFML 3장 | 신호 필터 ML | 상 | 후순위 (N 증가 자기모순 관리 필요) |
 | 합성 데이터 (GAN/diffusion) | arXiv 2024~2026, [CFA 보고서 2025](https://rpc.cfainstitute.org/sites/default/files/docs/research-reports/tait_syntheticdataininvestmentmanagement_online.pdf) | — | 상 | **비도입** (연구 단계 — stylized facts 재현 미완, 부트스트랩이 동일 목적을 저위험 달성) |
 
+**ADR-14. DART 재무·공시 데이터 전략 확장 (2026-09-11, 조사 기반)**
+
+DART 연동(ADR-9)으로 확보된 데이터 접근권(일 한도 40,000건 — 현 사용량 수십 건, 여유 충분)을 공모주 외 일반 거래에 확장한다. 조사 결과 채택 3건 + 보류 2건:
+
+| # | 전략 | 원전 (인용) | 한국 실증 | DART 구현 | 지평 | 결정 |
+|---|---|---|---|---|---|---|
+| G1 | **SEO/CB/BW 발행 회피 블랙리스트 자동화** | [Loughran & Ritter 1995 (JF)](https://doi.org/10.1111/j.1540-6261.1995.tb05166.x) 인용 3,400+ | 국내 SEO 장기 저성과 정설 | ✅ 주요사항 구조화 API(유상증자 2020023, CB/BW/EB 2020033~35) | 장기 회피 필터 | **1순위 — 즉시** (매수 아닌 회피라 구현 리스크 최소, 기존 DisclosureBlacklist 골격에 자동 공급) |
+| G2 | **자사주 취득 이벤트 스윙** (S1 가설) | [Ikenberry et al. 1995 (JFE)](https://doi.org/10.1016/0304-405X(95)00826-Z) 인용 1,800+ | 공시일 양(+) CAR 실증 + **내부자 동시 매도 시 허위신호** ([국내 연구](https://www.dbpia.co.kr/journal/articleDetail?nodeId=NODE07227971)) | ✅ 취득 결정(2020038)·신탁(2020040) + elestock(임원 소유변동) 필터 | 스윙~중기 | **2순위 — 게이트 v2 백테스트 후보** (직접취득/신탁 구분 + 내부자 매도 필터 필수) |
+| G3 | **F-Score 유니버스 필터** (M2 가설) | [Piotroski 2000 (JAR)](https://www.semanticscholar.org/paper/0559e92e06dae21e77ea79d79417b8a1d40be772) 인용 1,300+ | 국내 분위 스프레드 ~18%, 23년 중 20년 양(+) ([Ewha](https://pure.ewha.ac.kr/en/publications/fundamental-analysis-and-stock-returns-korean-evidence/), KAIST·KCI 다수) | ✅ fnlttSinglAcntAll로 9항목 전부 산출 (B/M 필터엔 키움 시총 보완) | 중기·장기 유니버스 | **3순위** — 신규 매매 전략이 아닌 기존 계열의 종목 풀 품질 개선 |
+| — | PEAD (SUE 드리프트) | Ball & Brown 1968 (6,600+), Bernard & Thomas 1989/90 | 월 0.85%→위험조정 후 0.36%로 축소 ([KCI](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART001995137)) | ⚠️ 부분 — 잠정실적은 구조화 API 없음(원문 파싱 필요), 정기보고서 기준이면 신호 +45일 지연으로 드리프트 전반부 상실 | 스윙~중기 | **보류** — SUE는 컨센서스 불필요(seasonal random walk, BT 원방식)라 구현 자체는 가능. 원문 파싱 인프라 후 2단계 |
+| — | Sloan 발생액 단독 | Sloan 1996 (TAR) 4,500+ | — | 가능 | — | **비도입** — 미국 소멸 증거([Green et al. 2011](https://pure.psu.edu/en/publications/going-going-gone-the-apparent-demise-of-the-accruals-anomaly/)). F-Score의 accrual 항목이 흡수 |
+
+**연동 설계 원칙**:
+- corp_code↔종목코드 매핑(corpCode.xml 전량 다운로드, 월 1회 갱신), 신규 테이블 `dart_events`(주요사항)·`dart_financials`(분기 재무)
+- **신호 시점 규칙(룩어헤드 방지)**: 공시 접수일(rcept_dt) 다음 거래일 시가부터 진입 가능. 재무 데이터는 법정 제출기한(분기+45일/사업+90일) 이후에만 사용 가능한 것으로 백테스트에서 강제
+- 내부자 지분 추종(Lakonishok & Lee 2001)은 2024-07 사전공시제도로 신호 구조가 변해 과거 백테스트 외삽 불가 — G2의 필터 용도로만 사용
+- 시총·수정주가·거래대금은 키움 API 보완. **모든 신규 가설(G2·G3)은 게이트 v2 판정 — 예외 없음**
+
 ### 조정 후 총평
 
 1인 개발 기준 실행 가능 범위로 축소하되, v3의 설계 의도(경계·계약·인텔리전스)는 모두 보존. 총 기간 약 13~16주(사이드 프로젝트 기준), 트레이딩 MVP는 7~8주차에 도달.
