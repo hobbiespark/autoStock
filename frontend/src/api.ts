@@ -1,4 +1,4 @@
-import type { DashboardView, Side } from './types';
+import type { DailyPerformance, DashboardView, OrderHistoryView, Side } from './types';
 
 // 대시보드는 /api/dashboard 하나만 폴링한다(ARCHITECTURE.md 10절 CQRS Lite —
 // 여러 GET을 각자 부르지 않고 서버가 조합한 DashboardView 하나를 받는다).
@@ -6,6 +6,24 @@ export async function fetchDashboard(): Promise<DashboardView> {
   const res = await fetch('/api/dashboard');
   if (!res.ok) {
     throw new Error(`대시보드 조회 실패: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// 주문 이력(FE-1) — 기간(days) 필터, 폴링 없이 탭 진입/수동 새로고침 시에만 호출.
+export async function fetchOrders(days: number): Promise<OrderHistoryView> {
+  const res = await fetch(`/api/orders?days=${days}`);
+  if (!res.ok) {
+    throw new Error(`주문 이력 조회 실패: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// 일별 성과 추이(FE-2).
+export async function fetchDailyPerformance(days: number): Promise<DailyPerformance[]> {
+  const res = await fetch(`/api/performance/daily?days=${days}`);
+  if (!res.ok) {
+    throw new Error(`성과 추이 조회 실패: HTTP ${res.status}`);
   }
   return res.json();
 }

@@ -329,3 +329,103 @@ select {
   flex-wrap: wrap;
   gap: 8px;
 }
+
+/* 상단 탭 내비게이션 (FE-1·FE-2, ADR-10 확장) */
+.tab-nav {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 0;
+}
+.tab-nav-btn {
+  background: transparent;
+  color: var(--dim);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  padding: 10px 14px;
+  min-height: auto;
+  font-size: 14px;
+}
+.tab-nav-btn:hover {
+  color: var(--text);
+}
+.tab-nav-btn.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.tab-nav-btn + .tab-nav-btn {
+  margin-left: 0;
+}
+
+/* 화면 제목 + 기간 선택/새로고침 행 (주문 이력 · 성과 화면 공통) */
+.page-header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.page-header-row h2 {
+  font-size: 16px;
+  color: var(--text);
+}
+.page-header-row select {
+  width: auto;
+}
+
+/* 주문 이력 화면 */
+.mono {
+  font-family: 'Cascadia Code', 'Consolas', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--dim);
+}
+.side-buy {
+  color: var(--ok);
+  font-weight: 700;
+}
+.side-sell {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+/* 주문 상태 뱃지 — 11상태(OrderStatus). FILLED=초록, REJECTED/CANCELLED=빨강,
+   UNKNOWN=주황(결과 불명), 나머지는 중립색. */
+.order-badge {
+  display: inline-block;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  letter-spacing: 0.3px;
+}
+.order-badge-ok {
+  background: #1e4a35;
+  color: #7fe0b0;
+}
+.order-badge-danger {
+  background: #4a1e1e;
+  color: #ff8a8a;
+}
+.order-badge-warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+.order-badge-neutral {
+  background: #2a3550;
+  color: var(--dim);
+}
+
+/* 성과 화면 차트 제목 */
+.chart-title {
+  font-size: 13px;
+  color: var(--dim);
+  margin: 20px 0 8px;
+  font-weight: 500;
+}
+.chart-title:first-of-type {
+  margin-top: 4px;
+}
