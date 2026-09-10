@@ -98,6 +98,28 @@ ADR-6의 "vanilla 유지, 화면 3개 초과 시 전환" 기준을 사용자 결
 - **자본 슬리브 (초기 제안, config)**: 장기 코어 50% / 중기 30% / 스윙 15% / 단타 5% — 게이트 통과한 지평에만 실자본 배분, 미통과 지평의 슬리브는 현금 유지
 - **구현 정합**: 전략은 이미 Strategy 인터페이스+슬리브 포트폴리오 러너로 병렬 실행 가능 — 지평별 전략은 별도 모듈이 아니라 strategy 모듈 내 구현체 추가
 
+**ADR-12. 게이트 보정 제안 (2026-09-11 — ⚠️ 채택 대기: 사용자 승인 전까지 현행 게이트 유지)**
+
+배경: 10계열(A,B,C0~C4,D0~D2) 전부 게이트 ① FAIL. 결과를 본 후의 기준 완화는 데이터 스누핑이므로, 보정은 방법론 근거를 갖춘 명시적 ADR로만 한다. 제안 내용:
+
+1. **다중검정 판정을 DSR 단독 → Hansen SPA 검정 병행으로**: [White (2000) Reality Check](https://onlinelibrary.wiley.com/doi/abs/10.1111/1468-0262.00152) (Econometrica, 인용 1,900+) → [Hansen (2005) SPA](https://www.tandfonline.com/doi/abs/10.1198/073500105000000063) (JBES, 인용 1,200+)가 데이터 스누핑의 학계 표준 검정. SPA는 스튜던트화 + 표본 의존 널분포로 **열등 전략이 풀에 섞여도 검정력이 훼손되지 않아** "N 풀 정의 논쟁"(A/B 포함 여부)을 구조적으로 해소. DSR은 병기 지표로 유지(보완 관계 — DSR은 해석적 보정, SPA는 실제 성과 시계열의 부트스트랩 검정)
+2. **MDD 점추정 → 부트스트랩 분포 판정**: [Politis & Romano (1994) Stationary Bootstrap](https://www.tandfonline.com/doi/abs/10.1080/01621459.1994.10476870) (JASA, 인용 2,500+)로 수익률 경로 리샘플 → **95퍼센타일 MDD**로 판정(단일 경로 점추정의 운 요소 제거). MDD 예산은 총계좌 15% 유지 + 지평 슬리브별 차등(장기/중기 25%, 스윙 15%, 단타 10% — 자본 배분 50/30/15/5 반영 시 계좌 기여도 15% 내 설계)
+3. **참고 재계산 (기존 결과, 새 백테스트 없음, 커밋 2b0f407)**: 선택풀 N=8(수익 양수 계열만) DSR — C3 0.957(>0.95), C4 0.932, D1 0.926, D2 0.902. **보정안을 적용해도 C3는 "경계선"이지 자동 통과가 아니다** — MDD 25.0%는 슬리브 예산 25%의 정확히 경계, SPA 검정은 미실시
+
+채택 절차: 사용자 승인 → 게이트 v2 확정 → 전 계열 1회 재판정(재계산만, 신규 튜닝 금지).
+
+**ADR-13. 검증 인프라 확장 (확정 — 측정 도구 추가는 기준 변경이 아니므로 즉시 채택)**
+
+| 도구 | 원전 | 용도 | 난이도 | 결정 |
+|---|---|---|---|---|
+| Stationary Bootstrap 엔진 | Politis & Romano 1994 (JASA) | MDD/성과 분포, SPA 널분포의 공통 기반 | 하 | **도입 (트랙 F1)** |
+| Hansen SPA 검정 | Hansen 2005 (JBES) | 데이터 스누핑 공식 검정 — F1 위에 증분 구현 | 중 | **도입 (트랙 F2)** |
+| MC Permutation Test | Masters 2018 (실무 서적) | 가격 셔플 재실행 우연성 검정 — peer-review 원전 약함 | 하~중 | 참고 기법 (선택) |
+| HMM 국면 필터 | [Hamilton 1989](https://www.semanticscholar.org/paper/de6046f58a05a769b5aa526d95a09c5fa5e5b42c) (Econometrica, 인용 9,900+) | SMA200 대체 후보 — 단 [Blanchard 2025](https://onlinelibrary.wiley.com/doi/10.1002/asmb.70058): 평활 입력 없인 불안정, 우위 미보장 | 중 | 조건부 A/B 실험만 (기대 낮춤, 게이트로 심판) |
+| HRP 배분 | [López de Prado 2016](https://jpm.pm-research.com/content/42/4/59.short) (JPM) | 슬리브 배분 고도화 | 중 | 후순위 (다전략 운용 시) |
+| Meta-labeling | AFML 3장 | 신호 필터 ML | 상 | 후순위 (N 증가 자기모순 관리 필요) |
+| 합성 데이터 (GAN/diffusion) | arXiv 2024~2026, [CFA 보고서 2025](https://rpc.cfainstitute.org/sites/default/files/docs/research-reports/tait_syntheticdataininvestmentmanagement_online.pdf) | — | 상 | **비도입** (연구 단계 — stylized facts 재현 미완, 부트스트랩이 동일 목적을 저위험 달성) |
+
 ### 조정 후 총평
 
 1인 개발 기준 실행 가능 범위로 축소하되, v3의 설계 의도(경계·계약·인텔리전스)는 모두 보존. 총 기간 약 13~16주(사이드 프로젝트 기준), 트레이딩 MVP는 7~8주차에 도달.
