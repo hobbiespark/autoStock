@@ -1,9 +1,9 @@
 # autoStock 진행 현황
 
-기준일: 2026-08-28 (4차 갱신 — 남은 작업·고도화 순서를 조사 기반으로 재정리) | 계획: [PLAN.md](PLAN.md) v4.1 (ADR 6건) | 아키텍처: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 리포: github.com/hobbiespark/autoStock
+기준일: 2026-09-11 (5차 갱신 — 게이트 v2 채택, FE 4탭, 검증 인프라 F1·F2, 10계열 연구 1주기 완료) | 계획: [PLAN.md](PLAN.md) v5 (ADR 13건) | 아키텍처: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | 전략 기준서: STRATEGY.md(로컬 전용) | 리포: github.com/hobbiespark/autoStock
 
-> **작업 방침 (확정)**: 실제 API(모의 포함) 호출 검증 금지 — 회사망 모니터링 사유.
-> 계획·문서 기반 예상 구현 + `TODO 실측` 표기로 진행하고, 실측은 자택망에서 별도 수행.
+> **작업 방침 (2026-09-10 갱신)**: 자택망 전환 완료 — 실 API(모의) 실측 재개. `.env` 확보, KiwoomSmokeIT 상시 실행.
+> 잔여 실측은 장중(09:00~15:30 KST) 한정 항목만 (2절 WS 잔여). 테스트 326건 통과.
 
 ---
 
