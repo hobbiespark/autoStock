@@ -20,7 +20,7 @@ git push                                  # 미푸시 커밋 반영
 
 - [ ] GitHub Actions 첫 CI **초록불** 확인 (gradlew 권한 수정 후 첫 실행 — 스모크 테스트까지 통과해야 함)
 - [ ] `.env` 존재 확인 (모의투자 일반 계좌 키). ⚠️ 채팅에 노출됐던 키이므로 **키움 홈페이지에서 재발급 권장**
-- [ ] PostgreSQL 기동: `docker compose -f infra/docker-compose.yml up -d postgres`
+- [ ] PostgreSQL 기동 — 원클릭: `.\scripts\setup_docker.ps1` (Docker 설치/기동 확인 → postgres up → healthy 대기 → 접속 스모크까지 자동. Docker 미설치 시 `winget install -e --id Docker.DockerDesktop` 안내 출력). 수동으로 하려면: `docker compose -f infra/docker-compose.yml up -d postgres`
 - 참고: Windows에서는 `gradlew.bat` 사용(셸스크립트 gradlew는 CRLF 상태 — WSL/Git Bash에서 실행 시 `bash -c "tr -d '\r' < gradlew | bash -s -- test"` 또는 `git config core.autocrlf` 정리 필요)
 
 ## 1. WS 프로토콜 실측 (장중 09:00~15:30 권장)
