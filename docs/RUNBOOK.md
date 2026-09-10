@@ -63,6 +63,8 @@ $env:KIWOOM_APP_KEY="..."; $env:KIWOOM_APP_SECRET="..."
 ```powershell
 ./gradlew :app:bootRun        # 기본 paper 프로필, execution.mode=SIM
 # http://localhost:8080 대시보드
+# 장외 시간에 FILL 왕복까지 검증하려면 (장 시간 가드만 해제, SIM 전용):
+./gradlew :app:bootRun --args="--risk.enforce-market-hours=false"
 ```
 
 - [ ] 대시보드 [시작] → 배지 STARTING→RUNNING
