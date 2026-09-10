@@ -1,4 +1,4 @@
-import type { DailyPerformance, DashboardView, OrderHistoryView, Side } from './types';
+import type { DailyPerformance, DashboardView, DecisionItem, OrderHistoryView, Side } from './types';
 
 // 대시보드는 /api/dashboard 하나만 폴링한다(ARCHITECTURE.md 10절 CQRS Lite —
 // 여러 GET을 각자 부르지 않고 서버가 조합한 DashboardView 하나를 받는다).
@@ -24,6 +24,17 @@ export async function fetchDailyPerformance(days: number): Promise<DailyPerforma
   const res = await fetch(`/api/performance/daily?days=${days}`);
   if (!res.ok) {
     throw new Error(`성과 추이 조회 실패: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// 종목 선정 이유(FE-6) — 날짜 지정 조회(YYYY-MM-DD), 미지정 시 서버가 KST 오늘로 조회.
+// 폴링 없이(주문 이력·성과와 동일 관례) 탭 진입/날짜 변경/수동 새로고침 시에만 호출.
+export async function fetchDecisions(date?: string): Promise<DecisionItem[]> {
+  const qs = date ? `?date=${date}` : '';
+  const res = await fetch(`/api/decisions${qs}`);
+  if (!res.ok) {
+    throw new Error(`판단 근거 조회 실패: HTTP ${res.status}`);
   }
   return res.json();
 }

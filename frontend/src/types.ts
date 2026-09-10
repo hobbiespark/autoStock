@@ -96,3 +96,21 @@ export interface DailyPerformance {
   conservativeMode: boolean;
   killSwitchEngaged: boolean;
 }
+
+// 보유기간 지평(ADR-11). TEST는 아직 지평 프레임에 편입되지 않은 전략(테스트 시그널 등)의
+// RiskGate 거부 기록에 쓰인다 — 백엔드 RiskGate.horizonFor() 매핑과 1:1 대응.
+export type Horizon = 'MID' | 'DAY' | 'SWING' | 'LONG' | 'TEST' | string;
+
+export type DecisionConclusion = 'BUY' | 'SELL' | 'HOLD' | 'SKIP' | 'REJECTED' | string;
+
+// 종목 선정 이유 화면(FE-6) — GET /api/decisions 응답 원소. 서버는 그룹핑하지 않고
+// horizon→symbol 오름차순 평평한 목록만 반환한다(그룹핑은 이 화면이 직접 한다).
+export interface DecisionItem {
+  decidedAt: string;
+  horizon: Horizon;
+  strategyId: string;
+  symbol: string;
+  conclusion: DecisionConclusion;
+  reason: string;
+  metrics: Record<string, string>;
+}

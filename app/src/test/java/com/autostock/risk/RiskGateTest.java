@@ -4,6 +4,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
+import com.autostock.common.event.SignalDecision;
 import com.autostock.macrointel.MacroIntelProperties;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketHolidayRepository;
@@ -74,6 +75,15 @@ class RiskGateTest {
         return new Signal("test-strategy", symbol, Side.BUY, new BigDecimal(price), 1.0, Instant.now());
     }
 
+    /**
+     * FE-6(SignalDecision)부터는 거부 지점마다 RiskGate가 REJECTED SignalDecision도 함께
+     * 발행한다 — 기존 "published.isEmpty()로 거부를 확인"하던 단언들은 OrderRequest만
+     * 걸러서 그 의도를 유지한다.
+     */
+    private static List<OrderRequest> onlyOrders(List<Object> published) {
+        return published.stream().filter(OrderRequest.class::isInstance).map(OrderRequest.class::cast).toList();
+    }
+
     @Test
     void 고정비율_사이징으로_매수_주문_발행() {
         gate.onSignal(buySignal("005930", "70000"));
@@ -89,7 +99,13 @@ class RiskGateTest {
     void 킬스위치_작동시_주문_차단() {
         killSwitch.engage("테스트");
         gate.onSignal(buySignal("005930", "70000"));
-        assertTrue(published.isEmpty());
+        assertTrue(onlyOrders(published).isEmpty());
+
+        // FE-6 — REJECTED SignalDecision이 로그와 같은 문구로 남는지 확인.
+        SignalDecision decision = (SignalDecision) published.get(published.size() - 1);
+        assertEquals("REJECTED", decision.conclusion());
+        assertEquals("킬스위치 작동 중 — 시그널 거부", decision.reason());
+        assertEquals("TEST", decision.horizon()); // strategyId="test-strategy" → C3 아님 → TEST
     }
 
     @Test
@@ -97,14 +113,14 @@ class RiskGateTest {
         positionBook.onFill(new Fill("k1", "b1", "005930", Side.BUY, 10,
                 new BigDecimal("70000"), Instant.now()));
         gate.onSignal(buySignal("005930", "70000"));
-        assertTrue(published.isEmpty());
+        assertTrue(onlyOrders(published).isEmpty());
     }
 
     @Test
     void 미보유_종목_매도_시그널_무시() {
         gate.onSignal(new Signal("test-strategy", "005930", Side.SELL,
                 new BigDecimal("70000"), 1.0, Instant.now()));
-        assertTrue(published.isEmpty());
+        assertTrue(onlyOrders(published).isEmpty());
     }
 
     @Test
@@ -152,7 +168,7 @@ class RiskGateTest {
                     new BigDecimal("1000"), Instant.now()));
         }
         gate.onSignal(buySignal("005930", "70000"));
-        assertTrue(published.isEmpty());
+        assertTrue(onlyOrders(published).isEmpty());
     }
 
     // ── 장 시간 가드 전용 테스트 — enforceMarketHours=true로 별도 게이트를 구성한다 ──────────
@@ -185,6 +201,6 @@ class RiskGateTest {
     void 장시간_가드_켠_상태에서_장외이면_시그널이_거부된다() {
         RiskGate guarded = gateWithMarketHoursGuard(AFTER_MARKET_HOURS);
         guarded.onSignal(buySignal("005930", "70000"));
-        assertTrue(published.isEmpty());
+        assertTrue(onlyOrders(published).isEmpty());
     }
 }

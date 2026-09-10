@@ -3,6 +3,7 @@ package com.autostock.risk;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
+import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.market.MarketCalendarService;
@@ -18,6 +19,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.util.Map;
 
 /**
  * 리스크 게이트 — <b>모든 주문이 반드시 통과해야 하는 유일한 관문</b>.
@@ -120,6 +122,7 @@ public class RiskGate {
         // 애초에 체결될 수 없거나 의도치 않은 시점에 주문이 나가는 사고로 이어질 수 있다.
         if (properties.enforceMarketHours() && !isMarketHours()) {
             log.info("장 시간 외 — 시그널 거부: {}", signal.symbol());
+            publishRejected(signal, "장 시간 외 — 시그널 거부", Map.of());
             return;
         }
 
@@ -128,6 +131,7 @@ public class RiskGate {
         // 신규 주문은 전면 차단된다.
         if (killSwitch.isEngaged()) {
             log.warn("킬스위치 작동 중 — 시그널 거부: {}", signal.symbol());
+            publishRejected(signal, "킬스위치 작동 중 — 시그널 거부", Map.of());
             return;
         }
 
@@ -147,6 +151,8 @@ public class RiskGate {
         // 사이징까지 통과한 "진짜 주문 후보"만 슬롯을 소비한다.
         if (!dailyLimits.tryAcquireOrderSlot()) {
             log.warn("일 주문 한도 초과 — 거부: {}", signal.symbol());
+            publishRejected(signal, "일 주문 한도 초과 — 거부",
+                    Map.of("quantity", String.valueOf(quantity)));
             return;
         }
 
@@ -196,20 +202,25 @@ public class RiskGate {
         // 청산 시그널은 그대로 통과한다(MacroGuard 클래스 설명 "보수 모드 vs 킬스위치" 참고).
         if (macroGuard.isConservativeMode()) {
             log.info("보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부: {}", signal.symbol());
+            publishRejected(signal, "보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부", Map.of());
             return 0;
         }
         // ── DART 공시 배제(PLAN 5절, 골격) ─────────────────────────────────
         if (disclosureBlacklist.isBlacklisted(signal.symbol())) {
             log.info("공시 블랙리스트 종목 — 매수 거부: {}", signal.symbol());
+            publishRejected(signal, "공시 블랙리스트 종목 — 매수 거부", Map.of());
             return 0;
         }
         if (positionBook.holds(signal.symbol())) {
             log.info("이미 보유 중 — 추가 매수 차단: {}", signal.symbol());
+            publishRejected(signal, "이미 보유 중 — 추가 매수 차단", Map.of());
             return 0;
         }
         if (positionBook.openPositionCount() >= properties.maxConcurrentPositions()) {
             log.info("동시 보유 한도 도달({}) — 매수 거부: {}",
                     properties.maxConcurrentPositions(), signal.symbol());
+            publishRejected(signal, "동시 보유 한도 도달(" + properties.maxConcurrentPositions() + ") — 매수 거부",
+                    Map.of("openPositionCount", String.valueOf(positionBook.openPositionCount())));
             return 0;
         }
         // equity 조회는 EquitySource에 위임한다 — SIM은 설정값 고정(PaperEquitySource),
@@ -221,6 +232,8 @@ public class RiskGate {
         if (qty <= 0) {
             log.info("사이징 결과 0주 — 매수 불가: {} (equity={}, price={}, confidence={})",
                     signal.symbol(), equity, signal.refPrice(), confidence);
+            publishRejected(signal, "사이징 결과 0주 — 매수 불가",
+                    Map.of("equity", equity.toString(), "confidence", String.valueOf(confidence)));
         }
         return qty;
     }
@@ -248,6 +261,7 @@ public class RiskGate {
         PositionBook.Position position = positionBook.get(signal.symbol());
         if (position == null) {
             log.info("미보유 종목 매도 시그널 무시: {}", signal.symbol());
+            publishRejected(signal, "미보유 종목 매도 시그널 무시", Map.of());
             return 0;
         }
         return position.quantity();
@@ -260,5 +274,30 @@ public class RiskGate {
     private boolean isMarketHours() {
         LocalDateTime now = LocalDateTime.now(clock.withZone(MarketConstants.KST));
         return marketCalendarService.isMarketHours(now);
+    }
+
+    /**
+     * 게이트 거부 지점마다 {@link SignalDecision}(conclusion=REJECTED)을 발행한다(FE-6,
+     * PLAN.md ADR-10 확장표). reason은 이 클래스가 이미 남기는 로그 메시지 문구를 그대로
+     * 재사용한다 — 감사 화면과 로그가 서로 다른 문구로 갈라지는 것을 막기 위함이다.
+     *
+     * <p>horizon은 strategyId에서 유도한다: C3(중기 전략, ADR-11)는 "MID", 그 외(테스트
+     * 시그널 등 아직 지평 프레임에 편입되지 않은 전략)는 "TEST"로 표시한다 — 향후 지평별
+     * 전략이 추가되면 이 매핑도 함께 늘어난다.
+     */
+    private void publishRejected(Signal signal, String reason, Map<String, String> metrics) {
+        publisher.publishEvent(new SignalDecision(
+                horizonFor(signal.strategyId()),
+                signal.strategyId(),
+                signal.symbol(),
+                "REJECTED",
+                reason,
+                metrics,
+                Instant.now()));
+    }
+
+    /** strategyId → 보유기간 지평(ADR-11) 매핑. C3 계열만 "MID", 그 외는 "TEST". */
+    private static String horizonFor(String strategyId) {
+        return strategyId != null && strategyId.startsWith("C3") ? "MID" : "TEST";
     }
 }

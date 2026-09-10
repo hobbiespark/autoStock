@@ -6,6 +6,7 @@ import com.autostock.common.event.MarketTick;
 import com.autostock.common.event.NewsSentiment;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Signal;
+import com.autostock.common.event.SignalDecision;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,6 +55,9 @@ public class EventAuditListener {
 
     @EventListener
     public void on(Signal e) { store("Signal", e, e.timestamp()); }
+
+    @EventListener
+    public void on(SignalDecision e) { store("SignalDecision", e, e.decidedAt()); }
 
     @EventListener
     public void on(OrderRequest e) { store("OrderRequest", e, e.timestamp()); }

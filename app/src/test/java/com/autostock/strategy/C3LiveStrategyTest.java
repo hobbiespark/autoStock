@@ -4,6 +4,7 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
+import com.autostock.common.event.SignalDecision;
 import com.autostock.market.KiwoomDailyChartService;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketHolidayRepository;
@@ -48,6 +49,19 @@ class C3LiveStrategyTest {
         TradingSystemManager manager = mock(TradingSystemManager.class);
         when(manager.status()).thenReturn(TradingSystemStatus.RUNNING);
         return manager;
+    }
+
+    /**
+     * FE-6(SignalDecision)부터는 이 전략이 Signal뿐 아니라 판단 근거(SignalDecision)도 같은
+     * publisher로 발행한다 — 기존 테스트들이 "published.size()==Signal 개수"를 가정하므로,
+     * Signal만 걸러서 기존 단언 의도를 그대로 유지한다.
+     */
+    private static List<Signal> onlySignals(List<Object> published) {
+        return published.stream().filter(Signal.class::isInstance).map(Signal.class::cast).toList();
+    }
+
+    private static List<SignalDecision> onlyDecisions(List<Object> published) {
+        return published.stream().filter(SignalDecision.class::isInstance).map(SignalDecision.class::cast).toList();
     }
 
     /**
@@ -181,8 +195,9 @@ class C3LiveStrategyTest {
 
         strategy.run();
 
-        assertEquals(1, published.size(), "보유 중인 000660만 SELL 시그널 1건이어야 함(005930 진입 없음)");
-        Signal signal = (Signal) published.get(0);
+        List<Signal> signals = onlySignals(published);
+        assertEquals(1, signals.size(), "보유 중인 000660만 SELL 시그널 1건이어야 함(005930 진입 없음)");
+        Signal signal = signals.get(0);
         assertEquals("000660", signal.symbol());
         assertEquals(Side.SELL, signal.side());
         assertEquals("C3-MOMENTUM", signal.strategyId());
@@ -202,8 +217,9 @@ class C3LiveStrategyTest {
 
         strategy.run();
 
-        assertEquals(1, published.size());
-        Signal signal = (Signal) published.get(0);
+        List<Signal> signals = onlySignals(published);
+        assertEquals(1, signals.size());
+        Signal signal = signals.get(0);
         assertEquals("005930", signal.symbol());
         assertEquals(Side.BUY, signal.side());
         assertTrue(signal.confidence() > 0.0 && signal.confidence() <= 1.0,
@@ -226,8 +242,9 @@ class C3LiveStrategyTest {
 
         strategy.run();
 
-        assertEquals(1, published.size());
-        Signal signal = (Signal) published.get(0);
+        List<Signal> signals = onlySignals(published);
+        assertEquals(1, signals.size());
+        Signal signal = signals.get(0);
         assertEquals("005930", signal.symbol());
         assertEquals(Side.SELL, signal.side());
     }
@@ -248,7 +265,7 @@ class C3LiveStrategyTest {
 
         strategy.run();
 
-        assertTrue(published.isEmpty(), "상승추세라도 이미 보유 중이면 추가 매수(재진입)하면 안 됨");
+        assertTrue(onlySignals(published).isEmpty(), "상승추세라도 이미 보유 중이면 추가 매수(재진입)하면 안 됨");
     }
 
     @Test
@@ -266,8 +283,112 @@ class C3LiveStrategyTest {
 
         assertDoesNotThrow(strategy::run, "한 종목의 예외가 전체 배치 실행을 중단시키면 안 됨");
 
-        assertEquals(1, published.size(), "실패한 005930은 스킵되고 000660만 판단돼야 함");
-        Signal signal = (Signal) published.get(0);
+        List<Signal> signals = onlySignals(published);
+        assertEquals(1, signals.size(), "실패한 005930은 스킵되고 000660만 판단돼야 함");
+        Signal signal = signals.get(0);
         assertEquals("000660", signal.symbol());
+    }
+
+    // ── FE-6: SignalDecision 발행 검증 — 순수 함수(MomentumMath/RegimeMath/VolTargetMath)의
+    // 계산 결과를 shell(C3LiveStrategy)이 SignalDecision 이벤트로 올바르게 변환하는지만 본다
+    // (Math 클래스 자체는 위 테스트들과 동일한 스텁 데이터를 그대로 재사용 — 백테스트 수치에
+    // 영향을 주는 코드는 건드리지 않는다).
+
+    @Test
+    void 국면_ON_상승추세_신규진입_BUY_결정에_모멘텀_국면_볼타겟_지표가_모두_담긴다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put("005930", uptrendSymbolCandles("005930"));
+
+        PositionBook positionBook = new PositionBook();
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                runningManager());
+
+        strategy.run();
+
+        List<SignalDecision> decisions = onlyDecisions(published);
+        assertEquals(1, decisions.size());
+        SignalDecision decision = decisions.get(0);
+        assertEquals("MID", decision.horizon());
+        assertEquals("C3-MOMENTUM", decision.strategyId());
+        assertEquals("005930", decision.symbol());
+        assertEquals("BUY", decision.conclusion());
+        assertEquals("ON", decision.metrics().get("regimeStatus"));
+        assertEquals("5", decision.metrics().get("momentumLookbackN"));
+        assertTrue(decision.metrics().containsKey("momentumReturnPct"));
+        assertTrue(decision.metrics().containsKey("volTargetFraction"),
+                "BUY 결정에는 VolTargetMath가 산출한 투입 비중이 지표로 남아야 함");
+
+        // Signal.confidence()와 SignalDecision.metrics()의 volTargetFraction은 같은
+        // VolTargetMath.fraction() 호출 결과를 실은 것이므로 값이 일치해야 한다.
+        Signal signal = onlySignals(published).get(0);
+        assertEquals(String.valueOf(signal.confidence()), decision.metrics().get("volTargetFraction"));
+    }
+
+    @Test
+    void 국면_OFF면_판단_대상_전체_종목에_SKIP_결정이_남는다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOffIndexCandles());
+        chart.put("005930", uptrendSymbolCandles("005930"));
+
+        PositionBook positionBook = new PositionBook();
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService,
+                runningManager());
+
+        strategy.run();
+
+        List<SignalDecision> decisions = onlyDecisions(published);
+        assertEquals(2, decisions.size(), "국면 OFF — 판단 대상 두 종목 모두 SKIP 결정이 남아야 함");
+        for (SignalDecision decision : decisions) {
+            assertEquals("SKIP", decision.conclusion());
+            assertEquals("OFF", decision.metrics().get("regimeStatus"));
+            assertTrue(decision.reason().contains("국면 OFF"));
+        }
+    }
+
+    @Test
+    void 국면_ON_하락추세_미보유면_SKIP_결정이_남는다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put("005930", downtrendSymbolCandles("005930"));
+
+        PositionBook positionBook = new PositionBook(); // 미보유
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                runningManager());
+
+        strategy.run();
+
+        assertTrue(onlySignals(published).isEmpty(), "하락추세+미보유는 Signal을 내지 않아야 함");
+        List<SignalDecision> decisions = onlyDecisions(published);
+        assertEquals(1, decisions.size());
+        assertEquals("SKIP", decisions.get(0).conclusion());
+        assertEquals("005930", decisions.get(0).symbol());
+    }
+
+    @Test
+    void 국면_ON_상승추세_이미_보유중이면_HOLD_결정이_남는다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put("005930", uptrendSymbolCandles("005930"));
+
+        PositionBook positionBook = new PositionBook();
+        positionBook.onFill(new Fill("k1", "b1", "005930", Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
+
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                runningManager());
+
+        strategy.run();
+
+        List<SignalDecision> decisions = onlyDecisions(published);
+        assertEquals(1, decisions.size());
+        assertEquals("HOLD", decisions.get(0).conclusion());
     }
 }

@@ -13,6 +13,7 @@ import EventFeedCard from './components/EventFeedCard';
 import TabNav, { type Tab } from './components/TabNav';
 import OrdersPage from './pages/OrdersPage';
 import PerformancePage from './pages/PerformancePage';
+import DecisionsPage from './pages/DecisionsPage';
 
 export default function App() {
   // 화면 3개(대시보드/주문 이력/성과) — 라우터 라이브러리 없이 탭 상태로 전환한다
@@ -56,6 +57,7 @@ export default function App() {
 
       {tab === 'orders' && <OrdersPage />}
       {tab === 'performance' && <PerformancePage />}
+      {tab === 'decisions' && <DecisionsPage />}
     </>
   );
 }

@@ -24,6 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
+// FE-6(SignalDecision)부터는 거부 시 REJECTED SignalDecision도 함께 발행되므로, 아래
+// isEmpty() 단언들은 OrderRequest만 걸러서 검증한다(RiskGateTest.onlyOrders와 동일 취지).
+
 /**
  * RiskGate ↔ MacroGuard/DisclosureBlacklist 연동 검증 — 보수 모드에서 매수 거부·매도 허용,
  * 블랙리스트 종목 매수 거부(RiskGate 클래스 설명 "거시 국면·공시 배제" 절 참고).
@@ -66,6 +69,10 @@ class RiskGateMacroTest {
         return new Signal("test-strategy", symbol, Side.SELL, new BigDecimal(price), 1.0, Instant.now());
     }
 
+    private static List<OrderRequest> onlyOrders(List<Object> published) {
+        return published.stream().filter(OrderRequest.class::isInstance).map(OrderRequest.class::cast).toList();
+    }
+
     private void engageConservativeMode() {
         // VIX 30 — severe(35) 미만이라 킬스위치는 켜지지 않고 보수 모드만 켜진다.
         macroGuard.onMacroIndicator(new MacroIndicator("FRED_VIX", "MARKET", new BigDecimal("30.0"), null, Instant.now()));
@@ -76,7 +83,7 @@ class RiskGateMacroTest {
     void 보수모드에서_신규_매수는_거부된다() {
         engageConservativeMode();
         gate.onSignal(buySignal("005930", "70000"));
-        assertTrue(published.isEmpty());
+        assertTrue(onlyOrders(published).isEmpty());
     }
 
     @Test
@@ -97,7 +104,7 @@ class RiskGateMacroTest {
     void 블랙리스트_종목은_매수가_거부된다() {
         disclosureBlacklist.add("005930");
         gate.onSignal(buySignal("005930", "70000"));
-        assertTrue(published.isEmpty());
+        assertTrue(onlyOrders(published).isEmpty());
     }
 
     @Test
