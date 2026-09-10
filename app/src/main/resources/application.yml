@@ -75,6 +75,16 @@ macrointel:
   vix-severe-threshold: 35.0            # VIX 이 값 이상이면 킬스위치 작동(전면 정지)
   usd-krw-caution-threshold: 1450.0     # 원/달러 환율 이 값 이상이면 보수 모드
 
+dart:
+  enabled: false                        # DART_API_KEY 발급 후 활성화(이 리포는 실측 완료 — docs/measured/dart_estkRs_20260911.json). 배포 환경마다 키 보유 여부가 달라 기본값은 false 유지
+  api-key: ${DART_API_KEY:}             # OpenDART 발급 키 — 커밋 금지, 환경변수로만 주입
+  lookback-days: 14                     # list.json 조회 시 "최근 N일" 창(ADR-9 배치 사양)
+
+ipo:
+  filter:
+    min-institutional-competition-rate: 500    # 기관경쟁률 500:1 이상(ADR-9 ②)
+    min-lockup-commit-rate: 0.20                # 의무보유확약비율 20% 이상
+
 autostock:
   ws:
     enabled: false              # 앱키 발급 후 true

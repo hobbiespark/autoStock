@@ -13,6 +13,11 @@
  * 읽는다({@link com.autostock.monitor.view.SystemStatusView} Javadoc 참고) — strategy가
  * 이미 monitor를 참조하므로(TradingSystemManager 조회) 반대 방향 타입 의존까지 추가하면
  * 순환이 생기기 때문이다.
+ *
+ * <p>ipo 모듈(PLAN.md ADR-9, 트랙 E2)의 {@code IpoDealRepository}/{@code IpoSyncScheduler}도
+ * trading과 같은 방식으로 직접 참조한다({@link com.autostock.monitor.IpoController} —
+ * GET/POST /api/ipo). ipo는 monitor를 참조하지 않고 {@code common.event.IpoAlert} 이벤트만
+ * 발행하므로({@link com.autostock.monitor.IpoAlertListener}가 구독) 순환은 없다.
  */
 @org.springframework.modulith.ApplicationModule(displayName = "monitor")
 package com.autostock.monitor;
