@@ -1,0 +1,62 @@
+{
+  "status": "000",
+  "message": "정상",
+  "list": [
+    {
+      "corp_code": "00132868",
+      "corp_name": "우성머티리얼스",
+      "stock_code": "011300",
+      "corp_cls": "Y",
+      "report_nm": "주요사항보고서(유상증자결정)",
+      "rcept_no": "20260910000580",
+      "flr_nm": "우성머티리얼스",
+      "rcept_dt": "20260910",
+      "rm": ""
+    },
+    {
+      "corp_code": "00406037",
+      "corp_name": "CSA 코스믹",
+      "stock_code": "083660",
+      "corp_cls": "K",
+      "report_nm": "주요사항보고서(전환사채권발행결정)",
+      "rcept_no": "20260910000549",
+      "flr_nm": "CSA 코스믹",
+      "rcept_dt": "20260910",
+      "rm": ""
+    },
+    {
+      "corp_code": "01060735",
+      "corp_name": "로지스몬",
+      "stock_code": "223220",
+      "corp_cls": "K",
+      "report_nm": "[기재정정]주요사항보고서(유상증자결정)",
+      "rcept_no": "20260910000536",
+      "flr_nm": "로지스몬",
+      "rcept_dt": "20260910",
+      "rm": "정"
+    },
+    {
+      "corp_code": "00132868",
+      "corp_name": "우성머티리얼스",
+      "stock_code": "011300",
+      "corp_cls": "Y",
+      "report_nm": "[기재정정]주요사항보고서(신주인수권부사채권발행결정)",
+      "rcept_no": "20260429000942",
+      "flr_nm": "우성머티리얼스",
+      "rcept_dt": "20260429",
+      "rm": "정"
+    },
+    {
+      "corp_code": "00096240",
+      "corp_name": "크레버스",
+      "stock_code": "096240",
+      "corp_cls": "K",
+      "report_nm": "[첨부추가]주요사항보고서(교환사채권발행결정)",
+      "rcept_no": "20260128000489",
+      "flr_nm": "크레버스",
+      "rcept_dt": "20260128",
+      "rm": ""
+    }
+  ],
+  "_note": "2026-09-11 실측(키 마스킹, DART_API_KEY는 URL 쿼리파라미터로만 사용되고 응답 바디에는 포함되지 않음). GET /api/list.json?crtfc_key=***&pblntf_ty=B&bgn_de=YYYYMMDD&end_de=YYYYMMDD&page_count=100. 4개 report_nm 접미: 유상증자결정), 전환사채권발행결정), 신주인수권부사채권발행결정), 교환사채권발행결정). 정정 공시는 [기재정정]/[첨부정정]/[첨부추가] 등 접두어가 붙어 contains 매칭 필요(endsWith 매칭도 가능, macrointel.DisclosureType.matches 참고)."
+}

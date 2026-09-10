@@ -7,6 +7,7 @@ import com.autostock.monitor.view.SystemStatusView;
 import com.autostock.monitor.view.TradingStatusView;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
+import com.autostock.risk.DisclosureBlacklist;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.MacroGuard;
 import com.autostock.portfolio.PositionBook;
@@ -39,6 +40,7 @@ public class DashboardFacade {
     private final DailyLimitTracker dailyLimitTracker;
     private final DailyPnlTracker dailyPnlTracker;
     private final MacroGuard macroGuard;
+    private final DisclosureBlacklist disclosureBlacklist;
     private final TradingSystemManager tradingSystemManager;
     private final TradingProperties tradingProperties;
     private final SlippageTracker slippageTracker;
@@ -51,6 +53,7 @@ public class DashboardFacade {
                            DailyLimitTracker dailyLimitTracker,
                            DailyPnlTracker dailyPnlTracker,
                            MacroGuard macroGuard,
+                           DisclosureBlacklist disclosureBlacklist,
                            TradingSystemManager tradingSystemManager,
                            TradingProperties tradingProperties,
                            SlippageTracker slippageTracker,
@@ -62,6 +65,7 @@ public class DashboardFacade {
         this.dailyLimitTracker = dailyLimitTracker;
         this.dailyPnlTracker = dailyPnlTracker;
         this.macroGuard = macroGuard;
+        this.disclosureBlacklist = disclosureBlacklist;
         this.tradingSystemManager = tradingSystemManager;
         this.tradingProperties = tradingProperties;
         this.slippageTracker = slippageTracker;
@@ -94,7 +98,8 @@ public class DashboardFacade {
                 killSwitch.isEngaged(),
                 dailyLimitTracker.todayOrderCount(),
                 dailyPnlTracker.todayRealizedPnl(),
-                macroGuard.isConservativeMode());
+                macroGuard.isConservativeMode(),
+                disclosureBlacklist.activeCount());
     }
 
     /** 시스템(설정) 상태 View 조합. */

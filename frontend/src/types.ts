@@ -29,6 +29,7 @@ export interface TradingInfo {
   todayOrderCount: number;
   todayRealizedPnl: string | number;
   conservativeMode: boolean;
+  disclosureBlacklistCount: number;
 }
 
 export interface SystemInfo {

@@ -23,6 +23,9 @@ export default function PerformanceCard({ trading }: Props) {
           {trading === undefined ? '-' : trading.conservativeMode ? 'ON (신규 매수 금지)' : 'OFF (정상)'}
         </span>
       </p>
+      <p>
+        공시 매수 금지 종목: <span>{trading?.disclosureBlacklistCount ?? '-'}</span>건
+      </p>
       <p className="muted">
         실현손익만 반영 — 보유 중인 포지션의 미실현 평가손익은 포함하지 않음(TODO).
         보수 모드는 VIX/환율 임계 초과 시 자동으로 켜지며, 신규 매수만 막고 청산은 그대로 허용합니다.
