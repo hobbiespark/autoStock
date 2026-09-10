@@ -429,3 +429,104 @@ select {
 .chart-title:first-of-type {
   margin-top: 4px;
 }
+
+/* 종목 선정 이유 화면(FE-6, ADR-10 확장표) — 지평 서브탭 */
+.horizon-sub-nav {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.horizon-sub-nav-btn {
+  background: #232c42;
+  color: var(--dim);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 6px 14px;
+  min-height: auto;
+  font-size: 12px;
+}
+.horizon-sub-nav-btn:hover:not(:disabled) {
+  color: var(--text);
+}
+.horizon-sub-nav-btn.active {
+  background: var(--accent);
+  color: #0f1420;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+.horizon-sub-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+/* 종목 선정 이유 — 판단 카드 목록 */
+.decision-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.decision-row {
+  background: #161d2e;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.decision-row-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.decision-row-symbol {
+  font-weight: 700;
+  font-size: 14px;
+}
+.decision-row-reason {
+  margin: 8px 0 0;
+  font-size: 13px;
+  color: var(--text);
+}
+.decision-metrics-table {
+  margin-top: 10px;
+  width: auto;
+  min-width: 260px;
+}
+.decision-metrics-table td {
+  padding: 3px 10px 3px 0;
+  border-bottom: none;
+  font-size: 12px;
+}
+.decision-metrics-table td:first-child {
+  color: var(--dim);
+}
+
+/* 판단 결론 뱃지 — BUY=초록, SELL=주황(청산), REJECTED=빨강, SKIP=회색, HOLD=중립 */
+.decision-badge {
+  display: inline-block;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  letter-spacing: 0.3px;
+}
+.decision-badge-buy {
+  background: #1e4a35;
+  color: #7fe0b0;
+}
+.decision-badge-sell {
+  background: #4a3a1e;
+  color: #ffbf7a;
+}
+.decision-badge-rejected {
+  background: #4a1e1e;
+  color: #ff8a8a;
+}
+.decision-badge-skip {
+  background: #2a3550;
+  color: var(--dim);
+}
+.decision-badge-hold {
+  background: #22304a;
+  color: #9fb2d6;
+}
