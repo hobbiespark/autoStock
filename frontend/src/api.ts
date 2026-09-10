@@ -1,4 +1,13 @@
-import type { DailyPerformance, DashboardView, DecisionItem, OrderHistoryView, Side } from './types';
+import type {
+  DailyPerformance,
+  DashboardView,
+  DecisionItem,
+  IpoDeal,
+  IpoMetricsInput,
+  IpoRecordInput,
+  OrderHistoryView,
+  Side,
+} from './types';
 
 // 대시보드는 /api/dashboard 하나만 폴링한다(ARCHITECTURE.md 10절 CQRS Lite —
 // 여러 GET을 각자 부르지 않고 서버가 조합한 DashboardView 하나를 받는다).
@@ -36,6 +45,26 @@ export async function fetchDecisions(date?: string): Promise<DecisionItem[]> {
   if (!res.ok) {
     throw new Error(`판단 근거 조회 실패: HTTP ${res.status}`);
   }
+  return res.json();
+}
+
+// 공모주(FE-3) — GET /api/ipo?status=, 폴링 없이 탭 진입/필터 변경/수동 새로고침 시에만 호출.
+export async function fetchIpoDeals(status?: string): Promise<IpoDeal[]> {
+  const qs = status ? `?status=${status}` : '';
+  const res = await fetch(`/api/ipo${qs}`);
+  if (!res.ok) {
+    throw new Error(`공모주 목록 조회 실패: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+export async function postIpoRecord(id: number, body: IpoRecordInput): Promise<IpoDeal> {
+  const res = await postJson(`/api/ipo/${id}/record`, body);
+  return res.json();
+}
+
+export async function postIpoMetrics(id: number, body: IpoMetricsInput): Promise<IpoDeal> {
+  const res = await postJson(`/api/ipo/${id}/metrics`, body);
   return res.json();
 }
 

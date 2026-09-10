@@ -114,3 +114,53 @@ export interface DecisionItem {
   reason: string;
   metrics: Record<string, string>;
 }
+
+// 공모주 딜 상태(IpoStatus, 백엔드 ipo.IpoStatus와 1:1 대응, PLAN.md ADR-9 트랙 E2).
+export type IpoStatus = 'UPCOMING' | 'SUBSCRIBING' | 'LISTED' | 'PASSED';
+
+// 청약 권고 판정(IpoRecommendation).
+export type IpoRecommendation = 'RECOMMEND' | 'SKIP' | 'PENDING';
+
+// 공모주 딜 화면(FE-3) — GET /api/ipo 응답 원소. offerPriceLow/High는 DART가 밴드를 구조화
+// 제공하지 않아(실측 확인) 대부분 null이다 — offerPriceConfirmed만 채워지는 경우가 많다.
+export interface IpoDeal {
+  id: number;
+  corpCode: string;
+  corpName: string;
+  rceptNo: string;
+  offerPriceLow: string | number | null;
+  offerPriceHigh: string | number | null;
+  offerPriceConfirmed: string | number | null;
+  subscriptionStart: string | null;
+  subscriptionEnd: string | null;
+  refundDate: string | null;
+  listingDate: string | null;
+  leadManager: string | null;
+  institutionalCompetitionRate: string | number | null;
+  lockupCommitRate: string | number | null;
+  status: IpoStatus;
+  recommendation: IpoRecommendation;
+  recommendReason: string | null;
+  appliedQty: number | null;
+  deposit: string | number | null;
+  allocatedQty: number | null;
+  sellPrice: string | number | null;
+  sellDate: string | null;
+  memo: string | null;
+}
+
+// POST /api/ipo/{id}/record 요청 본문 — 필드는 전부 선택값(null이면 기존 값 유지).
+export interface IpoRecordInput {
+  appliedQty?: number | null;
+  deposit?: number | null;
+  allocatedQty?: number | null;
+  sellPrice?: number | null;
+  sellDate?: string | null;
+  memo?: string | null;
+}
+
+// POST /api/ipo/{id}/metrics 요청 본문 — 기관경쟁률·의무보유확약비율 수동 입력.
+export interface IpoMetricsInput {
+  institutionalCompetitionRate: number;
+  lockupCommitRate: number;
+}

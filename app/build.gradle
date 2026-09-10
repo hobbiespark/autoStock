@@ -41,4 +41,7 @@ tasks.named('test') {
     // 없으면 빈 문자열이 전달되고, 테스트는 그 경우 assumeTrue로 스스로 스킵한다.
     environment 'KIWOOM_APP_KEY', System.getenv('KIWOOM_APP_KEY') ?: ''
     environment 'KIWOOM_APP_SECRET', System.getenv('KIWOOM_APP_SECRET') ?: ''
+    // DartIpoSmokeIT(실제 OpenDART 서버 호출)용 키 — 없으면 빈 문자열이 전달되고, 테스트는
+    // 그 경우 assumeTrue로 스스로 스킵한다(KiwoomSmokeIT와 동일 관례, ADR-9).
+    environment 'DART_API_KEY', System.getenv('DART_API_KEY') ?: ''
 }

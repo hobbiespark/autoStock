@@ -530,3 +530,91 @@ select {
   background: #22304a;
   color: #9fb2d6;
 }
+
+/* 공모주 화면(FE-3, PLAN.md ADR-9 트랙 E2) */
+.ipo-disclaimer {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-radius: 8px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+
+.ipo-row .decision-row-head {
+  user-select: none;
+}
+
+/* 권고 뱃지 — RECOMMEND=초록, SKIP=회색, PENDING=주황 */
+.ipo-badge {
+  display: inline-block;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  letter-spacing: 0.3px;
+}
+.ipo-badge-recommend {
+  background: #1e4a35;
+  color: #7fe0b0;
+}
+.ipo-badge-skip {
+  background: #2a3550;
+  color: var(--dim);
+}
+.ipo-badge-pending {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+
+/* D-day 뱃지 */
+.ipo-dday-badge {
+  display: inline-block;
+  min-width: 64px;
+  text-align: center;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+.ipo-dday-upcoming {
+  background: #2b3a5e;
+  color: #9db8ff;
+}
+.ipo-dday-active {
+  background: #1e4a35;
+  color: #7fe0b0;
+  animation: feed-highlight 2s ease-in-out infinite alternate;
+}
+.ipo-dday-listed {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+}
+.ipo-dday-passed {
+  background: #2a3550;
+  color: var(--dim);
+}
+
+.ipo-detail {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.ipo-timeline {
+  display: flex;
+  gap: 24px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.ipo-timeline-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.ipo-section {
+  margin-top: 16px;
+}
+.ipo-section .row input {
+  min-width: 120px;
+}
