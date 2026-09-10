@@ -66,7 +66,17 @@ import java.util.concurrent.atomic.AtomicReference;
  * </ol>
  *
  * <p>autostock.ws.enabled=true일 때만 동작 (앱키 필요).
- * TODO Phase 2 검증: LOGIN/REG 메시지 포맷·응답 코드 모의투자 실측 확인.
+ *
+ * <p><b>실측 확정 (2026-09-10, mockapi wss 포트 10000 — docs/measured/ws_probe_20260910_offhours.txt)</b>:
+ * <ul>
+ *   <li>REG는 <b>LOGIN 응답(return_code=0) 수신 후에만</b> 유효 — 인증 완료 전에 보낸 REG는
+ *       {@code return_code:100013 "로그인 인증이 들어오기 전에 다른 전문이 들어왔습니다.
+ *       해당 전문은 무시됩니다"}로 조용히 버려진다. 그래서 이 클래스는 연결 직후가 아니라
+ *       LOGIN 응답을 받은 시점에 재구독을 수행한다({@link #handleTextMessage}).</li>
+ *   <li>LOGIN 응답 포맷: {@code {"trnm":"LOGIN","return_code":0,"return_msg":"","sor_yn":"Y"}}</li>
+ *   <li>서버가 약 10초 간격으로 {@code {"trnm":"PING"}} 전송 — 동일 전문 에코 필요.</li>
+ * </ul>
+ * TODO 실측(잔여): REAL 시세의 FID 매핑(장중 재실행 필요), 체결통보(type 00) item 빈 배열 동작.
  */
 @Component
 public class KiwoomWebSocketClient extends TextWebSocketHandler {
@@ -88,6 +98,12 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     private final AtomicReference<Instant> disconnectedSince = new AtomicReference<>();
     /** MarketDataStale을 이미 발행했는지 — 같은 단절 구간에서 중복 발행 방지(재연결 성공 시 리셋). */
     private final AtomicBoolean staleEventFired = new AtomicBoolean(false);
+
+    /**
+     * LOGIN 응답(return_code=0)을 받았는지 — 실측(클래스 Javadoc)에 따라 인증 전 REG는
+     * 서버가 무시하므로, 이 플래그가 서기 전에는 어떤 REG도 보내지 않는다.
+     */
+    private final AtomicBoolean loggedIn = new AtomicBoolean(false);
 
     public KiwoomWebSocketClient(KiwoomProperties kiwoomProperties,
                                  TokenManager tokenManager,
@@ -117,7 +133,9 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     public void subscribe(String symbol) {
         subscribedSymbols.add(symbol);
         WebSocketSession current = session.get();
-        if (current != null && current.isOpen()) {
+        // loggedIn 전에는 보내지 않는다 — 실측: 인증 전 REG는 100013으로 무시됨.
+        // 이 시점에 못 보낸 구독은 LOGIN 응답 처리(handleTextMessage)가 일괄 재구독한다.
+        if (current != null && current.isOpen() && loggedIn.get()) {
             sendRegister(current, symbol);
         }
     }
@@ -183,14 +201,12 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         // ("재연결 성공 시 리셋" 스펙 — watchdog에서도 connected=true면 리셋하므로 이중 방어).
         disconnectedSince.set(null);
         staleEventFired.set(false);
-        // 로그인
+        // 새 연결은 미인증 상태에서 시작 — LOGIN만 보내고 REG는 LOGIN 응답 후로 미룬다
+        // (실측: 인증 전 REG는 100013으로 무시됨, 클래스 Javadoc).
+        loggedIn.set(false);
         newSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(
                 Map.of("trnm", "LOGIN", "token", tokenManager.accessToken()))));
-        // 재구독 (재연결 시 등록 누락 방지)
-        subscribedSymbols.forEach(symbol -> sendRegister(newSession, symbol));
-        // 주문체결통보(계좌 단위)는 종목과 무관하게 별도 그룹으로 1회 등록
-        registerOrderNotice(newSession);
-        log.info("WS 연결 완료, 재구독 {}종목", subscribedSymbols.size());
+        log.info("WS 연결 — LOGIN 전송, 응답 대기 (구독 {}종목은 로그인 후 등록)", subscribedSymbols.size());
     }
 
     private void sendRegister(WebSocketSession target, String symbol) {
@@ -233,7 +249,34 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         JsonNode root = objectMapper.readTree(message.getPayload());
         String trnm = root.path("trnm").asText();
         if ("PING".equals(trnm)) {
-            current.sendMessage(message); // PING은 그대로 응답
+            current.sendMessage(message); // PING은 그대로 응답 (실측: 서버가 약 10초 간격 전송)
+            return;
+        }
+        if ("LOGIN".equals(trnm)) {
+            int returnCode = root.path("return_code").asInt(-1);
+            if (returnCode == 0) {
+                loggedIn.set(true);
+                // 인증 완료 — 이제부터 REG가 유효하다. 구독 종목 전체 + 체결통보를 일괄 등록
+                // (신규 연결·재연결 모두 이 경로 하나로 처리 = 등록 누락 방지).
+                subscribedSymbols.forEach(symbol -> sendRegister(current, symbol));
+                registerOrderNotice(current);
+                log.info("WS 로그인 성공(sor_yn={}) — 재구독 {}종목 + 체결통보 등록",
+                        root.path("sor_yn").asText(), subscribedSymbols.size());
+            } else {
+                // 인증 실패 — 이 연결로는 어떤 REG도 유효하지 않다. 닫아서 watchdog이
+                // 새 토큰으로 재연결하게 한다(토큰 만료가 원인일 수 있음).
+                log.error("WS 로그인 실패 return_code={} msg={} — 연결을 닫고 재연결에 맡긴다",
+                        returnCode, root.path("return_msg").asText());
+                current.close();
+            }
+            return;
+        }
+        if ("REG".equals(trnm)) {
+            int returnCode = root.path("return_code").asInt(-1);
+            if (returnCode != 0) {
+                // 실측 예: 100013 = 인증 전 REG(무시됨). 0이 아니면 그 구독은 살아있지 않다.
+                log.warn("WS REG 거절 return_code={} msg={}", returnCode, root.path("return_msg").asText());
+            }
             return;
         }
         if ("REAL".equals(trnm)) {

@@ -38,9 +38,12 @@ class KiwoomWebSocketClientTest {
     @BeforeEach
     void setUp() {
         clock = new MutableClock(T0);
+        TokenManager tokenManager = mock(TokenManager.class);
+        // afterConnectionEstablished가 LOGIN 전문에 토큰을 담는다 — null이면 Map.of가 NPE.
+        org.mockito.Mockito.when(tokenManager.accessToken()).thenReturn("test-token");
         client = new KiwoomWebSocketClient(
                 mock(KiwoomProperties.class),
-                mock(TokenManager.class),
+                tokenManager,
                 published::add,
                 new ObjectMapper(),
                 true,           // enabled
@@ -100,6 +103,87 @@ class KiwoomWebSocketClientTest {
         client.trackDisconnection(false); // 2차 발행
 
         assertEquals(2, published.size());
+    }
+
+    // ── LOGIN/REG 순서 (2026-09-10 실측: 인증 전 REG는 100013으로 무시됨) ──────────
+
+    private org.springframework.web.socket.WebSocketSession wsSession(List<String> sent) {
+        var s = mock(org.springframework.web.socket.WebSocketSession.class);
+        org.mockito.Mockito.when(s.isOpen()).thenReturn(true);
+        try {
+            org.mockito.Mockito.doAnswer(inv -> {
+                sent.add(((org.springframework.web.socket.TextMessage) inv.getArgument(0)).getPayload());
+                return null;
+            }).when(s).sendMessage(org.mockito.ArgumentMatchers.any());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+        return s;
+    }
+
+    @Test
+    void 연결_직후에는_LOGIN만_보내고_REG는_보내지_않는다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        client.subscribe("005930"); // 세션 없음 — 등록만 기억
+        client.afterConnectionEstablished(s);
+
+        assertEquals(1, sent.size());
+        assertTrue(sent.get(0).contains("\"LOGIN\""));
+    }
+
+    @Test
+    void LOGIN_성공_응답을_받으면_구독종목과_체결통보를_등록한다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        client.subscribe("005930");
+        client.afterConnectionEstablished(s);
+        sent.clear();
+
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(
+                "{\"trnm\":\"LOGIN\",\"return_code\":0,\"return_msg\":\"\",\"sor_yn\":\"Y\"}"));
+
+        assertEquals(2, sent.size()); // 시세 REG(005930) + 체결통보 REG(grp_no 2)
+        assertTrue(sent.get(0).contains("005930"));
+        assertTrue(sent.get(1).contains("\"00\""));
+    }
+
+    @Test
+    void LOGIN_전_subscribe는_전송하지_않고_LOGIN_후_일괄_등록된다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        client.afterConnectionEstablished(s);
+        sent.clear();
+
+        client.subscribe("069500"); // 아직 미인증 — 보내면 100013으로 무시되므로 보내지 않아야 함
+        assertEquals(0, sent.size());
+
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(
+                "{\"trnm\":\"LOGIN\",\"return_code\":0}"));
+        assertTrue(sent.stream().anyMatch(m -> m.contains("069500")));
+    }
+
+    @Test
+    void LOGIN_실패면_세션을_닫는다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        client.afterConnectionEstablished(s);
+
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(
+                "{\"trnm\":\"LOGIN\",\"return_code\":8005,\"return_msg\":\"인증 실패\"}"));
+
+        org.mockito.Mockito.verify(s).close();
+    }
+
+    @Test
+    void PING은_같은_전문으로_에코된다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage("{\"trnm\":\"PING\"}"));
+
+        assertEquals(1, sent.size());
+        assertEquals("{\"trnm\":\"PING\"}", sent.get(0));
     }
 
     /** 테스트 전용 가변 Clock — 단절 경과시간을 결정론적으로 진행시킨다. */

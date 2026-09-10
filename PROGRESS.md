@@ -35,7 +35,7 @@
 | 매수 주문 (kt10000) | ✅ 시장가 1주 즉시 체결 → 잔고 반영 확인 | 5e2aebf |
 | 매도 주문 (kt10001) | ✅ 전량 청산 → 잔고 0 원상복구 | 5e2aebf |
 | 미체결 조회 (ka10075) | ✅ 응답 키 `oso` 확정 | 5e2aebf |
-| WS (포트 10000) | ⬜ 샌드박스 차단 — **로컬에서 `python3 scripts/ws_probe.py` 실행 필요** | d5de321 |
+| WS (포트 10000) | ✅ **프로토콜 실측 완료 (2026-09-10, 장외)** — LOGIN 응답 `{"trnm":"LOGIN","return_code":0,"sor_yn":"Y"}`, **인증 전 REG는 100013으로 무시됨**(→ LOGIN 응답 후 REG 전송으로 클라이언트 수정), 서버 PING 약 10초 간격·에코 필요. 전문: docs/measured/ws_probe_20260910_offhours.txt. 잔여: REAL 시세 FID·체결통보 FID는 **장중 재실행** 필요 | d5de321 → 수정 반영 |
 | 계좌 이슈 | 최초 키는 공매도 교육 전용 계좌(RC5006, 주문 불가) → 일반 계좌 키로 교체 해결 | — |
 
 ## 3. 전략 연구 현황 (PLAN 7절 파이프라인)
@@ -122,12 +122,12 @@
 
 조사 배경: PLAN v4.1에서 근거 문헌을 블로그 → 1차 자료·고인용 원전으로 교체 완료. 그 과정에서 확인된 신규 사실 3건이 우선순위를 바꾼다 — ① [Arian et al. 2024](https://www.sciencedirect.com/science/article/abs/pii/S0950705124011110): walk-forward 단독은 false discovery에 취약, CPCV 병행이 최신 권고 → CPCV를 Phase 7에서 5.5로 앞당김. ② [Suhonen et al. 2017](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2757113): 실전 215개 전략의 라이브 Sharpe 중앙값 −73% → 게이트 ② 격차 계측의 정량 기저치 확보. ③ 2026-01-01 거래세 인상(매도 0.20%, [기재부](https://www.moef.go.kr/nw/mosfnw/detailInfograpView.do?searchNttId1=MOSF_000000000074691&menuNo=4040500)) → 비용 상수 갱신 필요.
 
-### 트랙 A — 실측 차단 해소 (자택망, 최우선: 이후 모든 트랙의 전제)
+### 트랙 A — 실측 차단 해소 (2026-09-10 대부분 완료 — .env 확보로 재개)
 
-A1. WS 실측(`scripts/ws_probe.py`), 주문 왕복 재검증, KiwoomSmokeIT 키 주입 실행
-A2. FRED/ECOS 키 발급 후 응답 포맷 실측, 특일 API 서비스키 발급·활성화
-A3. 텔레그램 봇 실행 검증 — [공식 Bot API](https://core.telegram.org/bots/api) 보안 기준: chat_id 화이트리스트(적용됨) + 킬스위치 해제(/resume) 등 위험 명령 2단계 확인 추가 + 토큰 회전 절차 문서화
-A4. 키움 [공식 GitHub](https://github.com/Kiwoom-Securities/Kiwoom-REST-API) 대조 — 커뮤니티 래퍼 기반 구현(필드명·rate limit)을 공식 샘플과 대사
+A1. 🔶 WS 실측: **프로토콜 계층 완료** (LOGIN/REG 순서 100013 실측 → `KiwoomWebSocketClient` 수정: loggedIn 상태 도입, LOGIN 성공 응답 시 일괄 재구독, LOGIN 실패 시 세션 close→재연결, REG 거절 로깅 — 테스트 5건 추가). ✅ KiwoomSmokeIT 실서버 통과(토큰·잔고·일봉). **잔여(장중 09:00~15:30 KST)**: ① `python3 scripts/ws_probe.py` 재실행 → REAL 시세 FID 매핑 실측 ② 1주 주문으로 체결통보(type 00) FID 실측 ③ 주문 왕복 재검증 → RealMessageParser·OrderNoticeHandler·취소 body 반영
+A2. ⬜ FRED/ECOS 키 발급 후 응답 포맷 실측, 특일 API 서비스키 발급·활성화
+A3. ⬜ 텔레그램 봇 실행 검증 — [공식 Bot API](https://core.telegram.org/bots/api) 보안 기준: chat_id 화이트리스트(적용됨) + 킬스위치 해제(/resume) 등 위험 명령 2단계 확인 추가 + 토큰 회전 절차 문서화
+A4. ⬜ 키움 [공식 GitHub](https://github.com/Kiwoom-Securities/Kiwoom-REST-API) 대조 — 커뮤니티 래퍼 기반 구현(필드명·rate limit)을 공식 샘플과 대사
 
 ### 트랙 B — 검증 고도화 ✅ 완료 (2026-08-28, 커밋 d7887c2 — 결과는 3절 "T 확장 재검증")
 
