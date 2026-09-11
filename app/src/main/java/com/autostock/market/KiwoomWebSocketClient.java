@@ -105,6 +105,16 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
      */
     private final AtomicBoolean loggedIn = new AtomicBoolean(false);
 
+    /**
+     * connect() 진행 중(연결 시도가 아직 완료되지 않음)을 나타내는 가드 — 실측(2026-09-11 운영 로그):
+     * start()(ApplicationReadyEvent)의 connect()와 watchdog의 첫 틱이 거의 동시에 실행되면,
+     * 세션이 아직 열리지 않은 짧은 틈을 watchdog이 "단절"로 오판해 두 번째 connect()를 만들고,
+     * 그 결과 tokenManager.accessToken()이 동시에 두 번 불려 토큰이 중복 발급(429)됐다.
+     * connect() 시작 시 CAS로 true로 세팅하고, 연결 성공/실패가 확정되는 시점(whenComplete)에
+     * false로 되돌린다 — 그 사이 watchdog은 재연결 시도를 건너뛴다.
+     */
+    private final AtomicBoolean connecting = new AtomicBoolean(false);
+
     public KiwoomWebSocketClient(KiwoomProperties kiwoomProperties,
                                  TokenManager tokenManager,
                                  ApplicationEventPublisher publisher,
@@ -140,8 +150,14 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         }
     }
 
-    /** 단절 감시: 10초 주기. 끊긴 줄 모르고 매매 정지되는 사고 방지. */
-    @Scheduled(fixedDelay = 10_000)
+    /**
+     * 단절 감시: 10초 주기. 끊긴 줄 모르고 매매 정지되는 사고 방지.
+     *
+     * <p>initialDelay=30_000: 기동 직후 start()의 첫 connect()가 세션을 열 시간을 준다
+     * (실측 2026-09-11: initialDelay가 없으면 앱 기동과 거의 동시에 첫 watchdog 틱이 돌아
+     * 아직 세션이 열리지 않은 상태를 "단절"로 보고 중복 connect()를 유발했다).
+     */
+    @Scheduled(fixedDelay = 10_000, initialDelay = 30_000)
     public void watchdog() {
         if (!enabled) {
             return;
@@ -150,6 +166,12 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         boolean connected = current != null && current.isOpen();
         trackDisconnection(connected);
         if (!connected) {
+            if (connecting.get()) {
+                // 이미 connect() 진행 중(예: start()의 최초 연결 시도) — 여기서 또 시작하면
+                // 각자 tokenManager.accessToken()을 불러 토큰이 중복 발급된다(실측 원인). 건너뛴다.
+                log.debug("WS 연결 시도 진행 중 — watchdog 재연결 스킵");
+                return;
+            }
             log.warn("WS 단절 감지 — 재연결 시도");
             connect();
         }
@@ -181,15 +203,23 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     }
 
     private void connect() {
+        if (!connecting.compareAndSet(false, true)) {
+            // 이미 진행 중인 connect() 호출이 있다 — start()와 watchdog이 거의 동시에 들어와도
+            // 실제 연결 시도(및 tokenManager.accessToken() 호출)는 한 번만 일어나게 한다.
+            log.debug("WS 연결 시도 이미 진행 중 — 건너뜀");
+            return;
+        }
         try {
             StandardWebSocketClient client = new StandardWebSocketClient();
             client.execute(this, null, URI.create(kiwoomProperties.wsUrl()))
                     .whenComplete((s, ex) -> {
+                        connecting.set(false);
                         if (ex != null) {
                             log.error("WS 연결 실패", ex);
                         }
                     });
         } catch (Exception e) {
+            connecting.set(false);
             log.error("WS 연결 예외", e);
         }
     }
