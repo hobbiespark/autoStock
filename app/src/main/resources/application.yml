@@ -96,6 +96,11 @@ ipo:
     min-lockup-commit-rate: 0.20                # 의무보유확약비율 20% 이상
 
 autostock:
+  minute-archive:
+    enabled: false              # 분봉 일일 적재(평일 15:45 KST, ka10080 1페이지→data/minutes/*.csv append).
+                                # ka10080은 최근 1년 롤링만 제공(실측 2026-09-11)이라 다년 분봉은 자체 축적이 유일 경로
+    symbols: 005930,000660,035420,035720,069500
+    dir: ../data/minutes
   ws:
     enabled: false              # 앱키 발급 후 true
     stale-after: 180             # 연속 단절이 이 초를 넘으면 MarketDataStale 발행 → risk가 킬스위치 작동(PLAN 3절)
