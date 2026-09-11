@@ -85,7 +85,8 @@ strategy.c3.enabled: true
 autostock.ws.enabled: true
 ```
 
-- 사전: 새 창이면 위 2절의 .env 로더를 먼저 실행(미로드 시 KiwoomProperties 바인딩 실패로 기동 불가)
+- **원클릭/자동 시작 (2026-09-11)**: `scripts\start_autostock.bat` — .env 로드→Docker 대기→postgres→bootRun(LIVE+C3+WS+auto-start)을 한 번에. 종료는 `scripts\stop_autostock.bat`(graceful, POST /actuator/shutdown). **Windows 로그인 시 자동 시작**: `scripts\install_autostart.bat` 1회 실행(+ Docker Desktop 설정에서 "Start when you sign in" 켜기, PC 절전 해제 필수). `autostock.trading.auto-start=true`가 [시작] 클릭까지 자동화 — 킬스위치가 켜진 채 재시작해도 RiskGate가 주문을 차단하므로 안전(해제는 수동 원칙 유지)
+- 사전(수동 기동 시): 새 창이면 위 2절의 .env 로더를 먼저 실행(미로드 시 KiwoomProperties 바인딩 실패로 기동 불가)
 - [ ] 앱 시작 → Reconciliation 로그(잔고 대사) 정상 → RUNNING
 - [ ] **WS 로그인 성공(sor_yn=Y) — 재구독 N종목** 로그 확인 (LOGIN→REG 순서 실전 검증 포인트)
 - [ ] 09:05 C3 판단 로그 확인 (거래일·국면·모멘텀 판단 근거 출력)
