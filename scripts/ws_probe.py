@@ -141,6 +141,21 @@ async def probe(token: str) -> None:
         await ws.send(json.dumps(login_msg))
         print(f"[{ts()}] → LOGIN 전송")
 
+        # 1-1) LOGIN 응답 대기 — 실측(2026-09-10/11): 인증 완료 전에 보낸 REG는
+        #      return_code 100013("로그인 인증 전 전문 무시")으로 조용히 버려진다.
+        #      KiwoomWebSocketClient와 동일하게 LOGIN 성공 응답 후에만 REG를 보낸다.
+        while True:
+            raw = await asyncio.wait_for(ws.recv(), timeout=10)
+            print(f"[{ts()}] ← {raw[:300]}")
+            msg = json.loads(raw)
+            if msg.get("trnm") == "LOGIN":
+                if msg.get("return_code") != 0:
+                    print(f"[{ts()}] LOGIN 실패 — 중단")
+                    return
+                break
+            if msg.get("trnm") == "PING":
+                await ws.send(raw)
+
         # 2) REG — 시세체결(0B) 등록, 삼성전자
         reg_tick = {
             "trnm": "REG",
