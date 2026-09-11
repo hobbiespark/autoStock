@@ -38,7 +38,7 @@ python scripts/ws_probe.py    # .env의 키로 토큰 발급 → WS 접속 → L
 - [ ] (장중이면) 모의 앱 또는 curl로 1주 주문 넣고 type 00 통보의 FID(9203 주문번호, 911 체결량, 910 체결가 등) 실측
 - 출력 전문을 저장해 두면 코드 반영 시 근거가 된다 → `docs/measured/ws_probe_YYYYMMDD.txt`
 
-**실측 후 코드 반영 대상** (`TODO 실측` 검색): `market/RealMessageParser`(FID 매핑), `market/KiwoomWebSocketClient`(REG 포맷), `trading/OrderNoticeHandler`(체결 상태 문자열), `execution/KiwoomBrokerAdapter`(취소 body·잔고 필드), `trading/ReconciliationService`(체결 조회 TR)
+**실측 후 코드 반영 대상** (`TODO 실측` 검색): `market/RealMessageParser`·`trading/OrderNoticeHandler`는 2026-09-11 장중 WS 실측(docs/measured/ws_probe_20260911_intraday.txt)으로 FID 매핑·"접수"/"체결" 상태 문자열이 확정됐다(단 "취소"/"거부" 상태 문자열은 미관측이라 여전히 TODO 실측) — 나머지 미해소 대상: `market/KiwoomWebSocketClient`(REG 포맷), `execution/KiwoomBrokerAdapter`(취소 body·잔고 필드), `trading/ReconciliationService`(체결 조회 TR)
 
 ## 2. 스모크 + 전체 테스트 (키 주입 실행)
 
@@ -91,6 +91,9 @@ autostock.ws.enabled: true
 - [ ] paper A/B: 판단 주기 21일(기본) vs 5일 비교 원하면 두 인스턴스/설정 기간 교차 운영
 
 ## 6. 문제 대응 (증상 → 조치)
+
+> 실측 확정(2026-09-11): 모의투자 체결통보(FID 938) 수수료율은 0.35%로, 실전 수수료(0.015%)와
+> 다르다 — 모의 성과·슬리피지를 해석할 때 수수료 차이를 감안할 것(docs/measured/ws_probe_20260911_intraday.txt).
 
 | 증상 | 원인 후보 | 조치 |
 |---|---|---|

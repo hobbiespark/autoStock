@@ -59,7 +59,14 @@ class OrderNoticeHandlerTest {
     }
 
     private OrderNotice notice(String status, long filledQuantity, BigDecimal fillPrice) {
-        return new OrderNotice(BROKER_ORDER_ID, "005930", status, filledQuantity, fillPrice, "00", Instant.now());
+        // remainingQuantity(FID 902)를 명시하지 않는 기존 테스트들은 -1(알 수 없음)로 둔다 —
+        // 902 기반 FILLED 강제 로직(OrderNoticeHandler)이 개입하지 않고 기존 applyFill 계산만 작동한다.
+        return notice(status, filledQuantity, fillPrice, -1L);
+    }
+
+    private OrderNotice notice(String status, long filledQuantity, BigDecimal fillPrice, long remainingQuantity) {
+        return new OrderNotice(BROKER_ORDER_ID, "005930", status, filledQuantity, fillPrice,
+                remainingQuantity, "00", Instant.now());
     }
 
     @Test
@@ -131,5 +138,112 @@ class OrderNoticeHandlerTest {
         assertEquals("20260813-BREAKOUT-005930-BUY-001", fill.orderIdempotencyKey());
         assertEquals(Side.SELL, fill.side()); // DB 엔티티의 side를 물려받는다
         assertEquals(OrderStatus.FILLED, entity.getStatus()); // applyFill로 상태도 갱신됐다
+    }
+
+    @Test
+    void 접수_통보_수신시_ACCEPTED로_전이하고_Fill은_발행안함() {
+        // 실측 확정 2026-09-11(FID 913="접수"): 체결이 아니므로 Fill은 발행되지 않고
+        // OrderEntity 상태만 ACCEPTED로 바뀐다.
+        OrderEntity entity = new OrderEntity("key-accept", "005930", Side.BUY,
+                1, new BigDecimal("258000"), "test-strategy");
+        entity.transitionTo(OrderStatus.VALIDATED);
+        entity.transitionTo(OrderStatus.SUBMITTING);
+        entity.markSubmitted(BROKER_ORDER_ID);
+        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+
+        handler.onOrderNotice(notice("접수", 0, null, 1));
+
+        assertEquals(0, published.size());
+        assertEquals(OrderStatus.ACCEPTED, entity.getStatus());
+    }
+
+    @Test
+    void 미실측_상태_통보는_상태기계를_건드리지_않고_무시() {
+        // "취소"/"거부"는 이번 실측(2026-09-11)에서 관측되지 않은 상태 문자열이다(TODO 실측).
+        // 상태기계를 오염시키지 않도록 아무 전이도 없이 무시해야 한다.
+        OrderEntity entity = new OrderEntity("key-unknown", "005930", Side.BUY,
+                1, new BigDecimal("258000"), "test-strategy");
+        entity.transitionTo(OrderStatus.VALIDATED);
+        entity.transitionTo(OrderStatus.SUBMITTING);
+        entity.markSubmitted(BROKER_ORDER_ID);
+        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+
+        handler.onOrderNotice(notice("취소", 0, null));
+
+        assertEquals(0, published.size());
+        assertEquals(OrderStatus.SUBMITTED, entity.getStatus()); // 손대지 않았다
+    }
+
+    @Test
+    void 미체결잔량_0_통보시_로컬계산과_달라도_FILLED로_확정() {
+        // 실측 확정 2026-09-11(FID 902): 브로커가 "미체결 0"을 통보하면, 로컬 주문수량
+        // 기준 계산(applyFill)이 아직 PARTIALLY_FILLED라고 판단하더라도 902를 우선해 FILLED로
+        // 확정한다. quantity=10인데 이번 통보 filledQuantity=3만 반영해 로컬 계산상으로는
+        // PARTIALLY_FILLED가 나오는 상황을 의도적으로 만든다.
+        OrderEntity entity = new OrderEntity("key-mismatch", "005930", Side.BUY,
+                10, new BigDecimal("70000"), "test-strategy");
+        entity.transitionTo(OrderStatus.VALIDATED);
+        entity.transitionTo(OrderStatus.SUBMITTING);
+        entity.markSubmitted(BROKER_ORDER_ID);
+        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+
+        handler.onOrderNotice(notice("체결", 3, new BigDecimal("70000"), 0));
+
+        assertEquals(1, published.size());
+        assertEquals(OrderStatus.FILLED, entity.getStatus());
+    }
+
+    // ── 실측 전문 재생 (docs/measured/ws_probe_20260911_intraday.txt, 마스킹 없음) ──
+    // RealMessageParser는 market 패키지 전용(package-private)이라 이 테스트에서 직접 호출할
+    // 수 없으므로, 실측 전문에서 확인한 FID 값을 그대로 옮겨 OrderNotice를 구성한다.
+
+    @Test
+    void 실측_전문_재생_매수_접수_후_체결() {
+        OrderEntity entity = new OrderEntity("key-buy-replay", "005930", Side.BUY,
+                1, new BigDecimal("258000"), "test-strategy");
+        entity.transitionTo(OrderStatus.VALIDATED);
+        entity.transitionTo(OrderStatus.SUBMITTING);
+        entity.markSubmitted("0119433"); // 실측 브로커 주문번호(FID 9203)
+        when(orderRepository.findByBrokerOrderId("0119433")).thenReturn(Optional.of(entity));
+        OrderNotice accepted = new OrderNotice("0119433", "005930", "접수", 0, null,
+                1, "00", Instant.now());
+        OrderNotice filled = new OrderNotice("0119433", "005930", "체결", 1,
+                new BigDecimal("258000"), 0, "00", Instant.now());
+
+        handler.onOrderNotice(accepted);
+        assertEquals(OrderStatus.ACCEPTED, entity.getStatus());
+        assertEquals(0, published.size());
+
+        handler.onOrderNotice(filled);
+        assertEquals(OrderStatus.FILLED, entity.getStatus());
+        assertEquals(1, published.size());
+        Fill fill = (Fill) published.get(0);
+        assertEquals(1, fill.filledQuantity());
+        assertEquals(new BigDecimal("258000"), fill.fillPrice());
+    }
+
+    @Test
+    void 실측_전문_재생_매도_접수_후_체결() {
+        OrderEntity entity = new OrderEntity("key-sell-replay", "005930", Side.SELL,
+                1, new BigDecimal("258000"), "test-strategy");
+        entity.transitionTo(OrderStatus.VALIDATED);
+        entity.transitionTo(OrderStatus.SUBMITTING);
+        entity.markSubmitted("0119574"); // 실측 브로커 주문번호(FID 9203)
+        when(orderRepository.findByBrokerOrderId("0119574")).thenReturn(Optional.of(entity));
+        OrderNotice accepted = new OrderNotice("0119574", "005930", "접수", 0, null,
+                1, "00", Instant.now());
+        OrderNotice filled = new OrderNotice("0119574", "005930", "체결", 1,
+                new BigDecimal("258000"), 0, "00", Instant.now());
+
+        handler.onOrderNotice(accepted);
+        assertEquals(OrderStatus.ACCEPTED, entity.getStatus());
+
+        handler.onOrderNotice(filled);
+        assertEquals(OrderStatus.FILLED, entity.getStatus());
+        assertEquals(1, published.size());
+        Fill fill = (Fill) published.get(0);
+        assertEquals(Side.SELL, fill.side());
+        assertEquals(1, fill.filledQuantity());
+        assertEquals(new BigDecimal("258000"), fill.fillPrice());
     }
 }
