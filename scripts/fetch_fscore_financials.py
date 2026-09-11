@@ -20,18 +20,35 @@ def num(s):
     s=(s or '').replace(',','').strip()
     try: return str(int(s))
     except: return ''
+class RateLimited(Exception):
+    """DART 한도/차단 응답(020/021/800 등) — 실패 기록이 아니라 전체 중단 사유."""
+
+# 전역 속도 제한 — DART는 분당 과다 요청 시 차단한다. 안전하게 초당 ~6건(분당 ~360)으로 묶는다.
+_rl_lock=threading.Lock(); _rl_next=[0.0]
+def _throttle():
+    with _rl_lock:
+        now=time.time()
+        wait=_rl_next[0]-now
+        _rl_next[0]=max(now,_rl_next[0])+1.0/6.0
+    if wait>0: time.sleep(wait)
+
 def fetch(key, corp, year, fs):
     qs=urllib.parse.urlencode({"crtfc_key":key,"corp_code":corp,"bsns_year":year,"reprt_code":"11011","fs_div":fs})
     for a in range(3):
         try:
+            _throttle()
             with urllib.request.urlopen(f"https://opendart.fss.or.kr/api/fnlttSinglAcntAll.json?{qs}",timeout=20) as r:
-                return json.loads(r.read())
+                d=json.loads(r.read())
+            if d.get('status') in ('020','021','800','901'):
+                raise RateLimited(d.get('status'))
+            return d
+        except RateLimited: raise
         except Exception:
             if a==2: raise
             time.sleep(1+a)
 def collect(key, corp, stock, year):
     for fs in ("CFS","OFS"):
-        d=fetch(key,corp,year,fs)
+        d=fetch(key,corp,year,fs)  # RateLimited는 그대로 위로 던진다(실패 기록 금지)
         if d.get('status')!='000': continue
         row={"corp_code":corp,"stock_code":stock,"fs_div":fs}
         got=set()
@@ -64,9 +81,16 @@ def main():
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as ex:
         futs=[ex.submit(collect,key,c,s,year) for c,s in todo]
         idx={f:(c,s) for f,(c,s) in zip(futs,todo)}
+        aborted=False
         for fu in concurrent.futures.as_completed(futs):
             c,s=idx[fu]
             try: row=fu.result()
+            except RateLimited as e:
+                print(f"[!] DART 한도/차단 응답(status={e}) — 실패 기록 없이 즉시 중단. 잠시(또는 내일) 후 재실행하면 이어짐",flush=True)
+                aborted=True
+                for f2 in futs: f2.cancel()
+                break
+            except concurrent.futures.CancelledError: continue
             except Exception: row=None
             with lock:
                 if row: rows.append(row); done.add(c); ok+=1
