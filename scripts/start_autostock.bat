@@ -43,5 +43,5 @@ docker compose -f infra\docker-compose.yml up -d postgres
 
 echo [O] starting autoStock (stop = Ctrl+C or scripts\stop_autostock.bat)
 REM flags: LIVE(mock) mode, C3, WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync
-call gradlew.bat :app:bootRun --args="--execution.mode=LIVE --strategy.c3.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true"
+call gradlew.bat :app:bootRun --args="--execution.mode=LIVE --strategy.c3.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true"
 pause
