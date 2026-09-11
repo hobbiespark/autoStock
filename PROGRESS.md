@@ -35,7 +35,7 @@
 | 매수 주문 (kt10000) | ✅ 시장가 1주 즉시 체결 → 잔고 반영 확인 | 5e2aebf |
 | 매도 주문 (kt10001) | ✅ 전량 청산 → 잔고 0 원상복구 | 5e2aebf |
 | 미체결 조회 (ka10075) | ✅ 응답 키 `oso` 확정 | 5e2aebf |
-| WS (포트 10000) | ✅ **프로토콜 실측 완료 (2026-09-10, 장외)** — LOGIN 응답 `{"trnm":"LOGIN","return_code":0,"sor_yn":"Y"}`, **인증 전 REG는 100013으로 무시됨**(→ LOGIN 응답 후 REG 전송으로 클라이언트 수정), 서버 PING 약 10초 간격·에코 필요. 전문: docs/measured/ws_probe_20260910_offhours.txt. 잔여: REAL 시세 FID·체결통보 FID는 **장중 재실행** 필요 | d5de321 → 수정 반영 |
+| WS (포트 10000) | ✅ **전체 실측 완료** — (9/10 장외) LOGIN 응답·인증 전 REG 100013 무시·PING 10초. (9/11 장중, REAL 283건+체결통보 4건) **REG 응답 0 확인(item 빈 배열 유효)**, 0B FID 확정(10=현재가 ±접두·20=체결시각·13=누적량·15=체결량 부호), 00 FID 확정(9203=주문번호=REST ord_no, 9001=종목 A접두 없음, **913="접수"/"체결" 한글**, 905=±매수/매도, 910/911=체결가/량, 902=미체결). 부수: **모의 수수료 0.35%**(실전 0.015%와 상이). 파서 반영: 커밋 025f677. 잔여 TODO 실측: 취소/거부 상태 문자열, 부분체결, 취소 body·잔고 필드·체결조회 TR | 4c28978·025f677 |
 | 계좌 이슈 | 최초 키는 공매도 교육 전용 계좌(RC5006, 주문 불가) → 일반 계좌 키로 교체 해결 | — |
 
 ## 3. 전략 연구 현황 (PLAN 7절 파이프라인)
@@ -124,7 +124,7 @@
 
 ### 트랙 A — 실측 차단 해소 (2026-09-10 대부분 완료 — .env 확보로 재개)
 
-A1. 🔶 WS 실측: **프로토콜 계층 완료** (LOGIN/REG 순서 100013 실측 → `KiwoomWebSocketClient` 수정: loggedIn 상태 도입, LOGIN 성공 응답 시 일괄 재구독, LOGIN 실패 시 세션 close→재연결, REG 거절 로깅 — 테스트 5건 추가). ✅ KiwoomSmokeIT 실서버 통과(토큰·잔고·일봉). **잔여(장중 09:00~15:30 KST)**: ① `python3 scripts/ws_probe.py` 재실행 → REAL 시세 FID 매핑 실측 ② 1주 주문으로 체결통보(type 00) FID 실측 ③ 주문 왕복 재검증 → RealMessageParser·OrderNoticeHandler·취소 body 반영
+A1. ✅ WS 실측: **전체 완료 (2026-09-11 장중)** — 2절 실측 기록 참조. 원래의 🔶 (LOGIN/REG 순서 100013 실측 → `KiwoomWebSocketClient` 수정: loggedIn 상태 도입, LOGIN 성공 응답 시 일괄 재구독, LOGIN 실패 시 세션 close→재연결, REG 거절 로깅 — 테스트 5건 추가). ✅ KiwoomSmokeIT 실서버 통과(토큰·잔고·일봉). **잔여(장중 09:00~15:30 KST)**: ① `python3 scripts/ws_probe.py` 재실행 → REAL 시세 FID 매핑 실측 ② 1주 주문으로 체결통보(type 00) FID 실측 ③ 주문 왕복 재검증 → RealMessageParser·OrderNoticeHandler·취소 body 반영
 A2. ⬜ FRED/ECOS 키 발급 후 응답 포맷 실측, 특일 API 서비스키 발급·활성화
 A3. ⬜ 텔레그램 봇 실행 검증 — [공식 Bot API](https://core.telegram.org/bots/api) 보안 기준: chat_id 화이트리스트(적용됨) + 킬스위치 해제(/resume) 등 위험 명령 2단계 확인 추가 + 토큰 회전 절차 문서화
 A4. ⬜ 키움 [공식 GitHub](https://github.com/Kiwoom-Securities/Kiwoom-REST-API) 대조 — 커뮤니티 래퍼 기반 구현(필드명·rate limit)을 공식 샘플과 대사
@@ -196,7 +196,7 @@ F4. ✅ **ADR-12 승인·게이트 v2 확정 (2026-09-11)** — 재판정 결과
 2. ✅ FE-6 종목 선정 이유 페이지 (커밋 037feed — SignalDecision 이벤트, signal_decisions V5, C3 09:05 판단·RiskGate 거부 사유 기록, /api/decisions, 지평 서브탭 화면. 테스트 314건 0실패, Math 클래스 무수정으로 백테스트 수치 영향 없음)
 3. **F1→F2 검증 인프라** (장 시간 무관): 부트스트랩 엔진 → SPA → 기존 10계열 병기 수치
 4. ✅ ADR-12 승인 → F4 재판정 완료 (전 계열 FAIL 유지, 게이트 v2 공식화)
-5. **장중 실측** (개장 시간): ws_probe REAL FID·체결통보 → 파서 반영 → RUNBOOK 5단계 모의 무인 운영 개시(트랙 C)
+5. ✅ 장중 실측 완료 (2026-09-11): REAL FID·체결통보 확정·파서 반영(025f677) → **다음: RUNBOOK 5단계 모의 무인 운영 개시 (호스트에서 사용자 실행)**
 6. ✅ E2 공모주 반자동 + FE-3 공모주 페이지 (커밋 91b23c0) → 다음: G1 블랙리스트 자동화 → G2·G3 (트랙 G)
 7. E4 익절/손절 paper A/B는 모의 운영 안정화 후 / 스윙(감성)은 Phase 7
 
