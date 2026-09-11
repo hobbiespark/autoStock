@@ -45,7 +45,7 @@ python scripts/ws_probe.py    # .env의 키로 토큰 발급 → WS 접속 → L
 ```powershell
 # .env 전체를 현재 창 환경변수로 로드 (키를 화면에 노출하지 않음 — Spring은 .env를 자동으로 읽지 않는다)
 Get-Content .env -Encoding UTF8 | ForEach-Object { $p = $_ -split '=',2; if ($p.Count -eq 2 -and $p[0].Trim() -and -not $p[0].Trim().StartsWith('#')) { Set-Item -Path ("Env:" + $p[0].Trim()) -Value $p[1].Trim() } }
-if ($env:KIWOOM_APP_KEY) { "키 로드 OK" } else { "로드 실패 — .env 확인" }
+if ($env:KIWOOM_MOCK_G_APP_KEY -or $env:KIWOOM_APP_KEY) { "키 로드 OK" } else { "로드 실패 — .env 확인" }
 ./gradlew test        # KiwoomSmokeIT 포함 — 토큰·잔고·일봉 실서버 검증
 ```
 

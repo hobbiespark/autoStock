@@ -39,9 +39,11 @@ infra/         docker-compose (PostgreSQL 등)
 # 1. DB
 docker compose -f infra/docker-compose.yml up -d postgres
 
-# 2. 환경변수 (커밋 금지)
-export KIWOOM_APP_KEY=...            # 키움 모의투자 앱키
-export KIWOOM_APP_SECRET=...
+# 2. 환경변수 (커밋 금지, 전체 카탈로그는 .env.example 참고)
+export KIWOOM_MOCK_G_APP_KEY=...     # 키움 모의투자(일반계좌) 앱키 — paper 프로필. 구명 KIWOOM_APP_KEY도 폴백 인식
+export KIWOOM_MOCK_G_APP_SECRET=...
+# export KIWOOM_LIVE_APP_KEY=...     # 실전 전용 (live 프로필) — 게이트 ② 통과 + 키 재발급 전 비워둘 것, 폴백 없음
+# export KIWOOM_LIVE_APP_SECRET=...
 export TELEGRAM_BOT_TOKEN=...        # (선택) 텔레그램 알림·원격 킬스위치
 export TELEGRAM_CHAT_ID=...
 export DATA_GO_KR_SERVICE_KEY=...    # (선택) 특일 API — 휴장일 DB 동기화

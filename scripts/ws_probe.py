@@ -19,9 +19,10 @@ KiwoomWebSocketClient / RealMessageParser(자바 코드)가 "문서만 보고" �
 사용법
 ------
     1) 이 저장소 루트에 .env 파일이 있어야 한다.
-         KIWOOM_APP_KEY=...
-         KIWOOM_APP_SECRET=...
-       (이미 app/src/main/resources/application.yml의 paper 프로필이 쓰는
+         KIWOOM_MOCK_G_APP_KEY=...
+         KIWOOM_MOCK_G_APP_SECRET=...
+       (구명 KIWOOM_APP_KEY/KIWOOM_APP_SECRET도 하위호환 폴백으로 인식된다.
+        이미 app/src/main/resources/application.yml의 paper 프로필이 쓰는
         모의투자 앱키와 동일한 값을 쓴다.)
     2) 표준 라이브러리 외 유일한 의존성인 websockets를 설치한다.
          pip install websockets
@@ -207,10 +208,11 @@ async def probe(token: str) -> None:
 
 def main() -> None:
     env = {**os.environ, **load_env(ENV_PATH)}
-    app_key = env.get("KIWOOM_APP_KEY", "")
-    app_secret = env.get("KIWOOM_APP_SECRET", "")
+    # KIWOOM_MOCK_G_*(신명) 우선, 없으면 구명 KIWOOM_APP_KEY/SECRET로 폴백(하위호환).
+    app_key = env.get("KIWOOM_MOCK_G_APP_KEY") or env.get("KIWOOM_APP_KEY", "")
+    app_secret = env.get("KIWOOM_MOCK_G_APP_SECRET") or env.get("KIWOOM_APP_SECRET", "")
     if not app_key or not app_secret:
-        print(f".env({ENV_PATH})에서 KIWOOM_APP_KEY/KIWOOM_APP_SECRET을 찾지 못했습니다.")
+        print(f".env({ENV_PATH})에서 KIWOOM_MOCK_G_APP_KEY/SECRET(또는 구명 KIWOOM_APP_KEY/SECRET)을 찾지 못했습니다.")
         sys.exit(1)
 
     token = issue_token(app_key, app_secret)

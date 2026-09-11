@@ -224,7 +224,8 @@ G3. **F-Score 유니버스 필터 (M2 가설)** — fnlttSinglAcntAll 분기 산
 ## 5. 보안 메모
 
 - `.env`(로컬 전용, git 제외)에 모의투자 일반 계좌 키 보관. **채팅에 노출된 키이므로 실전 전환 전 전량 재발급 필수**
-- GitHub 시크릿: `KIWOOM_MOCK_G_*`(모의 일반, CI 사용) / `KIWOOM_MOCK_P_*`(모의 선물, 예비) / `KIWOOM_APP_*`(실전, **CI 사용 금지**)
+- 앱 변수명 3단 구분 확정(2026-09-11): paper 프로필은 `KIWOOM_MOCK_G_APP_KEY/SECRET`(구명 `KIWOOM_APP_KEY/SECRET` 하위호환 폴백 허용), live 프로필은 `KIWOOM_LIVE_APP_KEY/SECRET` 전용 — **모의→실전 폴백 없음**, 미설정 시 기동 실패가 의도된 동작. 전 변수 카탈로그는 `.env.example` 참고
+- GitHub 시크릿: `KIWOOM_MOCK_G_*`(모의 일반, CI 사용 → 테스트 JVM env `KIWOOM_MOCK_G_APP_KEY/SECRET`으로 매핑) / `KIWOOM_MOCK_P_*`(모의 선물, 예비) / `KIWOOM_LIVE_*`(실전, **CI 사용 금지**)
 - 기본 프로필 `paper` 고정, `live` 프로필은 게이트 ② 통과 전 사용 금지
 - 전 로그 계층 시크릿 마스킹(Logback 컨버터) 적용, 로그 외부 공유 시에도 키 비노출. 단 마스킹은 최후 방어선 — 키를 로그 문자열에 넣지 않는 것이 원칙
 
