@@ -6,6 +6,7 @@ import type {
   IpoMetricsInput,
   IpoRecordInput,
   OrderHistoryView,
+  QuoteView,
   Side,
 } from './types';
 
@@ -81,9 +82,22 @@ async function postJson(path: string, body?: unknown): Promise<Response> {
   return res;
 }
 
+// 종목 시세(운영 1일차 ③·⑧) — 시/고/저/현재가 + 최우선 매수/매도 호가. 폼 종목 입력 시 호출.
+export async function fetchQuote(symbol: string): Promise<QuoteView> {
+  const res = await fetch(`/api/dashboard/quote/${symbol}`);
+  if (!res.ok) {
+    throw new Error(`시세 조회 실패: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
 export const startTrading = () => postJson('/api/trading/start');
 export const stopTrading = () => postJson('/api/trading/stop');
 export const setKillSwitch = (engage: boolean) =>
   postJson('/api/dashboard/killswitch', { engage });
-export const sendTestSignal = (symbol: string, side: Side, price: string) =>
-  postJson('/api/dashboard/test-signal', { symbol, side, price });
+// quantity(운영 1일차 ⑦): 빈 문자열이면 자동 사이징(매수: 예산 비율, 매도: 전량 청산).
+export const sendTestSignal = (symbol: string, side: Side, price: string, quantity: string) =>
+  postJson('/api/dashboard/test-signal', { symbol, side, price, quantity });
+// 주문 취소(운영 1일차 ⑤, kt10003 실측 확정) — 비동기 처리라 잠시 후 이력 재조회 필요.
+export const cancelOrder = (clientOrderId: string) =>
+  postJson(`/api/dashboard/orders/${clientOrderId}/cancel`);

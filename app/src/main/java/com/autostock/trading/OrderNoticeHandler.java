@@ -10,7 +10,12 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.MathContext;
+import java.math.RoundingMode;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * WS 주문체결통보(OrderNotice) → Fill 변환기.
@@ -21,52 +26,50 @@ import java.util.Optional;
  * PositionBook 등 나머지 시스템이 이해하는 공통 언어인 Fill로 바꿔 발행한다.
  * 동시에 {@link OrderEntity#applyFill(long)}로 주문 상태기계도 갱신한다.
  *
- * <p>처리 순서:
+ * <p><b>부분체결 실측 확정 (2026-09-11, 19주 매수 3회 분할 체결)</b> — FID 911은
+ * "이번에 새로 체결된 수량"이 아니라 <b>누적 체결량</b>이고, FID 910은 <b>누적
+ * 평균 체결단가</b>다(관측: 1주@259,500 → 3주@259,833 → 19주@259,974 — 평균가라
+ * 호가 단위가 아닌 값이 온다). 과거의 "통보=증분" 가정으로 각 통보를 그대로 더해
+ * 포지션이 1+3+19=23주로 이중계상되는 결함이 있었다(운영 1일차 ⑥). 이제:
  * <pre>
- *   1. 체결 수량(filledQuantity)이 0 이하이거나 상태가 체결이 아니면 무시
- *      (접수/취소 등 체결 아닌 통보는 여기서 걸러진다)
- *   2. brokerOrderId로 원 주문요청을 조회 — 인메모리(TradingService) 1차,
- *      없으면 DB(OrderRepository) 2차 폴백(재시작으로 인메모리가 유실된 경우)
- *      - 둘 다 못 찾으면 경고 로그만 남기고 무시 (수동 주문 등 이 시스템이 모르는 주문)
- *   3. 찾으면 원 주문의 clientOrderId·side를 물려받아 Fill 발행 + OrderEntity.applyFill 반영
+ *   증분 수량 delta = 통보의 누적량 − OrderEntity.filledQuantity(DB 영속 누적치)
+ *   증분 단가       = (누적량×평균가 − 직전 누적금액) / delta   ← 누적금액은 인메모리 추적
  * </pre>
+ * delta ≤ 0이면 중복/역순 통보로 보고 무시한다. 재시작으로 인메모리 누적금액이
+ * 유실되면 직전 누적금액을 "직전 누적량 × 이번 평균가"로 근사한다(오차는 평균가
+ * 변동분 × 직전 누적량에 그친다 — 추정 오염을 로그로 명시).
  *
- * <p><b>부분체결 처리:</b> 같은 주문(brokerOrderId)에 대해 통보가 여러 번 올 수
- * 있다. 각 통보는 "이번에 새로 체결된 수량"만 담고 있다고 가정한다 — 이번 실측
- * (2026-09-11)은 수량 1주 단건 체결만 확인했을 뿐 실제 부분체결 시나리오는 관측하지
- * 못해 이 가정 자체는 여전히 TODO 실측이다. 통보 하나마다 Fill을 하나씩 발행한다 —
- * 누적/중복 제거 로직은 두지 않는다. PositionBook은 Fill을 여러 번 받아도 알아서
- * 누적하도록 설계돼 있고, OrderEntity.applyFill도 누적치를 스스로 관리한다.
- *
- * <p><b>실측 확정 2026-09-11</b> — docs/measured/ws_probe_20260911_intraday.txt로
- * 913(주문상태) 필드의 실제 값이 정확히 "접수"/"체결" 두 문자열임을 확인했다.
- * "접수"는 브로커/거래소가 주문을 정식으로 받아들였다는 통보로, OrderEntity를
- * {@link OrderStatus#ACCEPTED}로 전이만 시키고 Fill은 발행하지 않는다. "체결"은
- * 기존과 같이 Fill 발행 + applyFill로 이어진다. 그 외 상태 문자열("취소"/"거부"
- * 등 — 이번 실측에서는 관측되지 않았다, TODO 실측)은 상태기계를 오염시키지
- * 않도록 로그만 남기고 무시한다(방어적 처리).
+ * <p><b>실측 확정 2026-09-11</b> — 913(주문상태)의 실제 값은 "접수"/"체결" 두 문자열.
+ * "접수"는 ACCEPTED 전이만, "체결"은 Fill 발행 + applyFill. 그 외("취소"/"거부" 등 —
+ * 미관측, TODO 실측)는 상태기계를 오염시키지 않도록 로그만 남기고 무시한다.
  */
 @Component
 public class OrderNoticeHandler {
 
     private static final Logger log = LoggerFactory.getLogger(OrderNoticeHandler.class);
 
-    /**
-     * 접수 통보 상태 문자열. 실측 확정 2026-09-11(FID 913 = "접수").
-     */
+    /** 접수 통보 상태 문자열. 실측 확정 2026-09-11(FID 913 = "접수"). */
     private static final String STATUS_ACCEPTED = "접수";
 
     /**
      * 체결을 의미하는 것으로 간주하는 상태 문자열 키워드.
-     * 실측 확정 2026-09-11: 관측된 값은 정확히 "체결"이다. "부분체결"류 접두 변형은
-     * 실측되지 않았으나(TODO 실측), 접두 변형이 오더라도 안전하게 체결로 처리되도록
-     * contains 방식은 유지한다.
+     * 실측 확정 2026-09-11: 관측된 값은 정확히 "체결"이다. 부분체결도 같은 "체결"
+     * 문자열로 온다(2026-09-11 3회 분할 체결 실측 — 별도 "부분체결" 문자열 없음).
      */
     private static final String FILLED_KEYWORD = "체결";
+
+    /** 누적금액 추적 맵 상한 — 비정상 누수 방어(일 주문 상한 30의 넉넉한 배수). */
+    private static final int MAX_TRACKED = 500;
 
     private final TradingService tradingService;
     private final OrderRepository orderRepository;
     private final ApplicationEventPublisher publisher;
+
+    /**
+     * brokerOrderId → 직전 누적 체결금액(수량×평균가). 증분 단가 역산용.
+     * 주문 종결(902 잔량 0 또는 FILLED) 시 제거. 재시작 시 유실 — 위 Javadoc의 근사로 폴백.
+     */
+    private final Map<String, BigDecimal> cumulativeNotional = new ConcurrentHashMap<>();
 
     public OrderNoticeHandler(TradingService tradingService, OrderRepository orderRepository,
                               ApplicationEventPublisher publisher) {
@@ -102,40 +105,89 @@ public class OrderNoticeHandler {
             log.warn("brokerOrderId 매핑 없는 체결통보 무시 (수동 주문 등으로 추정): {}", notice.brokerOrderId());
             return;
         }
+        if (entity.isEmpty()) {
+            // 증분 계산의 기준(영속 누적치)이 없으면 누적 통보를 안전하게 반영할 수 없다.
+            // 인메모리 원 주문만으로 진행하면 이중계상 위험이 있어 대사에 맡긴다.
+            log.warn("OrderEntity 없는 체결통보 — 이중계상 방지 위해 무시(Reconciliation이 복구): {}",
+                    notice.brokerOrderId());
+            return;
+        }
 
-        String clientOrderId = original != null ? original.idempotencyKey() : entity.get().getClientOrderId();
+        OrderEntity order = entity.get();
+        String clientOrderId = original != null ? original.idempotencyKey() : order.getClientOrderId();
         // 매수/매도 방향은 통보에 없으므로 원 주문(인메모리 우선, 없으면 DB 엔티티)에서 가져온다
-        Side side = original != null ? original.side() : entity.get().getSide();
+        Side side = original != null ? original.side() : order.getSide();
 
-        entity.ifPresent(order -> {
-            try {
-                order.applyFill(notice.filledQuantity());
-                // 실측 확정 2026-09-11(FID 902): 미체결 잔량이 0으로 내려오면 브로커 기준
-                // "완전 소진"이 확정된 것이다. 로컬 계산(applyFill)이 이미 FILLED로 판단했다면
-                // 아무 일도 하지 않고, PARTIALLY_FILLED로 남아있다면(로컬 주문수량 정보와
-                // 브로커 잔량이 어긋난 드문 경우) 902를 우선해 FILLED로 확정한다.
-                // remainingQuantity == -1은 "필드 자체가 없던 통보"(과거 픽스처 등)를 뜻하므로
-                // 건드리지 않는다.
-                if (notice.remainingQuantity() == 0 && order.getStatus() != OrderStatus.FILLED) {
-                    order.transitionTo(OrderStatus.FILLED);
-                }
-                orderRepository.save(order);
-            } catch (IllegalStateException e) {
-                // 상태기계상 이미 종결된 주문에 체결통보가 중복 도착한 경우 등 — Fill 발행 자체는
-                // 계속 진행하되(PositionBook 등은 별개로 최신 상태를 반영해야 하므로), 원인 추적을
-                // 위해 에러로 남긴다.
-                log.error("체결통보 반영 중 주문 상태 갱신 실패(Fill은 계속 발행): {}", e.getMessage());
+        // ── 누적 → 증분 변환 (운영 1일차 ⑥, 실측 확정 2026-09-11) ───────────────
+        long cumulativeQty = notice.filledQuantity();     // FID 911 = 누적 체결량(실측)
+        long previousQty = order.getFilledQuantity();
+        long delta = cumulativeQty - previousQty;
+        if (delta <= 0) {
+            log.info("누적 체결량({})이 기존 누적({}) 이하 — 중복/역순 통보로 보고 무시: {}",
+                    cumulativeQty, previousQty, notice.brokerOrderId());
+            return;
+        }
+        BigDecimal deltaPrice = resolveDeltaPrice(notice, cumulativeQty, previousQty, delta);
+
+        try {
+            order.applyFill(delta);
+            // 실측 확정 2026-09-11(FID 902): 미체결 잔량 0 = 브로커 기준 완전 소진 확정.
+            // remainingQuantity == -1은 "필드 자체가 없던 통보"(과거 픽스처 등)이므로 무시.
+            if (notice.remainingQuantity() == 0 && order.getStatus() != OrderStatus.FILLED) {
+                order.transitionTo(OrderStatus.FILLED);
             }
-        });
+            orderRepository.save(order);
+        } catch (IllegalStateException e) {
+            // 상태기계상 이미 종결된 주문에 체결통보가 중복 도착한 경우 등 — Fill 발행 자체는
+            // 계속 진행하되(PositionBook 등은 별개로 최신 상태를 반영해야 하므로), 원인 추적을
+            // 위해 에러로 남긴다.
+            log.error("체결통보 반영 중 주문 상태 갱신 실패(Fill은 계속 발행): {}", e.getMessage());
+        }
+        if (notice.remainingQuantity() == 0 || order.getStatus() == OrderStatus.FILLED) {
+            cumulativeNotional.remove(notice.brokerOrderId());
+        }
 
         publisher.publishEvent(new Fill(
                 clientOrderId,
                 notice.brokerOrderId(),
                 notice.symbol(),
                 side,
-                notice.filledQuantity(),
-                notice.fillPrice(),
+                delta,                    // 증분 수량 — PositionBook은 증분 합산 전제(이중계상 수정)
+                deltaPrice,
                 notice.timestamp()));
+    }
+
+    /**
+     * 증분 체결단가 역산 — FID 910은 누적 평균가이므로(실측), 증분 단가는
+     * (누적금액 − 직전 누적금액) / 증분 수량으로 되돌린다. 평균가가 없으면 null 그대로.
+     */
+    private BigDecimal resolveDeltaPrice(OrderNotice notice, long cumulativeQty,
+                                         long previousQty, long delta) {
+        BigDecimal avgPrice = notice.fillPrice();
+        if (avgPrice == null || avgPrice.signum() <= 0) {
+            return avgPrice;
+        }
+        if (cumulativeNotional.size() >= MAX_TRACKED) {
+            log.warn("누적금액 추적 맵 상한({}) 도달 — 비움(단가는 평균가 폴백)", MAX_TRACKED);
+            cumulativeNotional.clear();
+        }
+        BigDecimal cumNotional = avgPrice.multiply(BigDecimal.valueOf(cumulativeQty));
+        BigDecimal prevNotional = cumulativeNotional.get(notice.brokerOrderId());
+        if (prevNotional == null) {
+            if (previousQty > 0) {
+                // 재시작 등으로 직전 누적금액 유실 — 이번 평균가로 근사(오차 미미, 로그로 명시)
+                log.info("직전 누적금액 미보유 — 평균가 근사로 증분 단가 계산: {}", notice.brokerOrderId());
+            }
+            prevNotional = avgPrice.multiply(BigDecimal.valueOf(previousQty));
+        }
+        cumulativeNotional.put(notice.brokerOrderId(), cumNotional);
+        if (previousQty == 0) {
+            // 첫 체결: 누적=증분이므로 평균가가 곧 증분 단가 — 원 스케일 그대로 반환
+            return avgPrice;
+        }
+        return cumNotional.subtract(prevNotional)
+                .divide(BigDecimal.valueOf(delta), MathContext.DECIMAL64)
+                .setScale(4, RoundingMode.HALF_UP);
     }
 
     /**

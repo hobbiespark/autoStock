@@ -74,7 +74,16 @@ public class BrokerEquitySource implements EquitySource {
 
     private BigDecimal fetchFresh(Instant now) {
         try {
-            BigDecimal fresh = brokerPort.balance().totalEvaluationAmount();
+            // 실측 확정(2026-09-11): equity = 추정예탁자산(prsm_dpst_aset_amt, 예수금+평가 = 총자산).
+            // 총평가(tot_evlt_amt)는 보유 주식이 없으면 0이라 이걸 쓰면 "현금 5천만인데 equity=0 →
+            // 사이징 0주 매수 불가" 사고가 난다(2026-09-11 운영 로그로 실증). 추정예탁자산이 0으로
+            // 오는 비정상 응답에만 총평가로 방어 폴백한다.
+            BrokerBalance balance = brokerPort.balance();
+            BigDecimal fresh = balance.estimatedDepositAsset();
+            if (fresh == null || fresh.signum() <= 0) {
+                log.warn("추정예탁자산이 0/누락 — 총평가금액으로 폴백: {}", balance.totalEvaluationAmount());
+                fresh = balance.totalEvaluationAmount();
+            }
             lastValue = fresh;
             lastFetchedAt = now;
             return fresh;

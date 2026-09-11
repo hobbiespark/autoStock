@@ -37,12 +37,17 @@ public class CacheConfig {
     /** 일봉 캐시 이름 — MarketQueryService#dailyChart에서 참조. */
     public static final String DAILY_CHART_CACHE = "dailyChart";
 
+    /** 호가 캐시 이름 — MarketQueryService#orderBook에서 참조(운영 1일차 ⑧). */
+    public static final String ORDERBOOK_CACHE = "orderBook";
+
     @Bean
     public CacheManager cacheManager() {
         SimpleCacheManager manager = new SimpleCacheManager();
         manager.setCaches(List.of(
                 // 현재가: TTL 1초 — 장중 시세는 초 단위로도 바뀌므로 아주 짧게만 재사용한다.
                 buildCache(STOCK_PRICE_CACHE, 1, TimeUnit.SECONDS, 500),
+                // 호가: 현재가와 동일하게 TTL 1초 — 폼 시세 표시용(운영 1일차 ⑧).
+                buildCache(ORDERBOOK_CACHE, 1, TimeUnit.SECONDS, 500),
                 // 일봉: TTL 1시간 — 당일 봉은 장중에 계속 바뀌지만, 과거 확정봉 재조회가
                 // 대부분이라 1시간 정도는 재사용해도 무방하다.
                 buildCache(DAILY_CHART_CACHE, 1, TimeUnit.HOURS, 100)

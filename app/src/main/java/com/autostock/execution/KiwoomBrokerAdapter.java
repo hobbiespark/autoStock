@@ -31,8 +31,8 @@ import java.util.Map;
  *   응답: {"ord_no":"0121751","dmst_stex_tp":"KRX","return_code":0,"return_msg":"모의투자 매수주문완료"}
  *   trde_tp: "0" 보통(지정가, ord_uv 필수) / "3" 시장가(ord_uv 빈값)
  * </pre>
- * outstandingOrders()도 실측 완료(응답의 "oso" 키에 배열). cancelOrder()/balance()의 세부
- * 필드는 <b>TODO 실측</b> — 아래 각 메서드 Javadoc 참고.
+ * outstandingOrders()도 실측 완료(응답의 "oso" 키에 배열). cancelOrder()/balance()도
+ * 2026-09-11 실측 확정 — 남은 TODO 실측은 ka10075 응답 원소의 세부 필드뿐(toOutstandingOrder 참고).
  */
 @Service
 public class KiwoomBrokerAdapter implements BrokerPort {
@@ -58,19 +58,32 @@ public class KiwoomBrokerAdapter implements BrokerPort {
         this.client = client;
     }
 
-    /** @return 브로커 주문번호를 담은 결과 */
+    /**
+     * @return 브로커 주문번호를 담은 결과
+     * @throws BrokerRejectedException 브로커가 명시 거부 응답을 준 경우(RC4027·800033 등 실측) —
+     *         호출자(TradingService)가 UNKNOWN이 아닌 REJECTED로 분류할 수 있다(운영 1일차 ②)
+     */
     @Override
     public BrokerOrderResult placeOrder(OrderRequest request) {
         TrId trId = request.side() == Side.BUY ? TrId.ORDER_BUY : TrId.ORDER_SELL;
-        Map<String, Object> response = client.call(trId, ORDER_PATH, Map.of(
-                "dmst_stex_tp", "KRX",
-                "stk_cd", request.symbol(),
-                "ord_qty", String.valueOf(request.quantity()),
-                "ord_uv", request.limitPrice().toPlainString(),
-                "trde_tp", "0"          // 보통(지정가) — 문서 실측 후 확정
-        ));
+        Map<String, Object> response;
+        try {
+            response = client.call(trId, ORDER_PATH, Map.of(
+                    "dmst_stex_tp", "KRX",
+                    "stk_cd", request.symbol(),
+                    "ord_qty", String.valueOf(request.quantity()),
+                    "ord_uv", request.limitPrice().toPlainString(),
+                    "trde_tp", "0"          // 보통(지정가) — 문서 실측 후 확정
+            ));
+        } catch (KiwoomApiException e) {
+            // KiwoomApiException = API 계층 오류 응답을 "수신"한 경우 — 결과 불명이 아니라
+            // 명시 거부다. 타임아웃/네트워크 예외(WebClient 계열)는 그대로 위로 던져져
+            // TradingService에서 UNKNOWN 처리된다.
+            throw new BrokerRejectedException(e.getMessage(), e);
+        }
         Object orderNo = response.get("ord_no");
         if (orderNo == null) {
+            // 정상 코드인데 주문번호가 없는 기형 응답 — 접수 여부를 단정할 수 없어 불명으로 남긴다
             throw new KiwoomApiException("주문 응답에 주문번호 없음: " + response);
         }
         return new BrokerOrderResult(orderNo.toString());
@@ -79,19 +92,26 @@ public class KiwoomBrokerAdapter implements BrokerPort {
     /**
      * 미체결 주문을 취소 요청한다(kt10003, 주식 취소주문).
      *
-     * <p><b>TODO 실측</b>: 요청 바디는 실제 mockapi 호출로 검증되지 않았다. 이미 실측된
-     * kt10000/kt10001(신규 주문)이 {@code stk_cd}/{@code ord_qty} 파라미터 패턴을 쓰는 것과
-     * 키움 문서상 정정/취소 TR이 "원주문번호"를 별도 파라미터로 받는 일반적인 관례를 참고해
-     * 아래와 같이 추정했다. {@code cncl_qty}를 "0"으로 보내면 잔량 전부 취소라는 것도 추정이다.
+     * <p><b>실측 확정 (2026-09-11, mockapi — 미체결 0186358 실취소)</b>: 요청 바디
+     * {@code {dmst_stex_tp, orig_ord_no, stk_cd, cncl_qty}}가 그대로 유효하며,
+     * {@code cncl_qty:"0"} = 잔량 전량 취소로 동작함을 확인(응답 cncl_qty에 실제 취소 수량
+     * 000000000019가 옴). 응답: {@code {ord_no(취소주문 자체의 새 주문번호),
+     * base_orig_ord_no(원주문번호), cncl_qty, return_code:0, return_msg:"모의투자 취소주문완료"}}.
      */
     @Override
     public void cancelOrder(String brokerOrderId, String symbol, long quantity) {
-        Map<String, Object> response = client.call(TrId.ORDER_CANCEL, ORDER_PATH, Map.of(
-                "dmst_stex_tp", "KRX",
-                "orig_ord_no", brokerOrderId,              // TODO 실측: 원주문번호 파라미터명 추정
-                "stk_cd", symbol,
-                "cncl_qty", String.valueOf(quantity)        // TODO 실측: 취소수량 파라미터명 추정
-        ));
+        Map<String, Object> response;
+        try {
+            response = client.call(TrId.ORDER_CANCEL, ORDER_PATH, Map.of(
+                    "dmst_stex_tp", "KRX",
+                    "orig_ord_no", brokerOrderId,              // 실측 확정: 원주문번호
+                    "stk_cd", symbol,
+                    "cncl_qty", String.valueOf(quantity)        // 실측 확정: "0"이면 잔량 전량 취소
+            ));
+        } catch (KiwoomApiException e) {
+            // 명시 거부(예: 이미 전량 체결됨) — placeOrder와 같은 번역 규칙(운영 1일차 ②)
+            throw new BrokerRejectedException(e.getMessage(), e);
+        }
         log.info("[LIVE] 취소 요청: brokerOrderId={} symbol={} qty={} → {}",
                 brokerOrderId, symbol, quantity, response.get("return_msg"));
     }
@@ -154,9 +174,10 @@ public class KiwoomBrokerAdapter implements BrokerPort {
     /**
      * 계좌 잔고를 조회한다(kt00018).
      *
-     * <p><b>TODO 실측</b>: 총평가금액/총매입금액/총평가손익금액에 해당하는 응답 최상위
-     * 필드명은 아직 검증되지 않았다. 아래 키는 키움 REST 잔고류 TR에서 흔히 쓰이는
-     * 명명 관례("tot_evlt_amt" 계열)를 근거로 추정했다 — 실제 응답으로 확정 전까지는
+     * <p><b>실측 확정 (2026-09-11, mockapi)</b>: 최상위 필드 tot_pur_amt / tot_evlt_amt /
+     * tot_evlt_pl(← 기존 추정 tot_evlt_pl_amt는 오답이었음) / prsm_dpst_aset_amt(추정예탁자산
+     * = 계좌 총자산 — equity 산정 기준) / acnt_evlt_remn_indv_tot(보유 배열). 보유가 없으면
+     * tot_evlt_amt=0이고 현금은 prsm_dpst_aset_amt에만 있다 — equity=0 매수 불가 사고의 원인.
      * 값이 없으면 0으로 안전 처리된다({@link KiwoomNumbers#toBigDecimal(Object)}).
      */
     @Override
@@ -167,7 +188,8 @@ public class KiwoomBrokerAdapter implements BrokerPort {
 
         BigDecimal totalEvaluation = KiwoomNumbers.toBigDecimal(response.get("tot_evlt_amt"));
         BigDecimal totalPurchase = KiwoomNumbers.toBigDecimal(response.get("tot_pur_amt"));
-        BigDecimal totalProfitLoss = KiwoomNumbers.toBigDecimal(response.get("tot_evlt_pl_amt"));
+        BigDecimal totalProfitLoss = KiwoomNumbers.toBigDecimal(response.get("tot_evlt_pl"));
+        BigDecimal estimatedDepositAsset = KiwoomNumbers.toBigDecimal(response.get("prsm_dpst_aset_amt"));
 
         List<Map<String, Object>> holdings = new ArrayList<>();
         Object rawHoldings = response.get(BALANCE_HOLDINGS_KEY);
@@ -178,7 +200,8 @@ public class KiwoomBrokerAdapter implements BrokerPort {
                 }
             }
         }
-        return new BrokerBalance(totalEvaluation, totalPurchase, totalProfitLoss, List.copyOf(holdings));
+        return new BrokerBalance(totalEvaluation, totalPurchase, totalProfitLoss,
+                estimatedDepositAsset, List.copyOf(holdings));
     }
 
     /**

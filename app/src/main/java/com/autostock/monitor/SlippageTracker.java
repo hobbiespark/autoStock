@@ -95,7 +95,10 @@ public class SlippageTracker {
 
     @EventListener
     public void onFill(Fill fill) {
-        PendingOrder origin = pending.remove(fill.orderIdempotencyKey());
+        // remove가 아니라 get — 부분체결 실측(2026-09-11: 19주가 3회 분할 체결) 이후 Fill이
+        // 같은 주문에 여러 번 오므로, 결정가를 소진하지 않고 매 증분 체결마다 가중 집계한다.
+        // 캐시 정리는 자정 롤오버·MAX_PENDING 가드가 맡는다.
+        PendingOrder origin = pending.get(fill.orderIdempotencyKey());
         if (origin == null) {
             log.debug("슬리피지 계측 제외 — 결정가 미보유 체결(재시작/Reconciliation 복구 추정): {}",
                     fill.orderIdempotencyKey());

@@ -15,6 +15,7 @@ public enum TrId {
     DAILY_CHART("ka10081", "일봉차트"),
     MINUTE_CHART("ka10080", "분봉차트"),
     OUTSTANDING_ORDERS("ka10075", "미체결"),
+    STOCK_ORDERBOOK("ka10004", "주식호가"),
 
     // ===== 주문 =====
     ORDER_BUY("kt10000", "주식 매수주문"),

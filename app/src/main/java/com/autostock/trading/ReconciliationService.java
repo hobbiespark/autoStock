@@ -44,27 +44,58 @@ public class ReconciliationService {
         this.properties = properties;
     }
 
-    /** 앱 기동 직후 1회 전체 대사 — 재시작 전 인메모리 상태가 유실된 주문을 회복한다. */
+    /**
+     * 직전 전체 대사 시각 — 짧은 간격 중복 실행 가드.
+     * 실측(2026-09-11 운영 로그): 기동 시 onStartup(ApplicationReady)과 auto-start 경로의
+     * start()가 거의 동시에 reconcile()을 불러 ka10075가 1초에 2회 나갔고, 키움 TR 제한
+     * (return_code 5, "허용된 요청 개수 초과 1700, 잔량=1")에 걸렸다.
+     */
+    private volatile long lastFullReconcileMs = 0L;
+    private static final long MIN_INTERVAL_MS = 10_000L;
+
+    /**
+     * 앱 기동 직후 1회 전체 대사 — 재시작 전 인메모리 상태가 유실된 주문을 회복한다.
+     *
+     * <p><b>실패해도 앱은 죽지 않는다 (실측 2026-09-11)</b>: 이 리스너에서 예외가 새어나가면
+     * SpringApplication.run까지 전파되어 "Application run failed"로 앱 전체가 종료된다 —
+     * 무인 운영에서 브로커 일시 오류(429 등) = 앱 사망이 되므로 여기서 반드시 삼킨다.
+     * 대사는 5분 주기 스케줄이 다음 회차에 다시 시도한다.
+     */
     @EventListener(ApplicationReadyEvent.class)
     public void onStartup() {
         if (properties.mode() == TradingProperties.Mode.LIVE) {
-            reconcile();
+            reconcileSafely("기동 시");
         }
     }
 
-    /** 주기적 전체 대사(5분). */
+    /** 주기적 전체 대사(5분). 실패는 경고 후 다음 회차 재시도 — 스케줄러를 죽이지 않는다. */
     @Scheduled(fixedRate = 5 * 60 * 1000)
     public void scheduledReconcile() {
         if (properties.mode() == TradingProperties.Mode.LIVE) {
+            reconcileSafely("주기");
+        }
+    }
+
+    private void reconcileSafely(String trigger) {
+        try {
             reconcile();
+        } catch (Exception e) {
+            log.warn("{} 대사 실패 — 다음 주기(5분)에 재시도. 브로커 일시 오류로 앱을 죽이지 않는다", trigger, e);
         }
     }
 
     /**
      * DB의 UNKNOWN·SUBMITTED 주문 전체를 브로커 미체결 목록과 대사한다.
      * 대상이 없으면 브로커 호출 자체를 생략한다(불필요한 API 호출 방지).
+     * 직전 실행 후 10초 이내 재호출은 스킵한다(기동 시 이중 호출 가드 — 필드 Javadoc 참고).
      */
     public void reconcile() {
+        long now = System.currentTimeMillis();
+        if (now - lastFullReconcileMs < MIN_INTERVAL_MS) {
+            log.debug("직전 대사 후 {}ms — 중복 실행 스킵", now - lastFullReconcileMs);
+            return;
+        }
+        lastFullReconcileMs = now;
         List<OrderEntity> pending = orderRepository.findByStatusIn(
                 List.of(OrderStatus.UNKNOWN, OrderStatus.SUBMITTED));
         if (pending.isEmpty()) {
