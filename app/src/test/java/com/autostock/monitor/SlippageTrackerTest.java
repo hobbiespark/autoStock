@@ -121,15 +121,16 @@ class SlippageTrackerTest {
     }
 
     @Test
-    void 부분체결_두_번은_각각_계측되고_두_번째는_제외된다() {
-        // 현행 구현은 첫 Fill에서 결정가를 소진한다(remove) — 부분체결 2건 중
-        // 두 번째는 제외됨을 명시한다. WS 실측 후 부분체결 빈도가 유의미하면
-        // 잔여 수량 추적으로 확장한다 (TODO 실측).
+    void 부분체결_두_번은_각각_수량_가중으로_계측된다() {
+        // 부분체결 실측 확정(2026-09-11: 19주가 3회 분할 체결) 반영 — 결정가를 첫 Fill에서
+        // 소진(remove)하지 않고 유지(get)해, 증분 체결마다 각각 계측하고 수량 가중 평균한다.
         tracker.onOrderRequest(order("O1", Side.BUY, "70000"));
-        tracker.onFill(fill("O1", Side.BUY, 5, "70070"));
-        tracker.onFill(fill("O1", Side.BUY, 5, "70140"));
+        tracker.onFill(fill("O1", Side.BUY, 5, "70070"));   // +10bps
+        tracker.onFill(fill("O1", Side.BUY, 5, "70140"));   // +20bps
 
-        assertEquals(1, tracker.todaySummary().fills());
+        var s = tracker.todaySummary();
+        assertEquals(2, s.fills());
+        assertEquals(15.0, s.avgBps(), 1e-6); // (10×5 + 20×5) / 10
     }
 
     @Test

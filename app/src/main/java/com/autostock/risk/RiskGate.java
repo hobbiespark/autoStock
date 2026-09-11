@@ -139,10 +139,14 @@ public class RiskGate {
         // 매수: 계좌의 일정 비율만 투입 / 매도: 보유 수량 전량 청산.
         // switch 식(expression)을 쓰면 Side에 새 값이 추가될 때 컴파일러가
         // 처리 누락을 잡아준다.
-        long quantity = switch (signal.side()) {
-            case BUY -> sizeBuy(signal);
-            case SELL -> sizeSell(signal);
-        };
+        // 수동 지정 수량(Signal.fixedQuantity, 운영 1일차 ⑦ — 대시보드 폼)이 있으면
+        // 자동 사이징 대신 쓰되, 리스크 상한(매수 예산 캡·매도 보유량 캡)은 그대로 적용한다.
+        long quantity = signal.fixedQuantity() != null
+                ? sizeManual(signal)
+                : switch (signal.side()) {
+                    case BUY -> sizeBuy(signal);
+                    case SELL -> sizeSell(signal);
+                };
         if (quantity <= 0) {
             return; // 거부 사유는 sizeBuy/sizeSell 안에서 이미 로그로 남겼다
         }
@@ -251,6 +255,60 @@ public class RiskGate {
             return 1.0;
         }
         return confidence;
+    }
+
+    /**
+     * 수동 지정 수량 검증 (운영 1일차 ⑦ — 대시보드 수동 시그널 전용).
+     *
+     * <p>수동 지정은 "자동 산정치 이하로 줄이는" 용도다 — 리스크 한도 우회 수단이 아니다:
+     * <ul>
+     *   <li>매수: 보수 모드·공시 블랙리스트는 그대로 거부. 물타기 금지·동시 보유 한도는
+     *       수동 지정에 한해 적용하지 않는다(운영자가 의도한 개입 — 테스트/수동 정리 용도).
+     *       상한은 자동 사이징과 같은 예산 캡(equity×비중×confidence)이다.</li>
+     *   <li>매도: 보유 수량 캡 — 초과 지정 시 보유량으로 줄인다(2026-09-11 실측: 이중계상된
+     *       로컬 23주로 매도 시 브로커 800033 "매도가능수량 부족" 거부 — 이 캡이 1차 방어).</li>
+     * </ul>
+     */
+    private long sizeManual(Signal signal) {
+        long requested = signal.fixedQuantity();
+        if (requested <= 0) {
+            publishRejected(signal, "수동 지정 수량이 0 이하 — 거부", Map.of());
+            return 0;
+        }
+        if (signal.side() == Side.SELL) {
+            PositionBook.Position position = positionBook.get(signal.symbol());
+            if (position == null) {
+                log.info("미보유 종목 수동 매도 무시: {}", signal.symbol());
+                publishRejected(signal, "미보유 종목 매도 시그널 무시", Map.of());
+                return 0;
+            }
+            long qty = Math.min(requested, position.quantity());
+            if (qty < requested) {
+                log.info("수동 매도 수량 {} → 보유량 {}로 캡: {}", requested, qty, signal.symbol());
+            }
+            return qty;
+        }
+        // BUY
+        if (macroGuard.isConservativeMode()) {
+            log.info("보수 모드 — 수동 매수도 거부: {}", signal.symbol());
+            publishRejected(signal, "보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부", Map.of());
+            return 0;
+        }
+        if (disclosureBlacklist.isBlacklisted(signal.symbol())) {
+            log.info("공시 블랙리스트 종목 — 수동 매수도 거부: {}", signal.symbol());
+            publishRejected(signal, "공시 블랙리스트 종목 — 매수 거부", Map.of());
+            return 0;
+        }
+        long cap = sizer.sizeBuy(equitySource.equity(), signal.refPrice(), clampConfidence(signal));
+        if (cap <= 0) {
+            publishRejected(signal, "예산 캡 0주 — 수동 매수 불가", Map.of());
+            return 0;
+        }
+        long qty = Math.min(requested, cap);
+        if (qty < requested) {
+            log.info("수동 매수 수량 {} → 예산 캡 {}로 축소: {}", requested, qty, signal.symbol());
+        }
+        return qty;
     }
 
     /**

@@ -69,9 +69,23 @@ class OrderNoticeHandlerTest {
                 remainingQuantity, "00", Instant.now());
     }
 
+    /** 표준 SUBMITTED 엔티티를 만들어 DB 폴백(findByBrokerOrderId)에 스텁한다. */
+    private OrderEntity stubEntity(String clientOrderId, Side side, long quantity) {
+        OrderEntity entity = new OrderEntity(clientOrderId, "005930", side,
+                quantity, new BigDecimal("70000"), "test-strategy");
+        entity.transitionTo(OrderStatus.VALIDATED);
+        entity.transitionTo(OrderStatus.SUBMITTING);
+        entity.markSubmitted(BROKER_ORDER_ID);
+        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+        return entity;
+    }
+
     @Test
     void 체결_통보_수신시_Fill_발행() {
         tradingService.onOrderRequest(order("key-1")); // brokerOrderId 매핑 생성(인메모리)
+        // 누적→증분 변환(운영 1일차 ⑥) 이후 증분 계산 기준인 OrderEntity가 필수다 —
+        // 엔티티 없는 체결통보는 이중계상 방지를 위해 무시된다(별도 테스트).
+        stubEntity("key-1", Side.BUY, 10);
 
         handler.onOrderNotice(notice("체결", 10, new BigDecimal("70100")));
 
@@ -105,19 +119,37 @@ class OrderNoticeHandlerTest {
 
     @Test
     void 부분체결_2회_수신시_Fill_2회_발행() {
+        // 실측 확정 2026-09-11: FID 911은 누적 체결량, 910은 누적 평균단가다(19주가
+        // 1→3→19 누적으로 왔던 실측). 통보는 누적으로 오고 Fill은 증분으로 발행돼야 한다.
         tradingService.onOrderRequest(order("key-2"));
+        stubEntity("key-2", Side.BUY, 10);
 
-        handler.onOrderNotice(notice("부분체결", 4, new BigDecimal("70000")));
-        handler.onOrderNotice(notice("체결", 6, new BigDecimal("70050")));
+        handler.onOrderNotice(notice("체결", 4, new BigDecimal("70000")));          // 누적 4
+        handler.onOrderNotice(notice("체결", 10, new BigDecimal("70030")));         // 누적 10 (평균가)
 
         assertEquals(2, published.size());
         Fill first = (Fill) published.get(0);
         Fill second = (Fill) published.get(1);
-        assertEquals(4, first.filledQuantity());
-        assertEquals(6, second.filledQuantity());
+        assertEquals(4, first.filledQuantity());                                    // 증분 4
+        assertEquals(6, second.filledQuantity());                                   // 증분 10-4=6
+        assertEquals(new BigDecimal("70000"), first.fillPrice());                   // 첫 체결 = 평균가 그대로
+        // 증분 단가 역산: (10×70030 − 4×70000) / 6 = 70050
+        assertEquals(0, new BigDecimal("70050").compareTo(second.fillPrice()));
         // 두 통보 모두 같은 원 주문(key-2)에 연결돼야 한다
         assertEquals("key-2", first.orderIdempotencyKey());
         assertEquals("key-2", second.orderIdempotencyKey());
+    }
+
+    @Test
+    void 누적_체결량이_기존_이하인_중복_통보는_무시() {
+        // 이중계상 결함(운영 1일차 ⑥)의 회귀 방지: 같은 누적치가 다시 오면 delta=0 → 무시.
+        tradingService.onOrderRequest(order("key-dup"));
+        stubEntity("key-dup", Side.BUY, 10);
+
+        handler.onOrderNotice(notice("체결", 4, new BigDecimal("70000")));
+        handler.onOrderNotice(notice("체결", 4, new BigDecimal("70000")));          // 중복
+
+        assertEquals(1, published.size());
     }
 
     @Test

@@ -55,6 +55,19 @@ export interface DashboardView {
 
 export type Side = 'BUY' | 'SELL';
 
+// 종목 시세(운영 1일차 ⑧) — GET /api/dashboard/quote/{symbol}. TR 필드 실측 전에는
+// 일부(특히 호가)가 null일 수 있다 — 화면은 "-"로 표시한다.
+export interface QuoteView {
+  symbol: string;
+  name: string | null; // 종목명 (ka10001 stk_nm)
+  currentPrice: string | number | null;
+  openPrice: string | number | null;
+  highPrice: string | number | null;
+  lowPrice: string | number | null;
+  bestAsk: string | number | null; // 매도 최우선 호가
+  bestBid: string | number | null; // 매수 최우선 호가
+}
+
 // 주문 상태 11종 (OrderStatus, 백엔드 trading/OrderStatus.java와 1:1 대응).
 export type OrderStatus =
   | 'CREATED'

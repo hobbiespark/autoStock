@@ -1,7 +1,10 @@
 package com.autostock.portfolio;
 
 import com.autostock.common.event.Fill;
+import com.autostock.common.event.PositionRestored;
 import com.autostock.common.event.Side;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -24,11 +27,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>스레드 안전성: WS 수신 스레드와 스케줄러 스레드가 동시에 접근할 수 있으므로
  * {@link ConcurrentHashMap#compute}로 심볼 단위 원자적 갱신을 보장한다.
  *
- * <p>한계(의도된 것): 인메모리라 재시작하면 사라진다.
- * 재시작 복원은 Phase 2 후반에 "브로커 잔고 REST 재조회 + 이벤트 스토어 대사"로 해결한다. (PLAN 9절)
+ * <p>재시작 복원(운영 1일차 ⑨, 2026-09-11): 인메모리라 재시작하면 사라지는 한계를
+ * {@link PositionRestored} 수신으로 보완한다 — LIVE 모드 기동 시 execution.PositionRestorer가
+ * 브로커 잔고(kt00018)의 보유 배열을 읽어 발행한다. 이미 체결로 만들어진 포지션이 있으면
+ * 덮어쓰지 않는다(브로커 스냅샷은 기동 직후에만 신뢰).
  */
 @Component
 public class PositionBook {
+
+    private static final Logger log = LoggerFactory.getLogger(PositionBook.class);
 
     /**
      * 한 종목의 보유 상태.
@@ -72,6 +79,23 @@ public class PositionBook {
             // 부분 매도 → 수량만 줄고 평단은 그대로 (실현손익 계산은 별도 모듈 책임)
             return new Position(newQty, current.avgPrice());
         });
+    }
+
+    /**
+     * 브로커 잔고 기반 포지션 시드(운영 1일차 ⑨). putIfAbsent — 이 JVM에서 이미 체결로
+     * 만들어진 포지션이 있으면 그것이 더 최신이므로 덮어쓰지 않는다.
+     */
+    @EventListener
+    public void onPositionRestored(PositionRestored restored) {
+        if (restored.quantity() <= 0) {
+            return;
+        }
+        Position previous = positions.putIfAbsent(restored.symbol(),
+                new Position(restored.quantity(), restored.avgPrice()));
+        if (previous == null) {
+            log.info("포지션 복원(브로커 잔고): {} {}주 @ {}", restored.symbol(),
+                    restored.quantity(), restored.avgPrice());
+        }
     }
 
     /** @return 보유 상태, 미보유면 null */

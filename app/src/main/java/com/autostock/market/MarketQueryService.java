@@ -32,6 +32,17 @@ public class MarketQueryService {
         return client.call(TrId.STOCK_PRICE, "/api/dostk/stkinfo", Map.of("stk_cd", symbol));
     }
 
+    /**
+     * 호가 조회(ka10004) — 최우선 매수/매도 호가 표시용(운영 1일차 ⑧, 대시보드 폼).
+     * TTL 1초 캐시(현재가와 동일 정책). <b>TODO 실측</b>: 응답 필드명은 문서 기반 추정 —
+     * 소비자(monitor.DashboardController)가 후보 키를 방어적으로 탐색하고, 첫 호출 시
+     * 응답 키 목록을 로그로 남겨 실측을 확정한다.
+     */
+    @Cacheable(cacheNames = CacheConfig.ORDERBOOK_CACHE, key = "#symbol")
+    public Map<String, Object> orderBook(String symbol) {
+        return client.call(TrId.STOCK_ORDERBOOK, "/api/dostk/mrkcond", Map.of("stk_cd", symbol));
+    }
+
     /** 일봉 조회. TTL 1시간 캐시 — 과거 확정봉 재조회가 대부분이라 오래 재사용해도 무방하다. */
     @Cacheable(cacheNames = CacheConfig.DAILY_CHART_CACHE, key = "#symbol + '-' + #baseDate")
     public Map<String, Object> dailyChart(String symbol, String baseDate) {

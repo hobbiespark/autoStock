@@ -35,7 +35,9 @@ class BrokerEquitySourceTest {
     }
 
     private BrokerBalance balanceOf(String amount) {
-        return new BrokerBalance(new BigDecimal(amount), BigDecimal.ZERO, BigDecimal.ZERO, List.of());
+        // 실측 확정(2026-09-11): equity는 추정예탁자산(prsm_dpst_aset_amt) 기준 — 4번째 인자.
+        return new BrokerBalance(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
+                new BigDecimal(amount), List.of());
     }
 
     @Test

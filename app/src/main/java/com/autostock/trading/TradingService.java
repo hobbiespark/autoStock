@@ -1,9 +1,11 @@
 package com.autostock.trading;
 
+import com.autostock.common.event.CancelRequest;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.execution.BrokerOrderResult;
 import com.autostock.execution.BrokerPort;
+import com.autostock.execution.BrokerRejectedException;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
 import org.slf4j.Logger;
@@ -182,6 +184,13 @@ public class TradingService {
             orderRepository.save(entity);
             brokerOrderIdToRequest.put(result.brokerOrderId(), request);
             log.info("[LIVE] 주문 접수: {} → 주문번호 {}", request.symbol(), result.brokerOrderId());
+        } catch (BrokerRejectedException e) {
+            // 운영 1일차 ② (2026-09-11 실측: RC4027·800033): 브로커가 응답을 주고 거부한
+            // 경우는 결과가 "불명"이 아니라 "거부 확정"이다 — REJECTED(종결)로 분류하고
+            // Reconciliation을 걸지 않는다(브로커에 존재하지 않는 주문이므로 대사 불필요).
+            log.warn("[LIVE] 브로커 명시 거부 → REJECTED: {} ({})", request.idempotencyKey(), e.getMessage());
+            entity.transitionTo(OrderStatus.REJECTED);
+            orderRepository.save(entity);
         } catch (Exception e) {
             // 주문 API에는 무조건적 자동 Retry를 적용하지 않는다(ARCHITECTURE.md 6절) —
             // 결과를 모르는 채로 재시도하면 중복 주문 위험이 있다. UNKNOWN으로 남기고
@@ -191,6 +200,51 @@ public class TradingService {
             entity.transitionTo(OrderStatus.UNKNOWN);
             orderRepository.save(entity);
             reconciliationService.requestReconcile(request.idempotencyKey());
+        }
+    }
+
+    /**
+     * 주문 취소 요청 처리 (운영 1일차 ⑤ — kt10003 실측 확정 2026-09-11 근거).
+     *
+     * <p>취소 가능 조건: brokerOrderId가 있고(브로커에 실재), 상태가 SUBMITTED/ACCEPTED/
+     * PARTIALLY_FILLED. 흐름: CANCEL_REQUESTED 전이·저장 → BrokerPort.cancelOrder
+     * (cncl_qty=0 → 잔량 전량 취소, 실측 확정) → 성공 시 CANCELLED.
+     *
+     * <p>성공 시 CANCELLED로 바로 확정하는 이유: 모의서버는 취소를 동기 완료로 응답하고
+     * ("모의투자 취소주문완료" 실측), WS 취소 통보의 913 문자열은 아직 미실측이라
+     * OrderNoticeHandler가 반영하지 못한다. 브로커가 거부하면(이미 체결 등) UNKNOWN으로
+     * 남기고 Reconciliation에 해소를 맡긴다 — 임의로 FILLED로 단정하지 않는다.
+     */
+    @EventListener
+    public void onCancelRequest(CancelRequest request) {
+        var entityOpt = orderRepository.findByClientOrderId(request.clientOrderId());
+        if (entityOpt.isEmpty()) {
+            log.warn("취소 요청 대상 주문 없음: {}", request.clientOrderId());
+            return;
+        }
+        OrderEntity entity = entityOpt.get();
+        boolean cancellable = entity.getBrokerOrderId() != null
+                && (entity.getStatus() == OrderStatus.SUBMITTED
+                    || entity.getStatus() == OrderStatus.ACCEPTED
+                    || entity.getStatus() == OrderStatus.PARTIALLY_FILLED);
+        if (!cancellable) {
+            log.warn("취소 불가 상태({}, brokerOrderId={}) — 무시: {}",
+                    entity.getStatus(), entity.getBrokerOrderId(), request.clientOrderId());
+            return;
+        }
+        entity.transitionTo(OrderStatus.CANCEL_REQUESTED);
+        orderRepository.save(entity);
+        try {
+            brokerPort.cancelOrder(entity.getBrokerOrderId(), entity.getSymbol(), 0L); // 0 = 잔량 전량
+            entity.transitionTo(OrderStatus.CANCELLED);
+            orderRepository.save(entity);
+            log.info("[LIVE] 취소 완료({}): {}", request.requestedBy(), request.clientOrderId());
+        } catch (Exception e) {
+            log.error("[LIVE] 취소 실패 — UNKNOWN 처리 후 대사 요청: {} ({})",
+                    request.clientOrderId(), e.getMessage());
+            entity.transitionTo(OrderStatus.UNKNOWN);
+            orderRepository.save(entity);
+            reconciliationService.requestReconcile(request.clientOrderId());
         }
     }
 

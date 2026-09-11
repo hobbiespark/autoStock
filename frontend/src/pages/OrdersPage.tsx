@@ -1,9 +1,18 @@
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { fetchOrders } from '../api';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { cancelOrder, fetchOrders } from '../api';
 import OrderStatusBadge from '../components/OrderStatusBadge';
+import type { OrderStatus } from '../types';
 
 const DAY_OPTIONS = [7, 30, 90] as const;
+
+// 취소 버튼을 보여줄 상태(운영 1일차 ⑤) — 백엔드 TradingService.onCancelRequest의
+// 취소 가능 조건(brokerOrderId 보유 + 아래 상태)과 1:1 대응.
+const CANCELLABLE: ReadonlySet<OrderStatus> = new Set<OrderStatus>([
+  'SUBMITTED',
+  'ACCEPTED',
+  'PARTIALLY_FILLED',
+]);
 
 /**
  * 주문 이력 화면(FE-1, PLAN.md ADR-10 확장표).
@@ -13,11 +22,20 @@ const DAY_OPTIONS = [7, 30, 90] as const;
  */
 export default function OrdersPage() {
   const [days, setDays] = useState<number>(7);
+  const queryClient = useQueryClient();
 
   const query = useQuery({
     queryKey: ['orders', days],
     queryFn: () => fetchOrders(days),
     refetchOnWindowFocus: false,
+  });
+
+  const cancelMutation = useMutation({
+    mutationFn: (clientOrderId: string) => cancelOrder(clientOrderId),
+    onSettled: () => {
+      // 취소는 비동기(이벤트 → TradingService → kt10003) — 반영 시간을 준 뒤 재조회.
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ['orders'] }), 700);
+    },
   });
 
   const orders = query.data?.orders ?? [];
@@ -45,6 +63,14 @@ export default function OrdersPage() {
           주문 이력 조회 실패 — {query.error instanceof Error ? query.error.message : String(query.error)}
         </div>
       )}
+      {cancelMutation.isError && (
+        <div className="error-banner">
+          취소 요청 실패 —{' '}
+          {cancelMutation.error instanceof Error
+            ? cancelMutation.error.message
+            : String(cancelMutation.error)}
+        </div>
+      )}
 
       <div style={{ overflowX: 'auto' }}>
         <table>
@@ -58,16 +84,17 @@ export default function OrdersPage() {
               <th>상태</th>
               <th>전략</th>
               <th>ClientOrderId</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
             {query.isLoading ? (
               <tr>
-                <td colSpan={8}>조회 중...</td>
+                <td colSpan={9}>조회 중...</td>
               </tr>
             ) : orders.length === 0 ? (
               <tr>
-                <td colSpan={8} className="muted">
+                <td colSpan={9} className="muted">
                   선택한 기간 동안 주문 없음
                 </td>
               </tr>
@@ -86,6 +113,21 @@ export default function OrdersPage() {
                   </td>
                   <td>{o.strategyId}</td>
                   <td className="mono">{o.clientOrderId}</td>
+                  <td>
+                    {CANCELLABLE.has(o.status) && (
+                      <button
+                        className="secondary"
+                        disabled={cancelMutation.isPending}
+                        onClick={() => {
+                          if (window.confirm(`미체결 주문을 취소할까요?\n${o.clientOrderId}`)) {
+                            cancelMutation.mutate(o.clientOrderId);
+                          }
+                        }}
+                      >
+                        취소
+                      </button>
+                    )}
+                  </td>
                 </tr>
               ))
             )}
