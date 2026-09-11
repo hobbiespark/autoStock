@@ -59,7 +59,7 @@ Ok "접속 확인 완료"
 
 Write-Host ""
 Write-Host "다음 단계 (RUNBOOK 2·4단계):"
-Write-Host "  1) 전체 테스트:   .\gradlew.bat test        (KIWOOM_APP_KEY/SECRET 환경변수 주입 시 스모크 포함)"
+Write-Host "  1) 전체 테스트:   .\gradlew.bat test        (KIWOOM_MOCK_G_APP_KEY/SECRET 환경변수 주입 시 스모크 포함, 구명 KIWOOM_APP_KEY/SECRET도 폴백 인식)"
 Write-Host "  2) SIM 루프:      .\gradlew.bat :app:bootRun   ->  http://localhost:8080"
 Write-Host "  중지:             docker compose -f infra\docker-compose.yml stop postgres"
 Write-Host "  데이터 초기화:    docker compose -f infra\docker-compose.yml down -v   (모의 데이터 소실 무방)"

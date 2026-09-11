@@ -101,26 +101,29 @@ monitor:
     bot-token: ${TELEGRAM_BOT_TOKEN:}       # BotFather 발급 토큰 — 커밋 금지, 환경변수로만 주입
     chat-id: ${TELEGRAM_CHAT_ID:}           # 알림 수신 + 원격 명령 허용 chat_id (타인 명령 차단의 기준값)
 
-kiwoom:
-  app-key: ${KIWOOM_APP_KEY:}
-  app-secret: ${KIWOOM_APP_SECRET:}
-
 ---
-# 모의투자
+# 모의투자(paper, 기본 프로필) — KIWOOM_MOCK_G_*(모의 일반계좌) 사용.
+# 구명(KIWOOM_APP_KEY/SECRET) 폴백 허용 — 기존 .env/CI 시크릿과의 하위호환용(PROGRESS 5절).
 spring:
   config:
     activate:
       on-profile: paper
 kiwoom:
+  app-key: ${KIWOOM_MOCK_G_APP_KEY:${KIWOOM_APP_KEY:}}
+  app-secret: ${KIWOOM_MOCK_G_APP_SECRET:${KIWOOM_APP_SECRET:}}
   rest-base-url: https://mockapi.kiwoom.com
   ws-url: wss://mockapi.kiwoom.com:10000/api/dostk/websocket
 
 ---
-# 실전 — 게이트 ② 통과 전 사용 금지 (PLAN 1절)
+# 실전(live) — 게이트 ② 통과 + 키 재발급 전 사용 금지 (PLAN 1절)
+# KIWOOM_LIVE_APP_KEY/SECRET 전용 — 모의 키(KIWOOM_MOCK_G_*/구명 KIWOOM_APP_*)로의 폴백 절대 금지.
+# 미설정 시 빈 문자열이 주입되어 키움 인증이 즉시 실패한다 — 이것이 의도된 안전장치다.
 spring:
   config:
     activate:
       on-profile: live
 kiwoom:
+  app-key: ${KIWOOM_LIVE_APP_KEY:}
+  app-secret: ${KIWOOM_LIVE_APP_SECRET:}
   rest-base-url: https://api.kiwoom.com
   ws-url: wss://api.kiwoom.com:10000/api/dostk/websocket
