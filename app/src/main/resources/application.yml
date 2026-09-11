@@ -33,7 +33,12 @@ management:
     web:
       exposure:
         # caches: Caffeine 히트율 등 캐시 통계를 Micrometer 경유로 노출 (PLAN ADR-5, 목표 히트율 >90%)
-        include: health,info,metrics,caches
+        include: health,info,metrics,caches,shutdown
+  # shutdown: stop_autostock.bat의 graceful 종료 경로(POST /actuator/shutdown).
+  # 개인 PC 로컬 운영 전제 — 외부망 노출 시 이 엔드포인트부터 닫을 것.
+  endpoint:
+    shutdown:
+      access: unrestricted
 
 risk:
   max-position-pct-per-symbol: 0.10
