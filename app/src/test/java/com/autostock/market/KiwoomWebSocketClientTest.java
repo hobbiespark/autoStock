@@ -186,6 +186,44 @@ class KiwoomWebSocketClientTest {
         assertEquals("{\"trnm\":\"PING\"}", sent.get(0));
     }
 
+    // ── 중복 connect() 가드 (실측 2026-09-11: start()와 watchdog 첫 틱이 거의 동시에 실행되어
+    //    토큰이 중복 발급(429)됐다) ──────────────────────────────────────────────
+
+    private boolean connectingFlag() throws Exception {
+        var field = KiwoomWebSocketClient.class.getDeclaredField("connecting");
+        field.setAccessible(true);
+        return ((java.util.concurrent.atomic.AtomicBoolean) field.get(client)).get();
+    }
+
+    private void setConnectingFlag(boolean value) throws Exception {
+        var field = KiwoomWebSocketClient.class.getDeclaredField("connecting");
+        field.setAccessible(true);
+        ((java.util.concurrent.atomic.AtomicBoolean) field.get(client)).set(value);
+    }
+
+    @Test
+    void connect_진행중이면_watchdog은_재연결을_시도하지_않는다() throws Exception {
+        // connecting=true로 미리 세팅 — 이미 진행 중인 connect() 시도가 있는 상태를 흉내낸다.
+        // wsUrl()이 mock 기본값(null)이라 실제 connect()가 실행되면 URI.create(null)에서
+        // NPE가 나고 catch 블록이 connecting을 false로 되돌린다 — 그러므로 watchdog 호출 후에도
+        // connecting이 계속 true라면 connect()가 아예 호출되지 않았다는 뜻이다.
+        setConnectingFlag(true);
+
+        client.watchdog(); // session이 없으므로 "단절"로 판단되는 상태
+
+        assertTrue(connectingFlag(), "connect() 진행 중일 때는 watchdog이 재연결을 건너뛰어야 한다");
+    }
+
+    @Test
+    void connect_진행중이_아니면_watchdog이_재연결을_시도한다() throws Exception {
+        // connecting=false(기본값) — watchdog이 connect()를 호출해야 한다. wsUrl()이 null이라
+        // 실제 연결은 NPE로 즉시 실패하지만, connect()의 finally 경로(catch 블록)에서
+        // connecting을 다시 false로 되돌리는 것으로 "connect()가 실제로 시도됐다"를 검증한다.
+        client.watchdog();
+
+        assertEquals(false, connectingFlag(), "connect() 시도/완료 후에는 connecting이 false로 돌아와야 한다");
+    }
+
     /** 테스트 전용 가변 Clock — 단절 경과시간을 결정론적으로 진행시킨다. */
     private static final class MutableClock extends Clock {
         private Instant instant;
