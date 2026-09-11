@@ -43,7 +43,8 @@ python scripts/ws_probe.py    # .env의 키로 토큰 발급 → WS 접속 → L
 ## 2. 스모크 + 전체 테스트 (키 주입 실행)
 
 ```powershell
-$env:KIWOOM_APP_KEY="..."; $env:KIWOOM_APP_SECRET="..."
+# .env 전체를 현재 창 환경변수로 로드 (키를 화면에 노출하지 않음 — Spring은 .env를 자동으로 읽지 않는다)
+Get-Content .env | ForEach-Object { if ($_ -match '^\s*([^#][^=]*)=(.*)$') { [Environment]::SetEnvironmentVariable($matches[1].Trim(), $matches[2].Trim(), 'Process') } }
 ./gradlew test        # KiwoomSmokeIT 포함 — 토큰·잔고·일봉 실서버 검증
 ```
 
@@ -83,7 +84,9 @@ strategy.c3.enabled: true
 autostock.ws.enabled: true
 ```
 
+- 사전: 새 창이면 위 2절의 .env 로더를 먼저 실행(미로드 시 KiwoomProperties 바인딩 실패로 기동 불가)
 - [ ] 앱 시작 → Reconciliation 로그(잔고 대사) 정상 → RUNNING
+- [ ] **WS 로그인 성공(sor_yn=Y) — 재구독 N종목** 로그 확인 (LOGIN→REG 순서 실전 검증 포인트)
 - [ ] 09:05 C3 판단 로그 확인 (거래일·국면·모멘텀 판단 근거 출력)
 - [ ] 첫 주문 발생 시: ClientOrderId 포맷, orders 상태 전이(SUBMITTING→SUBMITTED→FILLED), WS 체결통보→Fill→포지션 일치
 - [ ] 15:50 일일 리포트 수신
