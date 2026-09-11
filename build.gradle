@@ -24,5 +24,6 @@ subprojects {
 
     tasks.withType(Test).configureEach {
         useJUnitPlatform()
+        maxHeapSize = '2g'
     }
 }
