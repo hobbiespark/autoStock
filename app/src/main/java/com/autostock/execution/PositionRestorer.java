@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -41,6 +42,10 @@ public class PositionRestorer {
     private final ApplicationEventPublisher publisher;
     private final boolean liveMode;
 
+    /** 복원 완료 여부 — 성공(잔고 조회 성공) 시 재시도를 멈춘다. */
+    private final java.util.concurrent.atomic.AtomicBoolean restored =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
     public PositionRestorer(BrokerPort brokerPort,
                             ApplicationEventPublisher publisher,
                             @Value("${execution.mode:SIM}") String executionMode) {
@@ -51,18 +56,40 @@ public class PositionRestorer {
 
     @EventListener(ApplicationReadyEvent.class)
     public void restore() {
-        if (!liveMode) {
+        tryRestore("기동");
+    }
+
+    /**
+     * 복원 재시도 (운영 2일차 결함, 2026-09-12 실측).
+     *
+     * <p>배경: 토요일 기동 시 키움 모의 서버가 주말 점검으로 닫혀 잔고 조회가 실패했고,
+     * 기존 구현은 기동 1회만 시도했으므로 <b>포지션이 영구히 미복원</b>으로 남았다. 이 상태로
+     * 월요일 장을 맞으면 실보유 19주가 "미보유"로 취급돼 매도 시그널이 전부 거부된다
+     * (RiskGate.sizeSell) — 앱을 수동 재기동해야만 풀리는 함정. 복원에 성공할 때까지
+     * 5분마다 재시도해 서버가 열리는 즉시 스스로 회복하게 한다.
+     */
+    @Scheduled(fixedDelay = 300_000, initialDelay = 300_000)
+    public void retryUntilRestored() {
+        if (restored.get()) {
+            return;
+        }
+        tryRestore("재시도");
+    }
+
+    private void tryRestore(String trigger) {
+        if (!liveMode || restored.get()) {
             return;
         }
         BrokerBalance balance;
         try {
             balance = brokerPort.balance();
         } catch (Exception e) {
-            // 기동 복원은 best-effort — 실패해도 앱은 계속 뜬다(기동 대사 안전화와 동일 원칙).
-            // 이 경우 보유 종목 매도는 체결로 포지션이 재생성되기 전까지 거부될 수 있다.
-            log.warn("포지션 복원용 잔고 조회 실패 — 복원 생략: {}", e.getMessage());
+            // best-effort — 실패해도 앱은 계속 뜬다(기동 대사 안전화와 동일 원칙).
+            // 실패는 종결이 아니다: retryUntilRestored가 5분마다 다시 시도한다.
+            log.warn("포지션 복원용 잔고 조회 실패({}) — 5분 후 재시도: {}", trigger, e.getMessage());
             return;
         }
+        restored.set(true); // 잔고 조회 성공 = 복원 완료(보유 0건이어도 성공이다)
         boolean keysLogged = false;
         for (Map<String, Object> holding : balance.holdings()) {
             if (!keysLogged) {
