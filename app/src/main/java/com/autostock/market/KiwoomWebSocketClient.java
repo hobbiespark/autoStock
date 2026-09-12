@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -115,6 +116,25 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
      */
     private final AtomicBoolean connecting = new AtomicBoolean(false);
 
+    /**
+     * 연속 연결 실패 횟수 — 지수 백오프와 로그 억제에 쓴다 (운영 2일차 결함, 2026-09-12 실측).
+     *
+     * <p>배경: 토요일 기동 시 키움 모의 서버가 주말 점검으로 닫혀(토큰 엔드포인트가 JSON 대신
+     * {@code text/html} 점검 페이지, WS 업그레이드 502) watchdog이 10초마다 재연결을 시도하며
+     * 전체 스택트레이스를 ERROR로 찍었다 — 주말 이틀이면 로그 수만 줄. 서버가 닫힌 동안의
+     * 재시도는 아무것도 복구하지 못하므로, 실패가 쌓일수록 간격을 늘리고(10초→최대 5분)
+     * 스택트레이스는 처음 몇 번만 남긴다.
+     */
+    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
+
+    /** 이 시각 전에는 재연결을 시도하지 않는다(지수 백오프). null이면 즉시 시도 가능. */
+    private final AtomicReference<Instant> nextAttemptAt = new AtomicReference<>();
+
+    /** 백오프 상한 — 서버 점검처럼 장시간 닫힌 경우에도 5분마다는 확인한다. */
+    private static final long MAX_BACKOFF_SECONDS = 300;
+    /** 전체 스택트레이스를 남기는 최대 연속 실패 횟수 — 이후에는 한 줄 요약만. */
+    private static final int STACKTRACE_UNTIL = 3;
+
     public KiwoomWebSocketClient(KiwoomProperties kiwoomProperties,
                                  TokenManager tokenManager,
                                  ApplicationEventPublisher publisher,
@@ -172,6 +192,12 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                 log.debug("WS 연결 시도 진행 중 — watchdog 재연결 스킵");
                 return;
             }
+            Instant notBefore = nextAttemptAt.get();
+            if (notBefore != null && Instant.now(clock).isBefore(notBefore)) {
+                // 지수 백오프 대기 중 — 서버가 닫힌 구간(주말 점검 등)에서 10초마다 두드리지 않는다.
+                log.debug("WS 재연결 백오프 대기 중 (다음 시도 {})", notBefore);
+                return;
+            }
             log.warn("WS 단절 감지 — 재연결 시도");
             connect();
         }
@@ -215,18 +241,40 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                     .whenComplete((s, ex) -> {
                         connecting.set(false);
                         if (ex != null) {
-                            log.error("WS 연결 실패", ex);
+                            onConnectFailed(ex);
                         }
                     });
         } catch (Exception e) {
             connecting.set(false);
-            log.error("WS 연결 예외", e);
+            onConnectFailed(e);
+        }
+    }
+
+    /**
+     * 연결 실패 처리 — 백오프 연장 + 로그 억제(운영 2일차 결함).
+     *
+     * <p>첫 {@link #STACKTRACE_UNTIL}회까지는 스택트레이스를 남겨 원인 분석이 가능하게 하고,
+     * 그 이후로는 한 줄 요약만 남긴다(같은 예외가 반복되는 상황에서 스택은 정보가 아니라 소음이다).
+     * 백오프는 10초에서 시작해 2배씩 늘리며 {@link #MAX_BACKOFF_SECONDS}에서 멈춘다.
+     */
+    private void onConnectFailed(Throwable ex) {
+        int failures = consecutiveFailures.incrementAndGet();
+        long backoff = Math.min(MAX_BACKOFF_SECONDS, 10L * (1L << Math.min(failures - 1, 5)));
+        nextAttemptAt.set(Instant.now(clock).plusSeconds(backoff));
+        String cause = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+        if (failures <= STACKTRACE_UNTIL) {
+            log.error("WS 연결 실패({}회 연속) — {}초 후 재시도", failures, backoff, ex);
+        } else {
+            log.warn("WS 연결 실패({}회 연속) — {}초 후 재시도: {}", failures, backoff, cause);
         }
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession newSession) throws Exception {
         session.set(newSession);
+        // 연결 성공 — 백오프/실패 카운터 초기화(다음 단절은 다시 10초부터 시작).
+        consecutiveFailures.set(0);
+        nextAttemptAt.set(null);
         // 재연결 성공 — 단절 구간 종료. watchdog의 다음 틱을 기다리지 않고 즉시 리셋한다
         // ("재연결 성공 시 리셋" 스펙 — watchdog에서도 connected=true면 리셋하므로 이중 방어).
         disconnectedSince.set(null);
