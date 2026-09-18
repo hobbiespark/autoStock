@@ -1,4 +1,6 @@
 @echo off
+chcp 65001 >nul
+REM console to UTF-8 (pairs with bootRun -Dstdout.encoding=UTF-8 in app/build.gradle)
 REM autoStock start - paper profile, LIVE(mock) mode + C3 + WS + auto-start (RUNBOOK 5)
 REM No goto/labels in this file (line-ending safe). Env load + docker wait are delegated to PowerShell.
 cd /d D:\myApp\autoStock
@@ -29,6 +31,10 @@ echo [O] .env loaded
 
 set "JAVA_HOME=D:\jdks\jdk-21.0.12.101-hotspot"
 set "PATH=%JAVA_HOME%\bin;%PATH%"
+
+REM ---- log file: fixed under the project (was %TEMP%\autostock.log before 2026-09-18) ----
+set "LOG_FILE=D:\myApp\autoStock\app\logs\autostock.log"
+if not exist "D:\myApp\autoStock\app\logs" mkdir "D:\myApp\autoStock\app\logs"
 
 REM ---- wait for Docker engine (max 300s; after login Docker Desktop can take 30-60s+) ----
 echo [.] waiting for Docker engine (max 300s)...
