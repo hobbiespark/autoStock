@@ -1,0 +1,139 @@
+spring:
+  application:
+    name: autostock
+  profiles:
+    default: paper          # 기본은 반드시 모의 (실전 오적용 방지, PLAN 3절)
+  threads:
+    virtual:
+      # JDK21 가상 스레드 — 키움 REST 호출(.block())처럼 블로킹 I/O가 중심인 워크로드에 적합
+      # (PLAN ADR-5). 운영에서 이상 징후가 보이면 바로 false로 되돌릴 수 있는 플래그로 유지한다.
+      # 단, synchronized 블록 안에서 블로킹하면 가상 스레드가 캐리어에 "고정(pinning)"되는
+      # JDK21의 알려진 이슈가 있어, 핫패스의 synchronized는 ReentrantLock으로 교체했다
+      # (monitor/EventFeed 참고).
+      enabled: true
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:autostock}
+    username: ${DB_USER:autostock}
+    password: ${DB_PASSWORD:autostock}
+  jpa:
+    hibernate:
+      ddl-auto: validate    # 스키마는 Flyway로만 관리
+    open-in-view: false
+    properties:
+      hibernate:
+        # 이벤트 스토어 append가 다건일 때 INSERT를 모아 보내 왕복을 줄인다 (PLAN ADR-5).
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+  flyway:
+    enabled: true
+
+management:
+  endpoints:
+    web:
+      exposure:
+        # caches: Caffeine 히트율 등 캐시 통계를 Micrometer 경유로 노출 (PLAN ADR-5, 목표 히트율 >90%)
+        include: health,info,metrics,caches,shutdown
+  # shutdown: stop_autostock.bat의 graceful 종료 경로(POST /actuator/shutdown).
+  # 개인 PC 로컬 운영 전제 — 외부망 노출 시 이 엔드포인트부터 닫을 것.
+  endpoint:
+    shutdown:
+      access: unrestricted
+
+risk:
+  max-position-pct-per-symbol: 0.10
+  max-concurrent-positions: 5
+  stop-loss-pct: -0.03
+  take-profit-pct: 0.05
+  daily-max-loss-pct: -0.02     # 일 최대 손실 -2% — 도달 시 DailyPnlTracker가 킬스위치 작동
+  daily-max-orders: 30
+  paper-equity: 10000000        # 시뮬레이션 계좌 1천만원 — LIVE는 BrokerEquitySource(잔고 연동)로 대체
+  fee-rate: 0.00015             # 매수/매도 수수료율 — 실현손익 추정용(backtest.CostModel과 동일값)
+  sell-tax-rate: 0.0020         # 매도 증권거래세율(2026-01-01 시행: 코스피 0.05%+농특세 0.15%, 코스닥 0.20%) — CostModel과 동일값
+  enforce-market-hours: true    # 장 시간(09:00~15:30 KST) 외 Signal 거부 — SIM 테스트에서만 개별적으로 false
+
+execution:
+  mode: SIM                     # SIM: 즉시 체결 시뮬레이션 / LIVE: 키움 주문 API
+  stale-order-timeout: 5m        # SUBMITTED로 이 시간 이상 머문 주문을 StaleOrderCanceller가 자동 취소 요청
+
+strategy:
+  c3:
+    enabled: false                                   # 자택망 검증 전까지 비활성 — 켜기 전 반드시 확인
+    symbols: 005930,000660,035420,035720,069500       # 삼성전자, SK하이닉스, NAVER, 카카오, KODEX200
+    lookback-n: 120                                    # TODO: 분기별 walk-forward 재선정 절차 필요(수동)
+    decision-interval-days: 21
+    target-vol-annual: 0.20
+    regime-index-symbol: 069500                        # KODEX200 — 국면 필터 기준 지수
+    regime-sma-days: 200
+
+market:
+  holiday-api:
+    enabled: false                                # 공공데이터포털 서비스키 발급 후 활성화(응답 포맷 실측 전까지 비활성 유지)
+    service-key: ${DATA_GO_KR_SERVICE_KEY:}       # 공공데이터포털 발급 서비스키 — 커밋 금지, 환경변수로만 주입
+    base-url: https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService
+
+macrointel:
+  enabled: false                        # FRED/ECOS 키 발급 후 응답 포맷 실측 전까지 비활성 유지(PLAN 5절 1단계)
+  fred-api-key: ${FRED_API_KEY:}        # FRED 발급 키 — 커밋 금지, 환경변수로만 주입
+  ecos-api-key: ${ECOS_API_KEY:}        # ECOS 발급 키 — 커밋 금지, 환경변수로만 주입
+  vix-caution-threshold: 25.0           # VIX 이 값 이상이면 보수 모드(신규 매수 금지, 청산은 허용)
+  vix-severe-threshold: 35.0            # VIX 이 값 이상이면 킬스위치 작동(전면 정지)
+  usd-krw-caution-threshold: 1450.0     # 원/달러 환율 이 값 이상이면 보수 모드
+  blacklist:
+    enabled: false                        # DART_API_KEY 발급 후 활성화(ADR-14 트랙 G1, 이 리포는 실측 완료)
+    dart-api-key: ${DART_API_KEY:}        # OpenDART 발급 키(ipo.dart.api-key와 같은 키 재사용) — 커밋 금지
+    lookback-days: 7                      # list.json(주요사항보고서) "최근 N일" 조회 창
+    retention-days: 180                   # 공시일로부터 블랙리스트 등록 기간(ADR-14 근거 — 6~24개월 하한)
+
+dart:
+  enabled: false                        # DART_API_KEY 발급 후 활성화(이 리포는 실측 완료 — docs/measured/dart_estkRs_20260911.json). 배포 환경마다 키 보유 여부가 달라 기본값은 false 유지
+  api-key: ${DART_API_KEY:}             # OpenDART 발급 키 — 커밋 금지, 환경변수로만 주입
+  lookback-days: 14                     # list.json 조회 시 "최근 N일" 창(ADR-9 배치 사양)
+
+ipo:
+  filter:
+    min-institutional-competition-rate: 500    # 기관경쟁률 500:1 이상(ADR-9 ②)
+    min-lockup-commit-rate: 0.20                # 의무보유확약비율 20% 이상
+
+autostock:
+  minute-archive:
+    enabled: false              # 분봉 일일 적재(평일 15:45 KST, ka10080 1페이지→data/minutes/*.csv append).
+                                # ka10080은 최근 1년 롤링만 제공(실측 2026-09-11)이라 다년 분봉은 자체 축적이 유일 경로
+    symbols: 005930,000660,035420,035720,069500
+    dir: ../data/minutes
+  ws:
+    enabled: false              # 앱키 발급 후 true
+    stale-after: 180             # 연속 단절이 이 초를 넘으면 MarketDataStale 발행 → risk가 킬스위치 작동(PLAN 3절)
+
+monitor:
+  telegram:
+    enabled: false                          # 자택망 검증 전 비활성 — Bot API 실측(sendMessage/getUpdates 응답 포맷) 전까지 켜지 말 것
+    bot-token: ${TELEGRAM_BOT_TOKEN:}       # BotFather 발급 토큰 — 커밋 금지, 환경변수로만 주입
+    chat-id: ${TELEGRAM_CHAT_ID:}           # 알림 수신 + 원격 명령 허용 chat_id (타인 명령 차단의 기준값)
+
+---
+# 모의투자(paper, 기본 프로필) — KIWOOM_MOCK_G_*(모의 일반계좌) 사용.
+# 구명(KIWOOM_APP_KEY/SECRET) 폴백 허용 — 기존 .env/CI 시크릿과의 하위호환용(PROGRESS 5절).
+spring:
+  config:
+    activate:
+      on-profile: paper
+kiwoom:
+  app-key: ${KIWOOM_MOCK_G_APP_KEY:${KIWOOM_APP_KEY:}}
+  app-secret: ${KIWOOM_MOCK_G_APP_SECRET:${KIWOOM_APP_SECRET:}}
+  rest-base-url: https://mockapi.kiwoom.com
+  ws-url: wss://mockapi.kiwoom.com:10000/api/dostk/websocket
+
+---
+# 실전(live) — 게이트 ② 통과 + 키 재발급 전 사용 금지 (PLAN 1절)
+# KIWOOM_LIVE_APP_KEY/SECRET 전용 — 모의 키(KIWOOM_MOCK_G_*/구명 KIWOOM_APP_*)로의 폴백 절대 금지.
+# 미설정 시 빈 문자열이 주입되어 키움 인증이 즉시 실패한다 — 이것이 의도된 안전장치다.
+spring:
+  config:
+    activate:
+      on-profile: live
+kiwoom:
+  app-key: ${KIWOOM_LIVE_APP_KEY:}
+  app-secret: ${KIWOOM_LIVE_APP_SECRET:}
+  rest-base-url: https://api.kiwoom.com
+  ws-url: wss://api.kiwoom.com:10000/api/dostk/websocket

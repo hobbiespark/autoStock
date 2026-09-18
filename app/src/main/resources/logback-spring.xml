@@ -13,7 +13,10 @@
 <configuration>
     <include resource="org/springframework/boot/logging/logback/defaults.xml" />
 
-    <property name="LOG_FILE" value="${LOG_FILE:-${LOG_PATH:-${LOG_TEMP:-${java.io.tmpdir:-/tmp}}}/autostock.log}" />
+    <!-- 기본 로그 파일: 작업 디렉터리 기준 logs/autostock.log — bootRun의 작업 디렉터리가 app/ 이므로
+         D:\myApp\autoStock\app\logs\autostock.log 에 남는다(2026-09-18: %TEMP%에 쌓이던 것을 프로젝트 안으로 고정).
+         LOG_FILE 환경변수/시스템 속성으로 덮어쓸 수 있다(scripts/start_autostock.bat 참고). -->
+    <property name="LOG_FILE" value="${LOG_FILE:-logs/autostock.log}" />
 
     <conversionRule conversionWord="mask"
                      converterClass="com.autostock.config.logging.SecretMaskingConverter" />

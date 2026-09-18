@@ -22,7 +22,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 대시보드 REST API (경량 FE 백엔드, PLAN 4-1절 / ARCHITECTURE.md 10절 CQRS Lite).
@@ -45,9 +44,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class DashboardController {
 
     private static final Logger log = LoggerFactory.getLogger(DashboardController.class);
-
-    /** ka10001/ka10004 응답 키 실측 확정 전까지, 첫 응답의 키 목록을 1회 로그로 남긴다. */
-    private static final AtomicBoolean QUOTE_KEYS_LOGGED = new AtomicBoolean(false);
 
     private final DashboardFacade facade;
     private final KillSwitch killSwitch;
@@ -141,9 +137,11 @@ public class DashboardController {
      * 종목 시세 조회 (운영 1일차 ③·⑧) — 시가/고가/저가/현재가(ka10001) + 최우선
      * 매수/매도 호가(ka10004). 폼에서 종목 입력 시 표시하고, 기준가 기본값(현재가)에도 쓴다.
      *
-     * <p><b>TODO 실측</b>: 두 TR의 응답 필드명은 문서 기반 추정 — 후보 키를 순서대로
-     * 탐색하고, 못 찾으면 null(FE는 "-" 표시). 첫 호출의 응답 키 목록을 로그로 남겨
-     * 실측 확정에 쓴다(값은 로그하지 않는다 — 시세값은 민감하지 않지만 로그 소음 방지).
+     * <p><b>실측 확정 (2026-09-18, mockapi — docs/measured/tr_probe_20260918_ka10001/ka10004.json)</b>:
+     * ka10001 = stk_nm / cur_prc / open_pric / high_pric / low_pric (부호 접두 "+258500" 형식),
+     * ka10004 = sel_fpr_bid(최우선 매도호가) / buy_fpr_bid(최우선 매수호가), 잔량은 sel_fpr_req /
+     * buy_fpr_req, 2~10차는 sel_2th_pre_bid…/buy_2th_pre_bid…, 총잔량 tot_sel_req / tot_buy_req,
+     * 기준시각 bid_req_base_tm(HHmmss). 값이 비면 null(FE는 "-" 표시).
      */
     @GetMapping("/quote/{symbol}")
     public QuoteView quote(@PathVariable String symbol) {
@@ -152,23 +150,19 @@ public class DashboardController {
         try {
             book = marketQueryService.orderBook(symbol);
         } catch (Exception e) {
-            // 호가 TR 미검증 — 실패해도 기본정보만으로 응답한다(방어)
+            // 호가 TR 실패(rate limit 등)해도 기본정보만으로 응답한다(방어)
             log.warn("호가(ka10004) 조회 실패 — 기본정보만 반환: {} ({})", symbol, e.getMessage());
             book = Map.of();
         }
-        if (QUOTE_KEYS_LOGGED.compareAndSet(false, true)) {
-            log.info("[실측] ka10001 응답 키: {}", price.keySet());
-            log.info("[실측] ka10004 응답 키: {}", book.keySet());
-        }
         return new QuoteView(
                 symbol,
-                firstText(price, "stk_nm", "stock_nm", "isu_nm"),
-                firstPrice(price, "cur_prc", "stk_prpr", "prpr"),
-                firstPrice(price, "open_pric", "stk_oprc", "oprc"),
-                firstPrice(price, "high_pric", "stk_hgprc", "hgprc"),
-                firstPrice(price, "low_pric", "stk_lwprc", "lwprc"),
-                firstPrice(book, "sel_fpr_bid", "sel_1th_pre_bid", "ask_1", "sel_bid_1"),
-                firstPrice(book, "buy_fpr_bid", "buy_1th_pre_bid", "bid_1", "buy_bid_1"));
+                firstText(price, "stk_nm"),
+                firstPrice(price, "cur_prc"),
+                firstPrice(price, "open_pric"),
+                firstPrice(price, "high_pric"),
+                firstPrice(price, "low_pric"),
+                firstPrice(book, "sel_fpr_bid"),
+                firstPrice(book, "buy_fpr_bid"));
     }
 
     /**

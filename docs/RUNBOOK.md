@@ -103,7 +103,8 @@ autostock.ws.enabled: true
 
 | 증상 | 원인 후보 | 조치 |
 |---|---|---|
-| 토큰 발급 실패 return_code≠0 | 키 오타/재발급됨 | .env 재확인, 키움 앱키 상태 확인 |
+| 토큰 발급 실패 return_code≠0 (8001/8002) | 키 오타/재발급됨/`.env` 미로드 | `.env` 재확인, 키움 앱키 상태 확인. 점검: `& scripts\load_env.ps1` 후 `$b=@{grant_type="client_credentials";appkey=$env:KIWOOM_MOCK_G_APP_KEY;secretkey=$env:KIWOOM_MOCK_G_APP_SECRET}|ConvertTo-Json -Compress; Invoke-RestMethod -Method Post -Uri https://mockapi.kiwoom.com/oauth2/token -ContentType "application/json;charset=UTF-8" -Body $b | Select return_code,return_msg` — 키 길이 0이면 로더 미실행(8002), 43자인데 8001이면 키 무효→재발급 |
+| 토큰 발급 실패 "응답 없음" / UnsupportedMediaType | 주말·공휴일 모의 서버 점검(HTML 응답) | 정상 — 앱 백오프로 대기, 평일 재확인 |
 | WS 연결 후 시세 없음 | REG 미등록/재구독 누락 | ws_probe로 REG 응답 확인, KiwoomWebSocketClient 로그 |
 | 주문 UNKNOWN 발생 | 타임아웃 | 정상 설계 — Reconciliation 로그 확인, 자동 해소 안 되면 미체결 조회로 수동 확정 |
 | 킬스위치가 저절로 켜짐 | WS 180초 단절 or 일 손실 -2% or VIX≥35 | 원인 로그 확인 후 해소 → 수동 해제(`/resume` 또는 대시보드) |

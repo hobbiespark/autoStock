@@ -176,13 +176,21 @@ public class RiskGate {
                 dailyLimits.todayOrderCount()
         ).value();
 
+        // 호가단위 정규화(실측 2026-09-18: 259,250원 지정가 → RC4003 거부). 전략 계산값·수동 입력값
+        // 모두 여기서 눈금에 맞춘다 — 브로커 거부 후 재시도보다 주문 전 보정이 슬롯·대사 부담이 없다.
+        BigDecimal limitPrice = KrxTickSize.align(signal.refPrice());
+        if (limitPrice != null && signal.refPrice() != null && limitPrice.compareTo(signal.refPrice()) != 0) {
+            log.info("호가단위 보정: {} {} 기준가 {} → 지정가 {}", signal.symbol(), signal.side(),
+                    signal.refPrice().toPlainString(), limitPrice.toPlainString());
+        }
+
         publisher.publishEvent(new OrderRequest(
                 clientOrderId,
                 signal.strategyId(),
                 signal.symbol(),
                 signal.side(),
                 quantity,
-                signal.refPrice(),
+                limitPrice,
                 Instant.now()));
     }
 

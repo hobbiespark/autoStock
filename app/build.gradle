@@ -46,3 +46,9 @@ tasks.named('test') {
     // 그 경우 assumeTrue로 스스로 스킵한다(KiwoomSmokeIT와 동일 관례, ADR-9).
     environment 'DART_API_KEY', System.getenv('DART_API_KEY') ?: ''
 }
+
+tasks.named('bootRun') {
+    // Windows 콘솔 한글 깨짐 방지 — 로그는 UTF-8인데 JVM stdout 인코딩이 CP949로 잡혀 '?좏겙' 식으로 출력됨.
+    // (scripts\start_autostock.bat의 chcp 65001과 한 쌍 — 둘 다 있어야 콘솔에서 바르게 보인다)
+    jvmArgs += ['-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8']
+}
