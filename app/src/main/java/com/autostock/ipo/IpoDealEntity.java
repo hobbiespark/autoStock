@@ -153,8 +153,19 @@ public class IpoDealEntity {
 
     /** 기관경쟁률·의무보유확약비율 수동 입력(POST /api/ipo/{id}/metrics) — 자동 수집 불가 경로. */
     public void applyMetrics(BigDecimal institutionalCompetitionRate, BigDecimal lockupCommitRate) {
-        this.institutionalCompetitionRate = institutionalCompetitionRate;
-        this.lockupCommitRate = lockupCommitRate;
+        applyMetrics(institutionalCompetitionRate, lockupCommitRate, null);
+    }
+
+    /**
+     * 수동 지표 + 상장(예정)일 입력(POST /api/ipo/{id}/metrics). null 파라미터는 기존 값을 유지한다
+     * (부분 갱신 — 상장일만 넣을 때 경쟁률이 지워지지 않도록, 2026-09-23). 상장일은 DART 배치가
+     * 덮어쓰지 않는다({@link #applyOfferingDetail}는 listingDate를 건드리지 않음).
+     */
+    public void applyMetrics(BigDecimal institutionalCompetitionRate, BigDecimal lockupCommitRate,
+                             LocalDate listingDate) {
+        if (institutionalCompetitionRate != null) this.institutionalCompetitionRate = institutionalCompetitionRate;
+        if (lockupCommitRate != null) this.lockupCommitRate = lockupCommitRate;
+        if (listingDate != null) this.listingDate = listingDate;
         touch();
     }
 

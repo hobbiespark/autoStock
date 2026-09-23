@@ -59,8 +59,9 @@ public class IpoController {
     }
 
     /**
-     * 기관경쟁률·의무보유확약비율 수동 입력 — 자동 수집 불가 경로(ipo.DartClient Javadoc).
-     * 입력 즉시 필터를 재평가해 권고를 갱신한다(다음 배치까지 기다리지 않음).
+     * 기관경쟁률·의무보유확약비율·상장(예정)일 수동 입력 — 자동 수집 불가 경로(ipo.DartClient Javadoc).
+     * null 필드는 기존 값 유지(부분 갱신). 입력 즉시 필터(권고)와 상태(상장일 → LISTED)를 재평가한다
+     * (다음 배치까지 기다리지 않음).
      */
     @PostMapping("/{id}/metrics")
     public ResponseEntity<IpoDealView> metrics(@PathVariable Long id, @RequestBody IpoMetricsRequest request) {
@@ -68,8 +69,9 @@ public class IpoController {
         if (entity == null) {
             return ResponseEntity.notFound().build();
         }
-        entity.applyMetrics(request.institutionalCompetitionRate(), request.lockupCommitRate());
+        entity.applyMetrics(request.institutionalCompetitionRate(), request.lockupCommitRate(), request.listingDate());
         syncScheduler.evaluateFilter(entity);
+        syncScheduler.refreshStatus(entity);
         repository.save(entity);
         return ResponseEntity.ok(toView(entity));
     }

@@ -94,9 +94,23 @@ class IpoControllerTest {
         IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
 
-        var response = controller.metrics(1L, new IpoMetricsRequest(new BigDecimal("600"), new BigDecimal("0.30")));
+        var response = controller.metrics(1L, new IpoMetricsRequest(new BigDecimal("600"), new BigDecimal("0.30"), null));
 
         assertEquals(200, response.getStatusCode().value());
         assertEquals("RECOMMEND", response.getBody().recommendation());
+    }
+
+    @Test
+    void 상장일만_입력하면_지표는_유지되고_상장일_도래시_LISTED가_된다() {
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        entity.applyMetrics(new BigDecimal("600"), new BigDecimal("0.30"));
+        when(repository.findById(1L)).thenReturn(Optional.of(entity));
+
+        var response = controller.metrics(1L, new IpoMetricsRequest(null, null, LocalDate.of(2020, 1, 2)));
+
+        assertEquals(200, response.getStatusCode().value());
+        assertEquals(new BigDecimal("600"), response.getBody().institutionalCompetitionRate()); // 부분 갱신
+        assertEquals(LocalDate.of(2020, 1, 2), response.getBody().listingDate());
+        assertEquals("LISTED", response.getBody().status()); // 과거 상장일 → 즉시 LISTED
     }
 }
