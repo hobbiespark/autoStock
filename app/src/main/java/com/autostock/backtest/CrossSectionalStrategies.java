@@ -30,6 +30,67 @@ public final class CrossSectionalStrategies {
         return new LowVolatility(252, bottomN);
     }
 
+    /**
+     * X0 — 진단 베이스라인(trial 아님, 후보 전략이 아니라 판정 기준의 성질을 재는 자): 유니버스 전체를 동일가중
+     * 월별 리밸런싱. 선별을 전혀 하지 않으므로 "이 유니버스에서 동일가중으로 고를 수 있는 것의 평균"이다.
+     * 이것이 KODEX200(시총가중)에 지면 X1b/X2b의 FAIL은 선별 규칙이 아니라 동일가중 구조·벤치마크 정의의
+     * 문제로 확정된다(docs/research/gate1_diagnosis_20260918.md 후속, ADR-15 판단 근거).
+     * minHistoryDays는 X1과 같은 253으로 맞춰 후보 집합을 X1b와 동일하게 둔다.
+     */
+    public static CrossSectionalStrategy equalWeightAll() {
+        return new EqualWeightAll(253);
+    }
+
+    /**
+     * X0r — 무작위 N종목 동일가중(결정적 시드). "규칙 없는 선별"의 분포를 보여주는 대조군 — X1b/X2b가 이 수준과
+     * 구분되지 않으면 선별 규칙에 정보가 없다는 뜻. 형성 시점마다 후보 집합의 해시로 시드를 파생해 상태 없이
+     * 결정적으로 재현된다.
+     */
+    public static CrossSectionalStrategy randomPick(int n, long seed) {
+        return new RandomPick(253, n, seed);
+    }
+
+    record EqualWeightAll(int minHistory) implements CrossSectionalStrategy {
+
+        @Override
+        public String label() {
+            return "X0 유니버스 전체 동일가중(진단)";
+        }
+
+        @Override
+        public int minHistoryDays() {
+            return minHistory;
+        }
+
+        @Override
+        public List<String> select(Map<String, double[]> histories) {
+            List<String> all = new ArrayList<>(histories.keySet());
+            java.util.Collections.sort(all);
+            return all;
+        }
+    }
+
+    record RandomPick(int minHistory, int n, long seed) implements CrossSectionalStrategy {
+
+        @Override
+        public String label() {
+            return "X0r 무작위 " + n + "종목 동일가중(진단, seed=" + seed + ")";
+        }
+
+        @Override
+        public int minHistoryDays() {
+            return minHistory;
+        }
+
+        @Override
+        public List<String> select(Map<String, double[]> histories) {
+            List<String> all = new ArrayList<>(histories.keySet());
+            java.util.Collections.sort(all);
+            java.util.Collections.shuffle(all, new java.util.Random(seed ^ all.hashCode()));
+            return new ArrayList<>(all.subList(0, Math.min(n, all.size())));
+        }
+    }
+
     record Momentum(int lookback, int skip, int topN) implements CrossSectionalStrategy {
 
         @Override
