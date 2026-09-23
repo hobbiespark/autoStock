@@ -1,0 +1,38 @@
+﻿{
+    "response":  {
+                     "header":  {
+                                    "resultCode":  "00",
+                                    "resultMsg":  "NORMAL SERVICE."
+                                },
+                     "body":  {
+                                  "items":  {
+                                                "item":  [
+                                                             {
+                                                                 "dateKind":  "01",
+                                                                 "dateName":  "ê°ì²ì ",
+                                                                 "isHoliday":  "Y",
+                                                                 "locdate":  20261003,
+                                                                 "seq":  1
+                                                             },
+                                                             {
+                                                                 "dateKind":  "01",
+                                                                 "dateName":  "ëì²´ê³µí´ì¼(ê°ì²ì )",
+                                                                 "isHoliday":  "Y",
+                                                                 "locdate":  20261005,
+                                                                 "seq":  1
+                                                             },
+                                                             {
+                                                                 "dateKind":  "01",
+                                                                 "dateName":  "íê¸ë ",
+                                                                 "isHoliday":  "Y",
+                                                                 "locdate":  20261009,
+                                                                 "seq":  1
+                                                             }
+                                                         ]
+                                            },
+                                  "numOfRows":  50,
+                                  "pageNo":  1,
+                                  "totalCount":  3
+                              }
+                 }
+}

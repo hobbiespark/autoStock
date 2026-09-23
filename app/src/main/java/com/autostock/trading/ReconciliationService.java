@@ -68,8 +68,11 @@ public class ReconciliationService {
         }
     }
 
-    /** 주기적 전체 대사(5분). 실패는 경고 후 다음 회차 재시도 — 스케줄러를 죽이지 않는다. */
-    @Scheduled(fixedRate = 5 * 60 * 1000)
+    /**
+     * 주기적 전체 대사(5분). 실패는 경고 후 다음 회차 재시도 — 스케줄러를 죽이지 않는다.
+     * fixedDelay인 이유는 {@code StaleOrderCanceller} 참고(절전 후 밀린 회차 동시 실행 방지).
+     */
+    @Scheduled(fixedDelay = 5 * 60 * 1000)
     public void scheduledReconcile() {
         if (properties.mode() == TradingProperties.Mode.LIVE) {
             reconcileSafely("주기");

@@ -16,6 +16,8 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'    // micrometer-core 포함 — 별도 의존성 불필요
+    // Swagger UI(springdoc) — 공모주 반수동 입력(/api/ipo/{id}/record·metrics) 등 수동 호출용. http://localhost:8080/swagger-ui.html
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'
 
     // Caffeine 로컬 캐시 — 단일 JVM 모놀리스(PLAN ADR-1)라 Redis 없이 인메모리로 충분 (PLAN ADR-5)
     implementation 'org.springframework.boot:spring-boot-starter-cache'

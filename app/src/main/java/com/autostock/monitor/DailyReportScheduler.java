@@ -1,11 +1,15 @@
 package com.autostock.monitor;
 
 import com.autostock.common.util.MarketConstants;
+import com.autostock.execution.BrokerBalance;
+import com.autostock.execution.BrokerPort;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.MacroGuard;
 import com.autostock.portfolio.PositionBook;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -18,8 +22,9 @@ import java.time.LocalDate;
  * <p>포함 내용: 현재 포지션 스냅샷(PositionBook), 오늘 주문 수(DailyLimitTracker),
  * 킬스위치 상태, 오늘 실현손익(DailyPnlTracker — PLAN 8절 일 손실 한도 안전장치와 같은
  * 데이터 소스를 그대로 보여준다), 거시 국면 보수 모드 여부(MacroGuard, PLAN 5절 macro-intel).
- * 계좌 평가액(총 자산)은 TODO — 이 리포트에는 아직 붙이지 않았다(EquitySource는 risk 모듈에
- * 있지만, 이 화면에 총자산까지 표시할지는 별도 판단 필요).
+ * 계좌 평가액은 {@link BrokerPort#balance()}(kt00018)에서 직접 읽어 추정예탁자산(총자산)·
+ * 총평가·총평가손익을 붙인다(2026-09-23 — 잔고 연동은 PositionRestorer/BrokerEquitySource로 이미
+ * 되어 있었고 리포트만 옛 TODO 문자열을 찍고 있었다). 조회 실패 시 리포트 자체는 계속 보낸다.
  *
  * <p><b>일별 성과 스냅샷 저장(FE-2, PLAN.md ADR-10 확장표)</b>: 리포트 발송과 같은 스케줄
  * 실행에서 {@link DailyPerformanceRecorder}로 그날의 집계를 upsert한다 — 리포트 본문과
@@ -29,7 +34,10 @@ import java.time.LocalDate;
 @Component
 public class DailyReportScheduler {
 
+    private static final Logger log = LoggerFactory.getLogger(DailyReportScheduler.class);
+
     private final PositionBook positionBook;
+    private final BrokerPort brokerPort;
     private final DailyLimitTracker dailyLimits;
     private final KillSwitch killSwitch;
     private final DailyPnlTracker dailyPnl;
@@ -40,6 +48,7 @@ public class DailyReportScheduler {
     private final Clock clock;
 
     public DailyReportScheduler(PositionBook positionBook,
+                                BrokerPort brokerPort,
                                 DailyLimitTracker dailyLimits,
                                 KillSwitch killSwitch,
                                 DailyPnlTracker dailyPnl,
@@ -49,6 +58,7 @@ public class DailyReportScheduler {
                                 DailyPerformanceRecorder performanceRecorder,
                                 Clock clock) {
         this.positionBook = positionBook;
+        this.brokerPort = brokerPort;
         this.dailyLimits = dailyLimits;
         this.killSwitch = killSwitch;
         this.dailyPnl = dailyPnl;
@@ -98,8 +108,23 @@ public class DailyReportScheduler {
         positions.forEach((symbol, position) ->
                 sb.append("\n- ").append(symbol).append(' ')
                         .append(position.quantity()).append("주 @ ").append(position.avgPrice()));
-        // TODO Phase 2 후반: 브로커 잔고 연동 후 계좌 평가액(총 자산, 당일 손익) 추가.
-        sb.append("\n계좌 평가액: TODO(잔고 연동 후)");
+        sb.append('\n').append(balanceLine());
         return sb.toString();
+    }
+
+    private static long won(java.math.BigDecimal v) {
+        return v == null ? 0L : v.longValue();
+    }
+
+    /** kt00018 잔고 한 줄 — 실패해도 리포트는 나가야 하므로 예외는 삼키고 사유만 남긴다. */
+    private String balanceLine() {
+        try {
+            BrokerBalance b = brokerPort.balance();
+            return "계좌 평가액(추정예탁자산): %,d원 / 보유 총평가 %,d원 / 총평가손익 %,d원"
+                    .formatted(won(b.estimatedDepositAsset()), won(b.totalEvaluationAmount()), won(b.totalProfitLoss()));
+        } catch (RuntimeException e) {
+            log.warn("일일 리포트 잔고(kt00018) 조회 실패 — 평가액 생략: {}", e.getMessage());
+            return "계좌 평가액: 조회 실패(" + e.getMessage() + ")";
+        }
     }
 }

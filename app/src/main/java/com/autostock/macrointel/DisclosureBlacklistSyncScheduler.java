@@ -4,7 +4,9 @@ import com.autostock.common.event.DisclosureRisk;
 import com.autostock.common.util.MarketConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -56,6 +58,41 @@ public class DisclosureBlacklistSyncScheduler {
         syncNow();
     }
 
+    /** 마지막으로 DART 조회까지 끝낸 날(KST) — 따라잡기 판단 기준. */
+    private volatile LocalDate lastSuccessDate;
+
+    // ── 따라잡기(catch-up) — 2026-09-18 운영 교훈 ─────────────────────────────────────
+    // 배치가 cron 시각에만 돌면 (1) 낮에 재기동한 날은 그날 내내 데이터가 없고 (2) 그 시각에 API가 잠깐
+    // 실패하면 다음 날까지 복구 기회가 없다. 그래서 ① 기동 직후 1회, ② 매시 05분에 "오늘 성공 기록이
+    // 없으면" 다시 시도한다. 성공한 날은 시간별 점검이 아무 일도 하지 않으므로 외부 API 부하는 하루 1회 그대로다.
+    // 키가 비어 있으면(CI 등) 시도 자체를 건너뛴다 — 외부 호출로 테스트가 느려지거나 실패하는 일을 막는다.
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void catchUpOnStartup() {
+        catchUp("기동");
+    }
+
+    @Scheduled(cron = "0 5 * * * *", zone = "Asia/Seoul")
+    public void catchUpHourly() {
+        catchUp("시간별 점검");
+    }
+
+    void catchUp(String reason) {
+        if (!properties.enabled() || properties.dartApiKey() == null || properties.dartApiKey().isBlank()) {
+            return;
+        }
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
+        if (today.equals(lastSuccessDate)) {
+            return;
+        }
+        log.info("공시 블랙리스트 따라잡기({}) — 오늘 수집 기록 없음, 지금 수집", reason);
+        try {
+            syncNow();
+        } catch (RuntimeException e) {
+            log.error("공시 블랙리스트 따라잡기 실패 — 다음 시간별 점검에서 재시도", e);
+        }
+    }
+
     /** 수동 트리거 — {@code IpoSyncScheduler.syncNow}와 같은 이유로 public. */
     public void syncNow() {
         if (!properties.enabled()) {
@@ -67,6 +104,7 @@ public class DisclosureBlacklistSyncScheduler {
 
         List<MajorDisclosureDartClient.MajorDisclosureNotice> notices =
                 dartClient.fetchRecentIssuanceDecisions(since, today);
+        lastSuccessDate = today;
         for (MajorDisclosureDartClient.MajorDisclosureNotice notice : notices) {
             try {
                 publishIfListed(notice);

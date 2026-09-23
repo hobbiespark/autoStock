@@ -14,6 +14,10 @@
  * 이미 monitor를 참조하므로(TradingSystemManager 조회) 반대 방향 타입 의존까지 추가하면
  * 순환이 생기기 때문이다.
  *
+ * <p>execution 모듈의 {@code BrokerPort}는 {@link com.autostock.monitor.DailyReportScheduler}가
+ * 일일 리포트의 계좌 평가액(kt00018)을 읽을 때만 참조한다(2026-09-23). execution은 monitor를
+ * 참조하지 않으므로 순환은 없다.
+ *
  * <p>ipo 모듈(PLAN.md ADR-9, 트랙 E2)의 {@code IpoDealRepository}/{@code IpoSyncScheduler}도
  * trading과 같은 방식으로 직접 참조한다({@link com.autostock.monitor.IpoController} —
  * GET/POST /api/ipo). ipo는 monitor를 참조하지 않고 {@code common.event.IpoAlert} 이벤트만

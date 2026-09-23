@@ -47,8 +47,14 @@ public class EcosClient {
 
     /** 원/달러 환율(매매기준율) 통계코드. */
     public static final String STAT_CODE_USDKRW = "731Y001";
+    /** 731Y001의 항목코드 — 원/미국달러(매매기준율). 실측 2026-09-18: 항목 없이 조회하면 43개 통화 중 첫 행만 오므로 명시한다. */
+    public static final String ITEM_CODE_USDKRW = "0000001";
     /** 한국은행 기준금리 통계코드. */
     public static final String STAT_CODE_BASE_RATE = "722Y001";
+    /** 722Y001의 항목코드 — 한국은행 기준금리. 실측 2026-09-18: 항목 없이 오늘 1일만 조회하면 {@code RESULT INFO-200}(데이터 없음). */
+    public static final String ITEM_CODE_BASE_RATE = "0101000";
+    /** 조회 범위(일). 실측: 기준금리는 당일 미발표가 흔하고 환율도 휴일엔 비어 오므로 최근 N일을 받아 마지막 행을 쓴다. */
+    private static final int LOOKBACK_DAYS = 14;
 
     private final WebClient webClient;
     private final MacroIntelProperties properties;
@@ -65,7 +71,7 @@ public class EcosClient {
             Map<String, Object> response = callApi(statCode, today);
             return parse(statCode, response);
         } catch (RuntimeException e) {
-            log.error("ECOS 조회 실패(statCode={}) — TODO 실측 전 예상 구현이라 실제 원인 미확인", statCode, e);
+            log.error("ECOS 조회 실패(statCode={})", statCode, e);
             return Optional.empty();
         }
     }
@@ -76,14 +82,27 @@ public class EcosClient {
      * 이 저장소의 기존 관례).
      */
     protected Map<String, Object> callApi(String statCode, LocalDate date) {
-        String dateStr = date.format(ECOS_DATE);
+        // 실측 확정(2026-09-18, docs/measured/ext_probe_20260918_ecos_*.json):
+        //   GET /api/StatisticSearch/{key}/json/kr/1/20/{statCode}/D/{start}/{end}/{itemCode}
+        //   → {"StatisticSearch":{"list_total_count":N,"row":[{"TIME":"20260918","DATA_VALUE":"1380.3",...}]}}
+        //   데이터 없음 → {"RESULT":{"CODE":"INFO-200","MESSAGE":"해당하는 데이터가 없습니다."}}
+        String end = date.format(ECOS_DATE);
+        String start = date.minusDays(LOOKBACK_DAYS).format(ECOS_DATE);
         return webClient.get()
                 .uri(uriBuilder -> uriBuilder
-                        .path("/api/StatisticSearch/{key}/json/kr/1/1/{statCode}/D/{start}/{end}")
-                        .build(properties.ecosApiKey(), statCode, dateStr, dateStr))
+                        .path("/api/StatisticSearch/{key}/json/kr/1/20/{statCode}/D/{start}/{end}/{item}")
+                        .build(properties.ecosApiKey(), statCode, start, end, itemCodeFor(statCode)))
                 .retrieve()
                 .bodyToMono(Map.class)
-                .block(); // TODO 실측: 오늘자 미발표 시 빈 row 처리, 전일 폴백 필요 여부 결정
+                .block();
+    }
+
+    private static String itemCodeFor(String statCode) {
+        return switch (statCode) {
+            case STAT_CODE_USDKRW -> ITEM_CODE_USDKRW;
+            case STAT_CODE_BASE_RATE -> ITEM_CODE_BASE_RATE;
+            default -> throw new IllegalArgumentException("항목코드 미정의 통계코드: " + statCode);
+        };
     }
 
     @SuppressWarnings("unchecked")
@@ -94,9 +113,14 @@ public class EcosClient {
         try {
             Map<String, Object> search = (Map<String, Object>) response.get("StatisticSearch");
             if (search == null) {
-                // 오늘자 데이터가 아직 없을 때 ECOS가 StatisticSearch 자체를 빼고 응답할 수
-                // 있다(문서 기반 추정) — 정상적인 "오늘은 값 없음"으로 취급하고 조용히 스킵.
-                log.info("ECOS {} 오늘자 응답 없음(StatisticSearch 누락) — 이번 수집 스킵", statCode);
+                // 실측: 데이터가 없으면 StatisticSearch 대신 RESULT{CODE:"INFO-200"}가 온다 — 정상적인 "값 없음".
+                // 그 외 CODE(키 오류 등)는 원인 파악을 위해 warn으로 남긴다.
+                Object result = response.get("RESULT");
+                if (result instanceof Map<?, ?> r && "INFO-200".equals(String.valueOf(r.get("CODE")))) {
+                    log.info("ECOS {} 최근 {}일 데이터 없음 — 이번 수집 스킵", statCode, LOOKBACK_DAYS);
+                } else {
+                    log.warn("ECOS {} 응답에 StatisticSearch 없음: {}", statCode, response);
+                }
                 return Optional.empty();
             }
             Object rowObj = search.get("row");
@@ -105,7 +129,7 @@ public class EcosClient {
                 rows = (List<Map<String, Object>>) list;
             } else if (rowObj instanceof Map<?, ?> single) {
                 // 공공 API 계열에서 흔한 패턴 — 결과가 1건이면 배열이 아니라 단일 객체로 오는
-                // 경우가 있다(HolidaySyncService.parseItems와 같은 방어, TODO 실측 필요).
+                // 경우가 있다(HolidaySyncService.parseItems와 같은 방어 — 실측에선 항상 배열이었음).
                 rows = List.of((Map<String, Object>) single);
             } else {
                 return Optional.empty();
@@ -113,13 +137,13 @@ public class EcosClient {
             if (rows.isEmpty()) {
                 return Optional.empty();
             }
-            // 마지막 행을 최신값으로 취급한다 — 시작일=종료일=오늘로 조회하므로 보통 1건뿐이다.
+            // 마지막 행이 최신값(TIME 오름차순, 실측 확인) — 최근 14일 범위 조회이므로 여러 건이 온다.
             Map<String, Object> last = rows.get(rows.size() - 1);
             LocalDate date = LocalDate.parse(String.valueOf(last.get("TIME")), ECOS_DATE);
             BigDecimal value = new BigDecimal(String.valueOf(last.get("DATA_VALUE")));
             return Optional.of(new Observation(date, value));
         } catch (RuntimeException e) {
-            log.error("ECOS 응답 파싱 실패 — 예상 포맷과 다름(TODO 실측 필요): {}", response, e);
+            log.error("ECOS 응답 파싱 실패: {}", response, e);
             return Optional.empty();
         }
     }
