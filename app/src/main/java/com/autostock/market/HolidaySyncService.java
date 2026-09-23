@@ -3,6 +3,8 @@ package com.autostock.market;
 import com.autostock.common.util.MarketConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -113,6 +115,49 @@ public class HolidaySyncService {
      * 받아 upsert하면 이런 늦은 확정을 놓치지 않는다. 창을 30일로 좁게 잡은 이유는
      * 트래픽 절약(월 2회 호출)과 "임박한 날짜일수록 정확해야 한다"는 우선순위 때문이다.
      */
+    /** 이번 달·다음 달 창을 마지막으로 동기화 시도한 날(KST) — 공휴일이 없는 달(11월 등)에 매시 재호출하지 않기 위한 기준. */
+    private volatile LocalDate lastWindowAttemptDate;
+
+    // ── 따라잡기(catch-up) — 2026-09-18 운영 교훈 ─────────────────────────────────────
+    // 배치가 cron 시각에만 돌면 (1) 낮에 재기동한 날은 그날 내내 데이터가 없고 (2) 그 시각에 API가 잠깐
+    // 실패하면 다음 날까지 복구 기회가 없다. 그래서 ① 기동 직후 1회, ② 매시 05분에 "오늘 성공 기록이
+    // 없으면" 다시 시도한다. 성공한 날은 시간별 점검이 아무 일도 하지 않으므로 외부 API 부하는 하루 1회 그대로다.
+    // 키가 비어 있으면(CI 등) 시도 자체를 건너뛴다 — 외부 호출로 테스트가 느려지거나 실패하는 일을 막는다.
+    // 휴장일은 "오늘 성공"이 아니라 "이번 달·다음 달 창에 행이 있는가"로 판단한다 — 15일 배치를 놓친 달(2026-09 추석처럼)을
+    // 기동 즉시 메운다. 창에 행이 없는 달이 정상일 수도 있으므로 하루 1회만 시도한다.
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void catchUpOnStartup() {
+        catchUp("기동");
+    }
+
+    @Scheduled(cron = "0 5 * * * *", zone = "Asia/Seoul")
+    public void catchUpHourly() {
+        catchUp("시간별 점검");
+    }
+
+    void catchUp(String reason) {
+        if (!properties.enabled() || properties.serviceKey() == null || properties.serviceKey().isBlank()) {
+            return;
+        }
+        LocalDate today = LocalDate.now(MarketConstants.KST);
+        LocalDate from = today.withDayOfMonth(1);
+        LocalDate to = today.plusMonths(1).withDayOfMonth(1).plusMonths(1).minusDays(1);
+        if (!repository.findByHolidayDateBetween(from, to).isEmpty()) {
+            return; // 창에 데이터 있음 — 정상
+        }
+        if (today.equals(lastWindowAttemptDate)) {
+            return; // 오늘 이미 시도함(공휴일 없는 달이거나 API 장애) — 내일 다시
+        }
+        lastWindowAttemptDate = today;
+        log.info("휴장일 따라잡기({}) — {}~{} 창에 휴장일 없음, 이번 달·다음 달 재동기화", reason, from, to);
+        try {
+            resyncUpcomingWindow();
+        } catch (RuntimeException e) {
+            log.error("휴장일 따라잡기 실패 — 내일 다시 시도", e);
+        }
+    }
+
     @Scheduled(cron = "0 10 9 15 * *", zone = "Asia/Seoul")
     public void resyncUpcomingWindow() {
         LocalDate today = LocalDate.now(MarketConstants.KST);
@@ -207,24 +252,33 @@ public class HolidaySyncService {
      * {@code KiwoomDailyChartService.fetchDaily}를 오버라이드하는 것과 같은 패턴).
      */
     protected Map<String, Object> callApi(int year, int month) {
+        // 실측 확정(2026-09-18, docs/measured/ext_probe_20260918_holiday_202610_raw.json): _type=json 지원,
+        // response.body.items.item[] = {locdate:20261003(int), dateName, isHoliday:"Y", dateKind:"01", seq}.
+        // 서비스키: 공공데이터포털이 발급하는 "인코딩된 키"(%2B·%3D 포함)를 .env에 그대로 두는 것을 전제로 하며,
+        // WebClient의 queryParam 인코딩을 거치면 %가 %25로 이중 인코딩돼 403(SERVICE_KEY_IS_NOT_REGISTERED)이 난다
+        // (실측: 한 번 더 인코딩해 보내면 403). 그래서 URI 문자열을 직접 조립해 재인코딩 없이 보낸다.
+        String url = properties.baseUrl() + "/" + OPERATION
+                + "?serviceKey=" + encodedServiceKey()
+                + "&pageNo=1&numOfRows=50"
+                + "&solYear=" + year
+                + "&solMonth=" + String.format("%02d", month)
+                + "&_type=json";
         return webClient.get()
-                .uri(uriBuilder -> uriBuilder
-                        .path("/" + OPERATION)
-                        .queryParam("serviceKey", properties.serviceKey())
-                        .queryParam("pageNo", 1)
-                        .queryParam("numOfRows", 50)
-                        .queryParam("solYear", year)
-                        .queryParam("solMonth", String.format("%02d", month))
-                        .queryParam("_type", "json") // TODO 실측: 미지원이면 XML 파싱으로 전환(클래스 설명 참고)
-                        .build())
+                .uri(java.net.URI.create(url))
                 .retrieve()
                 .bodyToMono(Map.class)
                 .block();
     }
 
+    /** 키에 %가 없으면(디코딩된 키를 넣은 경우) 1회 인코딩하고, 있으면 발급 그대로의 인코딩 키로 본다. */
+    private String encodedServiceKey() {
+        String key = properties.serviceKey();
+        return key.contains("%") ? key : java.net.URLEncoder.encode(key, java.nio.charset.StandardCharsets.UTF_8);
+    }
+
     /**
      * 공공데이터포털 표준 응답 포맷({@code response.body.items.item[]})을 파싱한다.
-     * 예상과 다른 구조(TODO 실측 전이라 확정 아님)가 오면 예외를 던지지 않고 error 로그만
+     * 예상과 다른 구조가 오면(실측 2026-09-18 확정 구조 외) 예외를 던지지 않고 error 로그만
      * 남긴 뒤 빈 목록을 반환한다 — {@link #syncYear}의 부분 실패 정책과 같은 이유로,
      * 파싱 실패 하나가 이미 받은 다른 달의 성공 데이터를 지우면 안 되기 때문이다.
      */

@@ -10,6 +10,8 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import reactor.core.publisher.Mono;
+
 import java.time.Duration;
 import java.util.Map;
 
@@ -41,12 +43,25 @@ import java.util.Map;
 @Component
 public class KiwoomRestClient {
 
+    /**
+     * REST 1회 호출 상한. Reactor Netty 기본은 응답 타임아웃이 없어 PC 절전·망 단절 뒤 죽은 소켓에서
+     * {@code block()}이 무한 대기할 수 있다(2026-09-22 절전 복귀 사고의 잠재 경로). 키움 조회 TR은
+     * 보통 1초 안에 끝나므로 15초면 충분하고, 주문 TR은 이 시간 안에 응답이 없으면 어차피
+     * Reconciliation(ka10075 대사)이 결과를 확정한다 — 타임아웃은 재시도하지 않는다(주문 중복 방지).
+     */
+    static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
+
     private final WebClient webClient;
     private final TokenManager tokenManager;
     private final TrRateLimiter rateLimiter;
     private final MeterRegistry meterRegistry;
 
-    /** 429(호출 한도 초과) 전용 재시도. 다른 오류는 재시도하지 않는다 — 주문 중복 위험 때문. */
+    /**
+     * 호출 한도 초과 전용 재시도 — HTTP 429, 그리고 HTTP 200으로 오는 논리 오류 return_code 5
+     * {@code [1700:허용된 API 요청 개수를 초과하였습니다]}(실측 2026-09-23, ka10080/ka10081).
+     * 둘 다 "서버가 요청을 처리하지 않고 거절"한 경우라 재전송해도 중복 사고가 없다.
+     * 다른 오류는 재시도하지 않는다 — 주문 중복 위험 때문.
+     */
     private final Retry retry;
 
     public KiwoomRestClient(WebClient.Builder builder,
@@ -60,10 +75,11 @@ public class KiwoomRestClient {
         this.meterRegistry = meterRegistry;
         this.retry = Retry.of("kiwoom-429", RetryConfig.custom()
                 .maxAttempts(4)                          // 최초 1회 + 재시도 3회
-                .waitDuration(Duration.ofMillis(600))    // 재시도 간격
+                .waitDuration(Duration.ofMillis(1100))   // 재시도 간격 — 유량 1건/초 창을 확실히 넘긴다
                 // 429만 재시도 대상: 타임아웃·5xx를 무턱대고 재시도하면
                 // "주문이 실제로는 접수됐는데 또 보내는" 중복 사고가 날 수 있다
-                .retryOnException(e -> e instanceof WebClientResponseException.TooManyRequests)
+                .retryOnException(e -> e instanceof WebClientResponseException.TooManyRequests
+                        || isRateLimitLogicError(e))
                 .build());
     }
 
@@ -98,6 +114,9 @@ public class KiwoomRestClient {
                                         resp.bodyToMono(String.class).map(msg ->
                                                 new KiwoomApiException("키움 API 오류 [" + trId.apiId() + "] " + msg)))
                                 .bodyToMono(Map.class)
+                                .timeout(REQUEST_TIMEOUT, Mono.error(() -> new KiwoomApiException(
+                                        "키움 API 응답 없음 [" + trId.apiId() + "] " + REQUEST_TIMEOUT.toSeconds()
+                                                + "초 내 응답 없음 — 망 단절/절전 복귀 여부 확인")))
                                 .block();
                         return checkReturnCode(trId, response);
                     }).get());
@@ -107,6 +126,11 @@ public class KiwoomRestClient {
                     .tag("api_id", trId.apiId())
                     .register(meterRegistry));
         }
+    }
+
+    /** 키움이 HTTP 200으로 돌려주는 유량 초과 논리 오류(return_code 5, 메시지 [1700:...])인가. */
+    static boolean isRateLimitLogicError(Throwable e) {
+        return e instanceof KiwoomApiException && e.getMessage() != null && e.getMessage().contains("[1700");
     }
 
     /**

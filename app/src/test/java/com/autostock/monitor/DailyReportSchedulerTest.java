@@ -2,6 +2,8 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
+import com.autostock.execution.BrokerBalance;
+import com.autostock.execution.BrokerPort;
 import com.autostock.macrointel.MacroIntelProperties;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
@@ -44,6 +46,18 @@ class DailyReportSchedulerTest {
                                                             conservativeMode, killSwitchEngaged) ->
             snapshotCalls.add(new SnapshotCall(tradeDate, realizedPnl, orderCount, fillCount,
                     avgSlippageBps, maxSlippageBps, conservativeMode, killSwitchEngaged));
+    /** 잔고 가짜 — 기본은 정상 응답, 테스트에서 실패로 바꿀 수 있다. */
+    private RuntimeException balanceFailure;
+    private final BrokerPort fakeBroker = new BrokerPort() {
+        @Override public com.autostock.execution.BrokerOrderResult placeOrder(com.autostock.common.event.OrderRequest r) { throw new UnsupportedOperationException(); }
+        @Override public void cancelOrder(String id, String symbol, long qty) { throw new UnsupportedOperationException(); }
+        @Override public List<com.autostock.execution.BrokerOutstandingOrder> outstandingOrders() { return List.of(); }
+        @Override public BrokerBalance balance() {
+            if (balanceFailure != null) throw balanceFailure;
+            return new BrokerBalance(new BigDecimal("700000"), new BigDecimal("690000"),
+                    new BigDecimal("10000"), new BigDecimal("12345678"), List.of());
+        }
+    };
     private PositionBook positionBook;
     private KillSwitch killSwitch;
     private DailyLimitTracker dailyLimits;
@@ -63,7 +77,7 @@ class DailyReportSchedulerTest {
         // 보수 모드는 이 테스트의 관심사가 아니라 기본값(OFF)으로 둔다 — MacroGuardTest 참고.
         MacroGuard macroGuard = new MacroGuard(
                 new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0), killSwitch);
-        scheduler = new DailyReportScheduler(positionBook, dailyLimits, killSwitch, dailyPnl, macroGuard,
+        scheduler = new DailyReportScheduler(positionBook, fakeBroker, dailyLimits, killSwitch, dailyPnl, macroGuard,
                 new SlippageTracker(java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
                 fakeNotifier, fakeRecorder, clock);
     }
@@ -80,6 +94,20 @@ class DailyReportSchedulerTest {
         assertTrue(notice.startsWith("INFO:"));
         assertTrue(notice.contains("005930"));
         assertTrue(notice.contains("정상")); // 킬스위치 미작동 상태
+        assertTrue(notice.contains("계좌 평가액(추정예탁자산): 12,345,678원"), notice);
+        assertTrue(notice.contains("총평가손익 10,000원"), notice);
+    }
+
+    @Test
+    void 잔고_조회가_실패해도_리포트는_발송되고_실패_사유가_남는다() {
+        balanceFailure = new IllegalStateException("kt00018 timeout");
+
+        scheduler.sendDailyReport();
+
+        assertEquals(1, notices.size());
+        String notice = (String) notices.get(0);
+        assertTrue(notice.contains("계좌 평가액: 조회 실패(kt00018 timeout)"), notice);
+        assertEquals(1, snapshotCalls.size());
     }
 
     @Test

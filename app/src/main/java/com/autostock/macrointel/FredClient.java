@@ -99,13 +99,15 @@ public class FredClient {
             String dateStr = String.valueOf(first.get("date"));
             String valueStr = String.valueOf(first.get("value"));
             if ("null".equals(valueStr) || ".".equals(valueStr) || valueStr.isBlank()) {
-                // FRED 결측치 표기(문서 기반, TODO 실측) — 이번 수집은 스킵하고 다음 배치를 기다린다.
+                // FRED 결측치 표기 '.'(휴장일) — 이번 수집은 스킵하고 다음 배치를 기다린다.
+                // 실측 확정(2026-09-18, docs/measured/ext_probe_20260918_fred_*.json): observations[0] = 최신,
+                // {"date":"2026-09-16","value":"17.71"} — 응답 지연 1~3영업일(DTWEXBGS는 주간 갱신).
                 log.warn("FRED {} 최신 관측치가 결측('.') — 이번 수집 스킵", seriesId);
                 return Optional.empty();
             }
             return Optional.of(new Observation(LocalDate.parse(dateStr), new BigDecimal(valueStr)));
         } catch (RuntimeException e) {
-            log.error("FRED 응답 파싱 실패 — 예상 포맷과 다름(TODO 실측 필요): {}", response, e);
+            log.error("FRED 응답 파싱 실패: {}", response, e);
             return Optional.empty();
         }
     }

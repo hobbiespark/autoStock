@@ -3,8 +3,16 @@ package com.autostock.ipo;
 import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.client.reactive.ReactorClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import io.netty.handler.ssl.SslContextBuilder;
+import io.netty.handler.ssl.SupportedCipherSuiteFilter;
+import reactor.netty.http.client.HttpClient;
+
+import javax.net.ssl.SSLContext;
+import java.security.GeneralSecurityException;
+import java.util.Arrays;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -78,8 +86,29 @@ public class DartClient {
     private final DartProperties properties;
 
     public DartClient(WebClient.Builder webClientBuilder, DartProperties properties) {
-        this.webClient = webClientBuilder.baseUrl(BASE_URL).build();
+        this.webClient = webClientBuilder.baseUrl(BASE_URL).clientConnector(jdkCipherConnector()).build();
         this.properties = properties;
+    }
+
+    /**
+     * opendart.fss.or.kr 용 HTTP 커넥터 — 암호 스위트를 Netty 기본 목록이 아닌 <b>JDK 기본 목록</b>으로 둔다.
+     *
+     * <p>실측 2026-09-18(자택망): 이 경로의 DART 서버는 TLS 1.3을 거부(protocol_version)하고 TLS 1.2에서
+     * {@code TLS_DHE_RSA_WITH_AES_128_CBC_SHA256} 같은 DHE 계열만 협상한다. Reactor Netty의 기본 암호 목록은
+     * ECDHE·TLS_RSA 계열뿐이고(DHE 없음), JDK 21은 TLS_RSA_*를 비활성화해 두어 서버와 겹치는 스위트가 0개 →
+     * handshake_failure. 순수 JDK SSLSocket(scripts/TlsProbe.java)은 JDK 기본 목록에 DHE가 있어 성공한다.
+     * 신뢰 저장소·프로토콜 협상은 JDK 기본 그대로다.
+     */
+    private static ReactorClientHttpConnector jdkCipherConnector() {
+        try {
+            String[] jdkCiphers = SSLContext.getDefault().getDefaultSSLParameters().getCipherSuites();
+            var ssl = SslContextBuilder.forClient()
+                    .ciphers(Arrays.asList(jdkCiphers), SupportedCipherSuiteFilter.INSTANCE)
+                    .build();
+            return new ReactorClientHttpConnector(HttpClient.create().secure(spec -> spec.sslContext(ssl)));
+        } catch (GeneralSecurityException | javax.net.ssl.SSLException e) {
+            throw new IllegalStateException("DART용 SslContext 생성 실패", e);
+        }
     }
 
     /**

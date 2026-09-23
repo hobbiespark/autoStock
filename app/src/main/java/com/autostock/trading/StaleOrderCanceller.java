@@ -42,8 +42,13 @@ public class StaleOrderCanceller {
         this.clock = clock;
     }
 
-    /** 1분 주기 점검. */
-    @Scheduled(fixedRate = 60_000)
+    /**
+     * 1분 주기 점검. {@code fixedDelay}(직전 실행 종료 기준)를 쓴다 — 가상 스레드 스케줄러
+     * (SimpleAsyncTaskScheduler)는 fixedRate의 밀린 회차를 <b>동시에</b> 실행하므로, PC 절전 후
+     * 깨어나면 수십~수백 회차가 한꺼번에 DB 커넥션 10개를 두고 경쟁해 풀이 고갈됐다
+     * (2026-09-22 실측: active=10, waiting=210, 215회 실패). fixedDelay는 밀린 회차를 1회로 합친다.
+     */
+    @Scheduled(fixedDelay = 60_000)
     public void cancelStaleOrders() {
         if (properties.mode() != TradingProperties.Mode.LIVE) {
             return;

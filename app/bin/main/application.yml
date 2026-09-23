@@ -68,25 +68,25 @@ strategy:
 
 market:
   holiday-api:
-    enabled: false                                # 공공데이터포털 서비스키 발급 후 활성화(응답 포맷 실측 전까지 비활성 유지)
+    enabled: true                                 # 실측 확정 2026-09-18(getRestDeInfo _type=json, 인코딩 키 그대로 전송) — docs/measured/ext_probe_20260918_holiday_*.json
     service-key: ${DATA_GO_KR_SERVICE_KEY:}       # 공공데이터포털 발급 서비스키 — 커밋 금지, 환경변수로만 주입
     base-url: https://apis.data.go.kr/B090041/openapi/service/SpcdeInfoService
 
 macrointel:
-  enabled: false                        # FRED/ECOS 키 발급 후 응답 포맷 실측 전까지 비활성 유지(PLAN 5절 1단계)
+  enabled: true                         # 실측 확정 2026-09-18(FRED observations[0], ECOS 14일 범위+항목코드) — docs/measured/ext_probe_20260918_{fred,ecos}_*.json
   fred-api-key: ${FRED_API_KEY:}        # FRED 발급 키 — 커밋 금지, 환경변수로만 주입
   ecos-api-key: ${ECOS_API_KEY:}        # ECOS 발급 키 — 커밋 금지, 환경변수로만 주입
   vix-caution-threshold: 25.0           # VIX 이 값 이상이면 보수 모드(신규 매수 금지, 청산은 허용)
   vix-severe-threshold: 35.0            # VIX 이 값 이상이면 킬스위치 작동(전면 정지)
   usd-krw-caution-threshold: 1450.0     # 원/달러 환율 이 값 이상이면 보수 모드
   blacklist:
-    enabled: false                        # DART_API_KEY 발급 후 활성화(ADR-14 트랙 G1, 이 리포는 실측 완료)
+    enabled: true                         # DART 실측 완료(2026-09-11) + start_autostock.bat가 이미 true로 기동 중 — yml 기본값도 일치시킴(2026-09-18)
     dart-api-key: ${DART_API_KEY:}        # OpenDART 발급 키(ipo.dart.api-key와 같은 키 재사용) — 커밋 금지
     lookback-days: 7                      # list.json(주요사항보고서) "최근 N일" 조회 창
     retention-days: 180                   # 공시일로부터 블랙리스트 등록 기간(ADR-14 근거 — 6~24개월 하한)
 
 dart:
-  enabled: false                        # DART_API_KEY 발급 후 활성화(이 리포는 실측 완료 — docs/measured/dart_estkRs_20260911.json). 배포 환경마다 키 보유 여부가 달라 기본값은 false 유지
+  enabled: true                         # DART 실측 완료(docs/measured/dart_estkRs_20260911.json). 08:20 스케줄에서만 호출되므로 키 없는 CI엔 영향 없음 — 2026-09-18 기본값 true로 전환(bat 오버라이드와 일치)
   api-key: ${DART_API_KEY:}             # OpenDART 발급 키 — 커밋 금지, 환경변수로만 주입
   lookback-days: 14                     # list.json 조회 시 "최근 N일" 창(ADR-9 배치 사양)
 

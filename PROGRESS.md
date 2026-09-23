@@ -129,8 +129,12 @@
 ### 트랙 A — 실측 차단 해소 (2026-09-10 대부분 완료 — .env 확보로 재개)
 
 A1. ✅ WS 실측: **전체 완료 (2026-09-11 장중)** — 2절 실측 기록 참조. 원래의 🔶 (LOGIN/REG 순서 100013 실측 → `KiwoomWebSocketClient` 수정: loggedIn 상태 도입, LOGIN 성공 응답 시 일괄 재구독, LOGIN 실패 시 세션 close→재연결, REG 거절 로깅 — 테스트 5건 추가). ✅ KiwoomSmokeIT 실서버 통과(토큰·잔고·일봉). **잔여(장중 09:00~15:30 KST)**: ① `python3 scripts/ws_probe.py` 재실행 → REAL 시세 FID 매핑 실측 ② 1주 주문으로 체결통보(type 00) FID 실측 ③ 주문 왕복 재검증 → RealMessageParser·OrderNoticeHandler·취소 body 반영
-A2. ⬜ FRED/ECOS 키 발급 후 응답 포맷 실측, 특일 API 서비스키 발급·활성화
-A3. ⬜ 텔레그램 봇 실행 검증 — [공식 Bot API](https://core.telegram.org/bots/api) 보안 기준: chat_id 화이트리스트(적용됨) + 킬스위치 해제(/resume) 등 위험 명령 2단계 확인 추가 + 토큰 회전 절차 문서화
+A2. ✅ **FRED/ECOS/특일 API 실측 완료 (2026-09-18 자택망, scripts/probe_external_apis.ps1 → docs/measured/ext_probe_20260918_*.json)**:
+   - FRED: `observations[0]`이 최신(`{"date":"2026-09-16","value":"17.71"}`), 결측은 `"."` — 기존 파서 그대로 확정. 발표 지연 1~3영업일(DTWEXBGS 주간)
+   - ECOS: ① 731Y001(환율)은 항목코드 없이 오늘 1일 조회 시 43개 통화 중 첫 행(우연히 USD)만 옴 → **항목코드 0000001 명시** ② 722Y001(기준금리)은 오늘 1일 조회 시 `RESULT INFO-200`(데이터 없음) → **항목코드 0101000 + 최근 14일 범위(1/20) 조회 후 마지막 행** 사용. `EcosClient` 수정(RESULT INFO-200은 정상 "값 없음"으로 처리)
+   - 특일(getRestDeInfo): `_type=json` 지원, `response.body.items.item[]={locdate:int,dateName,isHoliday}` — 파서 그대로. **서비스키는 발급 시의 인코딩 형태(%2B 등)를 .env에 그대로 두어야 하며 재인코딩하면 403(SERVICE_KEY_IS_NOT_REGISTERED)** → `HolidaySyncService.callApi`를 URI 직접 조립(재인코딩 없음)으로 수정
+   - application.yml 기본값 전환: `macrointel.enabled`·`macrointel.blacklist.enabled`·`market.holiday-api.enabled`·`dart.enabled` = **true**(bat 오버라이드와 일치). 스케줄(08:20/08:30/매월 15일 09:10)에서만 호출되므로 키 없는 CI엔 영향 없음. 첫 실동작 확인: 9/22(월) 08:30 macro 로그(VIX·환율·기준금리 값)
+A3. ⬜ 텔레그램 봇 실행 검증 — 2026-09-18 기준 `.env`에 `TELEGRAM_BOT_TOKEN/CHAT_ID` 미설정(BotFather 발급 후 `probe_external_apis.ps1`이 getMe/getUpdates 실측 지원) — [공식 Bot API](https://core.telegram.org/bots/api) 보안 기준: chat_id 화이트리스트(적용됨) + 킬스위치 해제(/resume) 등 위험 명령 2단계 확인 추가 + 토큰 회전 절차 문서화
 A4. ⬜ 키움 [공식 GitHub](https://github.com/Kiwoom-Securities/Kiwoom-REST-API) 대조 — 커뮤니티 래퍼 기반 구현(필드명·rate limit)을 공식 샘플과 대사
 
 ### 트랙 B — 검증 고도화 ✅ 완료 (2026-08-28, 커밋 d7887c2 — 결과는 3절 "T 확장 재검증")

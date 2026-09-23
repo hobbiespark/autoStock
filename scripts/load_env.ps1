@@ -45,7 +45,9 @@ foreach ($kv in $vars.GetEnumerator()) {
 
 if ($OutCmd) {
     $lines = foreach ($kv in $vars.GetEnumerator()) {
-        if ($kv.Key -notlike '*_FILE') { 'set "' + $kv.Key + '=' + $kv.Value + '"' }
+        # cmd 배치에서 %2F 같은 값은 %2 가 배치 인자로 확장돼 사라진다(2026-09-18 실측: 특일 API 서비스키가 깨져 403).
+        # cmd 는 %% 를 리터럴 % 로 읽으므로 이스케이프한다. PowerShell 경로(Set-Item Env:)는 영향 없음.
+        if ($kv.Key -notlike '*_FILE') { 'set "' + $kv.Key + '=' + $kv.Value.Replace('%', '%%') + '"' }
     }
     Set-Content -Path $OutCmd -Value $lines -Encoding ASCII
 }
