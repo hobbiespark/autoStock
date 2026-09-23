@@ -142,10 +142,21 @@ public class DashboardController {
      * ka10004 = sel_fpr_bid(최우선 매도호가) / buy_fpr_bid(최우선 매수호가), 잔량은 sel_fpr_req /
      * buy_fpr_req, 2~10차는 sel_2th_pre_bid…/buy_2th_pre_bid…, 총잔량 tot_sel_req / tot_buy_req,
      * 기준시각 bid_req_base_tm(HHmmss). 값이 비면 null(FE는 "-" 표시).
+     *
+     * <p>ka10001 실패도 500이 아니라 빈 QuoteView로 응답한다(2026-09-23 실측: 장전 07:53에
+     * 키움이 {@code [1631]/[1632] 서비스를 처리하는 중에 오류}를 30회 돌려줘 스택 30개가 로그를
+     * 덮었다). 폼의 기준가 기본값이 비면 사용자가 직접 입력해야 하므로 오히려 안전하다
+     * (9/18 "기본값 그대로 193주 매수" 사고 참고). 로그는 한 줄 WARN, 스택 없음.
      */
     @GetMapping("/quote/{symbol}")
     public QuoteView quote(@PathVariable String symbol) {
-        Map<String, Object> price = marketQueryService.stockPrice(symbol);
+        Map<String, Object> price;
+        try {
+            price = marketQueryService.stockPrice(symbol);
+        } catch (Exception e) {
+            log.warn("기본정보(ka10001) 조회 실패 — 빈 시세 반환: {} ({})", symbol, e.getMessage());
+            price = Map.of();
+        }
         Map<String, Object> book;
         try {
             book = marketQueryService.orderBook(symbol);

@@ -140,9 +140,31 @@ public class IpoSyncScheduler {
         dartClient.fetchOfferingDetail(deal.corpCode(), deal.rceptNo(), since, today)
                 .ifPresentOrElse(
                         entity::applyOfferingDetail,
-                        () -> log.warn("DART 상세 조회 결과 없음 — corpName={}, rceptNo={}",
-                                deal.corpName(), deal.rceptNo()));
+                        () -> logDetailMissing(deal, today));
         repository.save(entity);
+    }
+
+    /**
+     * 상세(estkRs.json) 미제공 로그 — 공시 당일~익일은 DART 주요정보 DB 반영 지연이 정상이다
+     * (실측: 엠비디 rcept_no=20260918000439 — 9/19 00:48 결과 없음 → 이후 배치에서 채워짐;
+     * 9/23 이렘·티앤이코리아도 당일 공시). 딜은 매 배치 다시 조회되므로 자동 복구된다.
+     * 공시 후 2일이 지나도 없으면 진짜 이상(corp_code 불일치·API 변경 등)이라 WARN.
+     */
+    private void logDetailMissing(DartClient.DealNotice deal, LocalDate today) {
+        LocalDate rceptDt = deal.rceptDt();
+        boolean fresh = rceptDt == null || !rceptDt.plusDays(2).isBefore(today);
+        if (fresh) {
+            log.info("DART 상세 아직 없음(공시 {} — 주요정보 반영 지연, 다음 배치 재시도) — corpName={}, rceptNo={}",
+                    rceptDt, deal.corpName(), deal.rceptNo());
+        } else {
+            log.warn("DART 상세 조회 결과 없음(공시 {} 후 2일 경과) — corpName={}, rceptNo={}",
+                    rceptDt, deal.corpName(), deal.rceptNo());
+        }
+    }
+
+    /** 수동 입력(monitor.IpoController) 직후 오늘 기준으로 상태를 즉시 재계산한다 — 상장일 입력 시 LISTED 반영. */
+    public void refreshStatus(IpoDealEntity entity) {
+        recalculateStatus(entity, LocalDate.now(clock.withZone(MarketConstants.KST)));
     }
 
     /** 오늘 날짜와 청약 일정을 비교해 상태를 재계산한다(ADR-9 — listing_date 미제공 한계, IpoStatus 참고). */
