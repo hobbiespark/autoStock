@@ -266,6 +266,58 @@ class RealDataCrossSectionalExperimentTest {
                 table, excluded, results, benchmarkCandles);
     }
 
+    /**
+     * 트랙 X 진단 — X0(유니버스 전체 동일가중)·X0r(무작위 20종목, 시드 3개). <b>trial이 아니다</b>(후보 전략이 아니라
+     * 판정 기준의 성질을 재는 진단이므로 trials 카운트는 2차와 같은 +2 그대로). 2차 결과(X1b +104%/MDD 58.5%,
+     * X2b +170.7%/MDD 47.5% vs KODEX200 +451%/MDD 40.8%, SPA p=1.0) 뒤의 가설: KODEX200 성과가 삼성전자·SK하이닉스
+     * 집중(시총가중)에서 나오므로 어떤 동일가중 선별도 이길 수 없다. 읽는 법:
+     * <ul>
+     *   <li>X0가 KODEX200에 크게 지면 → 가설 확정. 게이트 ①의 벤치마크를 "같은 유니버스의 동일가중 지수(X0)"로
+     *       바꿀지(ADR-15)를 결정한다. 그 경우 X1b/X2b는 X0 대비로 다시 읽는다.</li>
+     *   <li>X0가 KODEX200과 비슷하거나 이기면 → 가설 기각. FAIL은 선별 규칙 자체의 문제.</li>
+     *   <li>X1b/X2b가 X0r 3개의 범위 안에 있으면 → 선별 규칙에 정보가 없다.</li>
+     * </ul>
+     * 유니버스·비용·기간·가드는 2차와 동일.
+     */
+    @Test
+    void 횡단면_X0_동일가중_진단_베이스라인() {
+        Path dataDir = resolveDataDir();
+        assumeTrue(dataDir != null, "data/ 디렉터리 없음 — 스킵");
+        Path universeDir = dataDir.resolve("universe").resolve("prices");
+        Path capDir = dataDir.resolve("universe").resolve("marketcap");
+        assumeTrue(Files.isDirectory(universeDir), "data/universe/prices 없음");
+        assumeTrue(Files.isDirectory(capDir), "data/universe/marketcap 없음");
+        assumeTrue(Files.isRegularFile(universeDir.resolve(CALENDAR_SYMBOL + ".csv")), "캘린더 종목 CSV 없음");
+        assumeTrue(Files.isRegularFile(dataDir.resolve(BENCHMARK_SYMBOL + ".csv")), "벤치마크 069500.csv 없음");
+
+        NavigableMap<LocalDate, Map<String, Double>> caps = marketCapSnapshots(capDir);
+        assumeTrue(caps.size() >= 100, "시총 스냅샷 부족(" + caps.size() + "개월)");
+
+        CandleCsvLoader loader = new CandleCsvLoader();
+        List<LocalDate> calendar = loader.load(universeDir.resolve(CALENDAR_SYMBOL + ".csv")).stream().map(Candle::date).toList();
+        List<Candle> benchmarkCandles = loader.load(dataDir.resolve(BENCHMARK_SYMBOL + ".csv"));
+        Set<String> excluded = nonOperatingCompanies(dataDir.resolve("corp_map_all.csv"));
+        CrossSectionalBacktestRunner.PriceTable table =
+                CrossSectionalBacktestRunner.PriceTable.fromCsvDirectory(universeDir, calendar, MIN_ROWS, excluded);
+
+        CrossSectionalBacktestRunner.Config config = new CrossSectionalBacktestRunner.Config(
+                OOS_START, OOS_END, UNIVERSE_SIZE, LIQUIDITY_WINDOW, CAPITAL, CostModel.defaults(), TRIALS + 2,
+                caps, 0.40);
+        List<CrossSectionalStrategy> strategies = List.of(
+                CrossSectionalStrategies.equalWeightAll(),
+                CrossSectionalStrategies.randomPick(20, 1L),
+                CrossSectionalStrategies.randomPick(20, 2L),
+                CrossSectionalStrategies.randomPick(20, 3L));
+        Map<String, CrossSectionalBacktestRunner.Result> results = new LinkedHashMap<>();
+        CrossSectionalBacktestRunner runner = new CrossSectionalBacktestRunner();
+        for (CrossSectionalStrategy s : strategies) {
+            results.put(s.label(), runner.run(table, s, config));
+        }
+        printGateReport("트랙 X 진단 — X0 동일가중 베이스라인·X0r 무작위 대조군 (trial 아님, 판정 기준 진단)",
+                "KRX 월말 시가총액(point-in-time) 상위 " + UNIVERSE_SIZE + " / 스냅샷 " + caps.size() + "개월 / |일수익률|>40% 가드 — 2차와 동일",
+                table, excluded, results, benchmarkCandles);
+    }
+
     /** data/universe/marketcap/{YYYYMMDD}.csv (scripts/fetch_krx_marketcap.py) — 날짜별 종목→시가총액(원). */
     private static NavigableMap<LocalDate, Map<String, Double>> marketCapSnapshots(Path dir) {
         NavigableMap<LocalDate, Map<String, Double>> out = new TreeMap<>();

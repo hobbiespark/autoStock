@@ -1,0 +1,181 @@
+Picked up JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
+Initialized native services in: C:\Users\DevHobby\.gradle\native
+Initialized jansi services in: C:\Users\DevHobby\.gradle\native
+Found daemon DaemonInfo{pid=31532, address=[6d17e738-0895-4442-b924-aaeb54546e9f port:49742, addresses:[/127.0.0.1]], state=Idle, lastBusy=1790159015335, context=DefaultDaemonContext[uid=33989cb6-cea8-4525-ace8-1784f60faa80,javaHome=C:\Users\DevHobby\.vscode\extensions\redhat.java-1.56.0-win32-x64\jre\21.0.12.1-win32-x86_64,javaVersion=21,javaVendor=Eclipse Adoptium,daemonRegistryDir=C:\Users\DevHobby\.gradle\daemon,pid=31532,idleTimeout=10800000,priority=NORMAL,applyInstrumentationAgent=true,nativeServicesMode=ENABLED,daemonOpts=-XX:MaxMetaspaceSize=384m,-XX:+HeapDumpOnOutOfMemoryError,-Xms256m,-Xmx512m,-Dfile.encoding=UTF-8,-Duser.country=KR,-Duser.language=ko,-Duser.variant]} however its context does not match the desired criteria.
+JVM is incompatible.
+Wanted: DaemonRequestContext{jvmCriteria=D:\jdks\jdk-21.0.12.101-hotspot (no JDK specified, using current Java home), daemonOpts=[-XX:MaxMetaspaceSize=384m, -XX:+HeapDumpOnOutOfMemoryError, -Xms256m, -Xmx512m, -Dfile.encoding=UTF-8, -Duser.country=KR, -Duser.language=ko, -Duser.variant], applyInstrumentationAgent=true, nativeServicesMode=ENABLED, priority=NORMAL}
+Actual: DefaultDaemonContext[uid=33989cb6-cea8-4525-ace8-1784f60faa80,javaHome=C:\Users\DevHobby\.vscode\extensions\redhat.java-1.56.0-win32-x64\jre\21.0.12.1-win32-x86_64,javaVersion=21,javaVendor=Eclipse Adoptium,daemonRegistryDir=C:\Users\DevHobby\.gradle\daemon,pid=31532,idleTimeout=10800000,priority=NORMAL,applyInstrumentationAgent=true,nativeServicesMode=ENABLED,daemonOpts=-XX:MaxMetaspaceSize=384m,-XX:+HeapDumpOnOutOfMemoryError,-Xms256m,-Xmx512m,-Dfile.encoding=UTF-8,-Duser.country=KR,-Duser.language=ko,-Duser.variant]
+
+  Looking for a different daemon...
+The client will now receive all logging from the daemon (pid: 9468). The daemon log file: C:\Users\DevHobby\.gradle\daemon\8.14.2\daemon-9468.out.log
+Starting 3rd build in daemon [uptime: 2 mins 8.702 secs, performance: 100%, GC rate: 0.00/s, heap usage: 0% of 512 MiB, non-heap usage: 20% of 384 MiB]
+Using 16 worker leases.
+Now considering [D:\myApp\autoStock] as hierarchies to watch
+Watching the file system is configured to be enabled if available
+File system watching is active
+Starting Build
+Settings evaluated using settings file 'D:\myApp\autoStock\settings.gradle'.
+Projects loaded. Root project using build file 'D:\myApp\autoStock\build.gradle'.
+Included projects: [root project 'autostock', project ':app', project ':common']
+
+> Configure project :
+Evaluating root project 'autostock' using build file 'D:\myApp\autoStock\build.gradle'.
+Resolved plugin [id: 'org.springframework.boot', version: '3.5.16', apply: false]
+Resolved plugin [id: 'io.spring.dependency-management', version: '1.1.7', apply: false]
+
+> Configure project :app
+Evaluating project ':app' using build file 'D:\myApp\autoStock\app\build.gradle'.
+Applying dependency management to configuration 'annotationProcessor' in project 'app'
+Applying dependency management to configuration 'apiElements' in project 'app'
+Applying dependency management to configuration 'archives' in project 'app'
+Applying dependency management to configuration 'bootArchives' in project 'app'
+Applying dependency management to configuration 'compileClasspath' in project 'app'
+Applying dependency management to configuration 'compileOnly' in project 'app'
+Applying dependency management to configuration 'default' in project 'app'
+Applying dependency management to configuration 'developmentOnly' in project 'app'
+Applying dependency management to configuration 'implementation' in project 'app'
+Applying dependency management to configuration 'mainSourceElements' in project 'app'
+Applying dependency management to configuration 'productionRuntimeClasspath' in project 'app'
+Applying dependency management to configuration 'runtimeClasspath' in project 'app'
+Applying dependency management to configuration 'runtimeElements' in project 'app'
+Applying dependency management to configuration 'runtimeOnly' in project 'app'
+Applying dependency management to configuration 'testAndDevelopmentOnly' in project 'app'
+Applying dependency management to configuration 'testAnnotationProcessor' in project 'app'
+Applying dependency management to configuration 'testCompileClasspath' in project 'app'
+Applying dependency management to configuration 'testCompileOnly' in project 'app'
+Applying dependency management to configuration 'testImplementation' in project 'app'
+Applying dependency management to configuration 'testResultsElementsForTest' in project 'app'
+Applying dependency management to configuration 'testRuntimeClasspath' in project 'app'
+Applying dependency management to configuration 'testRuntimeOnly' in project 'app'
+
+> Configure project :common
+Evaluating project ':common' using build file 'D:\myApp\autoStock\common\build.gradle'.
+All projects evaluated.
+Task path ':app:test' matched project ':app'
+Task name matched 'test'
+Selected primary task 'test' from project :app
+Resolving global dependency management for project 'app'
+Excluding [commons-logging:commons-logging]
+Excluding []
+Excluding []
+Excluding []
+Excluding []
+Excluding [commons-logging:commons-logging]
+Tasks to be executed: [task ':common:compileJava', task ':app:compileJava', task ':app:processResources', task ':app:classes', task ':app:compileTestJava', task ':app:processTestResources', task ':app:testClasses', task ':common:processResources', task ':common:classes', task ':common:jar', task ':app:test']
+Tasks that were excluded: []
+Resolve mutations for :common:compileJava (Thread[#679,Execution worker,5,main]) started.
+:common:compileJava (Thread[#679,Execution worker,5,main]) started.
+
+> Task :common:compileJava UP-TO-DATE
+Caching disabled for task ':common:compileJava' because:
+  Build cache is disabled
+Skipping task ':common:compileJava' as it is up-to-date.
+work action resolve main (project :common) (Thread[#679,Execution worker,5,main]) started.
+Resolve mutations for :app:compileJava (Thread[#679,Execution worker,5,main]) started.
+:app:compileJava (Thread[#691,Execution worker Thread 13,5,main]) started.
+
+> Task :app:compileJava UP-TO-DATE
+Custom actions are attached to task ':app:compileJava'.
+Caching disabled for task ':app:compileJava' because:
+  Build cache is disabled
+Skipping task ':app:compileJava' as it is up-to-date.
+Resolve mutations for :app:processResources (Thread[#691,Execution worker Thread 13,5,main]) started.
+:app:processResources (Thread[#691,Execution worker Thread 13,5,main]) started.
+
+> Task :app:processResources UP-TO-DATE
+Caching disabled for task ':app:processResources' because:
+  Build cache is disabled
+  Not worth caching
+Skipping task ':app:processResources' as it is up-to-date.
+Resolve mutations for :app:classes (Thread[#691,Execution worker Thread 13,5,main]) started.
+:app:classes (Thread[#691,Execution worker Thread 13,5,main]) started.
+
+> Task :app:classes UP-TO-DATE
+Skipping task ':app:classes' as it has no actions.
+Resolve mutations for :app:compileTestJava (Thread[#691,Execution worker Thread 13,5,main]) started.
+:app:compileTestJava (Thread[#693,Execution worker Thread 15,5,main]) started.
+
+> Task :app:compileTestJava UP-TO-DATE
+Custom actions are attached to task ':app:compileTestJava'.
+Caching disabled for task ':app:compileTestJava' because:
+  Build cache is disabled
+Skipping task ':app:compileTestJava' as it is up-to-date.
+Resolve mutations for :app:processTestResources (Thread[#689,Execution worker Thread 11,5,main]) started.
+:app:processTestResources (Thread[#689,Execution worker Thread 11,5,main]) started.
+
+> Task :app:processTestResources NO-SOURCE
+Skipping task ':app:processTestResources' as it has no source files and no previous output files.
+Resolve mutations for :app:testClasses (Thread[#689,Execution worker Thread 11,5,main]) started.
+:app:testClasses (Thread[#689,Execution worker Thread 11,5,main]) started.
+
+> Task :app:testClasses UP-TO-DATE
+Skipping task ':app:testClasses' as it has no actions.
+Resolve mutations for :common:processResources (Thread[#689,Execution worker Thread 11,5,main]) started.
+:common:processResources (Thread[#689,Execution worker Thread 11,5,main]) started.
+
+> Task :common:processResources NO-SOURCE
+Skipping task ':common:processResources' as it has no source files and no previous output files.
+Resolve mutations for :common:classes (Thread[#689,Execution worker Thread 11,5,main]) started.
+:common:classes (Thread[#689,Execution worker Thread 11,5,main]) started.
+
+> Task :common:classes UP-TO-DATE
+Skipping task ':common:classes' as it has no actions.
+Resolve mutations for :common:jar (Thread[#689,Execution worker Thread 11,5,main]) started.
+:common:jar (Thread[#693,Execution worker Thread 15,5,main]) started.
+
+> Task :common:jar UP-TO-DATE
+Caching disabled for task ':common:jar' because:
+  Build cache is disabled
+  Not worth caching
+Skipping task ':common:jar' as it is up-to-date.
+work action resolve common-0.1.0-SNAPSHOT.jar (project :common) (Thread[#693,Execution worker Thread 15,5,main]) started.
+Resolve mutations for :app:test (Thread[#693,Execution worker Thread 15,5,main]) started.
+:app:test (Thread[#693,Execution worker Thread 15,5,main]) started.
+Gradle Test Executor 3 started executing tests.
+
+> Task :app:test
+Caching disabled for task ':app:test' because:
+  Build cache is disabled
+Task ':app:test' is not up-to-date because:
+  Task.upToDateWhen is false.
+Starting process 'Gradle Test Executor 3'. Working directory: D:\myApp\autoStock\app Command: D:\jdks\jdk-21.0.12.101-hotspot\bin\java.exe -Dorg.gradle.internal.worker.tmpdir=D:\myApp\autoStock\app\build\tmp\test\work @C:\Users\DevHobby\.gradle\.tmp\gradle-worker-classpath16279141350141777255txt -Xmx2g -Dfile.encoding=UTF-8 -Duser.country=KR -Duser.language=ko -Duser.variant -ea worker.org.gradle.process.internal.worker.GradleWorkerMain 'Gradle Test Executor 3'
+Successfully started process 'Gradle Test Executor 3'
+Picked up JAVA_TOOL_OPTIONS: -Djava.net.preferIPv4Stack=true
+
+RealDataCrossSectionalExperimentTest > 횡단면_X0_동일가중_진단_베이스라인() STANDARD_OUT
+
+    === 트랙 X 진단 — X0 동일가중 베이스라인·X0r 무작위 대조군 (trial 아님, 판정 기준 진단) ===
+    유니버스: KRX 월말 시가총액(point-in-time) 상위 200 / 스냅샷 141개월 / |일수익률|>40% 가드 — 2차와 동일 / 로드 종목 2607 (스팩·리츠·선박펀드 167 제외) / 비용: CostModel.defaults() / 월말 형성·익일 시가 체결 / 스윕 없음
+    SPA 교집합 구간: 2016-01-04 ~ 2026-08-28 (2581거래일), L=21, B=1000, seed=42, 중기 MDD 예산=25%
+    기준선 KODEX200 B&H(동일 구간): 총수익 +451.1%, MDD 40.8%
+
+    계열                         |    OOS총수익 |    CAGR |    실측MDD |  Sharpe |     리밸 |     체결 |     회전율 |     폐지 |  부트p95MDD |   P(>25%) |     DSR
+    --------------------------------------------------------------------------------------------------------------------------------------------
+    X0 유니버스 전체 동일가중(진단)        |    119.6% |   7.89% |   52.69% |    0.46 |    128 |  26021 |   10.0% |      0 |    64.86% |     97.9% |   0.930
+                                 평균 보유 192.8종목, 평균 유니버스 193종목
+    X0r 무작위 20종목 동일가중(진단, seed=1) |    182.5% |  10.55% |   55.48% |    0.55 |    128 |   4815 |   88.5% |      0 |    62.88% |     98.6% |   0.960
+                                 평균 보유 20.0종목, 평균 유니버스 193종목
+    X0r 무작위 20종목 동일가중(진단, seed=2) |     15.0% |   1.36% |   65.40% |    0.18 |    128 |   4859 |   90.3% |      0 |    79.23% |     99.7% |   0.714
+                                 평균 보유 20.0종목, 평균 유니버스 193종목
+    X0r 무작위 20종목 동일가중(진단, seed=3) |     47.4% |   3.82% |   56.60% |    0.28 |    128 |   4840 |   89.7% |      0 |    77.05% |     99.7% |   0.814
+                                 평균 보유 20.0종목, 평균 유니버스 193종목
+
+    SPA_c p-value(최고 후보가 KODEX200 B&H를 이긴다는 증거) = 1.0000  (p<0.05 필요)
+      X0 유니버스 전체 동일가중(진단)        | 평균초과수익(일)   -0.03824% | t-stat   -2.014
+      X0r 무작위 20종목 동일가중(진단, seed=1) | 평균초과수익(일)   -0.02759% | t-stat   -1.285
+      X0r 무작위 20종목 동일가중(진단, seed=2) | 평균초과수익(일)   -0.06061% | t-stat   -2.813
+      X0r 무작위 20종목 동일가중(진단, seed=3) | 평균초과수익(일)   -0.05450% | t-stat   -2.219
+
+    [캐비엇] 생존 편향(수집 실패 폐지 종목 미포함) → 상한 추정치. 결과를 본 후의 파라미터 수정은 새 trial 선언 없이는 금지.
+    [캐비엇] 게이트 ⓓ(슬리브 환산 총계좌 MDD<15%)는 통과 계열이 나온 뒤 배분 50/30/15/5로 별도 산출.
+
+Gradle Test Executor 3 finished executing tests.
+
+> Task :app:test
+Finished generating test XML results (0.003 secs) into: D:\myApp\autoStock\app\build\test-results\test
+Generating HTML test report...
+Finished generating test html results (0.008 secs) into: D:\myApp\autoStock\app\build\reports\tests\test
+
+BUILD SUCCESSFUL in 14s
+6 actionable tasks: 1 executed, 5 up-to-date
+Watched directory hierarchies: [D:\myApp\autoStock]
