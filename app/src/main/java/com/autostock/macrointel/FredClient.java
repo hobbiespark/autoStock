@@ -1,5 +1,6 @@
 package com.autostock.macrointel;
 
+import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -60,7 +61,8 @@ public class FredClient {
             Map<String, Object> response = callApi(seriesId);
             return parse(seriesId, response);
         } catch (RuntimeException e) {
-            log.error("FRED 조회 실패(series={}) — TODO 실측 전 예상 구현이라 실제 원인 미확인", seriesId, e);
+            log.error("FRED 조회 실패(series={}) — TODO 실측 전 예상 구현이라 실제 원인 미확인", seriesId,
+                    SecretMasking.sanitizeForLogging(e));
             return Optional.empty();
         }
     }
@@ -107,7 +109,7 @@ public class FredClient {
             }
             return Optional.of(new Observation(LocalDate.parse(dateStr), new BigDecimal(valueStr)));
         } catch (RuntimeException e) {
-            log.error("FRED 응답 파싱 실패: {}", response, e);
+            log.error("FRED 응답 파싱 실패(series={}, keys={})", seriesId, response.keySet(), e);
             return Optional.empty();
         }
     }

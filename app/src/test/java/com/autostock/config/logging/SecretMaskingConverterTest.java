@@ -102,6 +102,17 @@ class SecretMaskingConverterTest {
     }
 
     @Test
+    void 스택트레이스에_담긴_ECOS_경로_인증키가_마스킹된다() {
+        RuntimeException ex = new RuntimeException(
+                "404 Not Found from GET https://ecos.bok.or.kr/api/StatisticSearch/"
+                        + "ABCDEFGHIJ1234567890/json/kr/1/20/731Y001/D/20260915/20260929/0000001");
+
+        String rendered = logAndCapture("ECOS 조회 실패", ex);
+
+        assertFalse(rendered.contains("ABCDEFGHIJ1234567890"));
+    }
+
+    @Test
     void 정상_로그_메시지는_그대로_출력된다() {
         String rendered = logAndCapture(
                 "주문 발행: clientOrderId=20260911-C3-005930-BUY-001, symbol=005930", null);

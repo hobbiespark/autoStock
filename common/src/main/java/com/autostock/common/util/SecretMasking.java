@@ -7,8 +7,8 @@ import java.util.regex.Pattern;
 /**
  * 로그로 흘러나갈 수 있는 시크릿(API 키·토큰·비밀번호)을 마스킹하는 순수 유틸리티.
  *
- * <p><b>배경</b>: DART 키는 URL 쿼리({@code crtfc_key=...}), 텔레그램 봇 토큰은 URL 경로
- * ({@code api.telegram.org/bot{token}/...}), 키움 앱키·시크릿·접근토큰은 헤더/바디에
+ * <p><b>배경</b>: DART 키는 URL 쿼리({@code crtfc_key=...}), 텔레그램 봇 토큰과 ECOS 키는 URL 경로
+ * ({@code api.telegram.org/bot{token}/...}, {@code /api/StatisticSearch/{key}/json/...}), 키움 앱키·시크릿·접근토큰은 헤더/바디에
  * 실린다. WebClient 예외 메시지(예: {@code WebClientResponseException.getMessage()}는
  * 호출한 전체 URL을 그대로 포함한다)나 디버그 로그, 스택트레이스를 통해 이 값들이 그대로
  * 로그에 남을 수 있고, 운영 로그를 외부(채팅·이슈)에 공유할 때 유출 위험이 된다.
@@ -42,6 +42,7 @@ public final class SecretMasking {
      *   <li>{@code key=value} / {@code key: value} 형태의 쿼리스트링·헤더성 표현 —
      *       DART {@code crtfc_key}, 키움 {@code appkey}/{@code appsecret}/{@code secretkey},
      *       공공데이터포털 {@code serviceKey} 등.</li>
+     *   <li>ECOS처럼 키가 URL 경로에 실리는 {@code /api/<서비스>/<키>/json|xml/} 형태.</li>
      * </ol>
      */
     // 주의: 순서가 중요하다. "authorization: Bearer xyz..." 같은 문자열에서 값 패턴이
@@ -66,7 +67,10 @@ public final class SecretMasking {
                             "(?i)(crtfc_key|appkey|app_key|appsecret|app_secret|secretkey|api_key|apikey"
                                     + "|token|access_token|authorization|password|serviceKey)"
                                     + "\\s*[=:]\\s*[^&\\s\"',}]{6,}"),
-                    "$1=***")
+                    "$1=***"),
+            new Rule(
+                    Pattern.compile("(?i)(/api/[A-Za-z]+/)[A-Za-z0-9]{8,}(?=/(?:json|xml)/)"),
+                    "$1***")
     );
 
     /**

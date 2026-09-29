@@ -32,6 +32,35 @@ class SecretMaskingTest {
     }
 
     @Test
+    void ECOS_URL_경로의_인증키를_마스킹한다() {
+        String input = "404 Not Found from GET https://ecos.bok.or.kr/api/StatisticSearch/"
+                + "ABCDEFGHIJ1234567890/json/kr/1/20/731Y001/D/20260915/20260929/0000001";
+
+        String masked = SecretMasking.mask(input);
+
+        assertFalse(masked.contains("ABCDEFGHIJ1234567890"));
+        assertTrue(masked.contains("/api/StatisticSearch/***/json/kr/1/20/731Y001"));
+    }
+
+    @Test
+    void 인증키_자리가_없는_api_경로는_손대지_않는다() {
+        String input = "GET https://opendart.fss.or.kr/api/list.json?pblntf_ty=C";
+
+        assertEquals(input, SecretMasking.mask(input));
+    }
+
+    @Test
+    void sanitizeForLogging은_ECOS_경로_인증키도_마스킹한다() {
+        RuntimeException original = new RuntimeException(
+                "500 Internal Server Error from GET https://ecos.bok.or.kr/api/StatisticSearch/"
+                        + "ABCDEFGHIJ1234567890/json/kr/1/20/722Y001/D/20260915/20260929/0101000");
+
+        Throwable sanitized = SecretMasking.sanitizeForLogging(original);
+
+        assertFalse(sanitized.getMessage().contains("ABCDEFGHIJ1234567890"));
+    }
+
+    @Test
     void Bearer_토큰_헤더값을_마스킹한다() {
         String input = "요청 헤더 값: Bearer eyJhbGciOiJIUzI1NiJ9.abcdefghijklmno";
 
