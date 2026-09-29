@@ -110,6 +110,10 @@ autostock:
   ws:
     enabled: false              # 앱키 발급 후 true
     stale-after: 180             # 연속 단절이 이 초를 넘으면 MarketDataStale 발행 → risk가 킬스위치 작동(PLAN 3절)
+  session:                      # 장외 대기(2026-09-29) — 프로세스는 계속 실행, 장외에는 WS 해제·주기 대사/미체결 취소 점검 중지
+    enabled: true               # false면 24시간 ACTIVE(기존 동작) — 장외에 WS·대사를 직접 검증할 때만 끈다
+    wake-time: "08:30"          # 거래일 장 대응 시작(정규장 09:00 − 30분). NXT(08:00~20:00) 대응 시 07:30
+    sleep-time: "16:00"         # 장외 대기 진입(정규장 15:30 + 30분, 15:45 분봉·15:50 리포트 이후). NXT 대응 시 20:30
 
 monitor:
   telegram:
