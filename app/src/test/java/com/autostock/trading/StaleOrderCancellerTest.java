@@ -4,6 +4,7 @@ import com.autostock.common.event.Side;
 import com.autostock.execution.BrokerPort;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -11,11 +12,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -36,6 +40,7 @@ class StaleOrderCancellerTest {
     @BeforeEach
     void setUp() {
         orderRepository = mock(OrderRepository.class);
+        when(orderRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         brokerPort = mock(BrokerPort.class);
         fixedClock = Clock.fixed(NOW, ZoneOffset.UTC);
     }
@@ -88,6 +93,25 @@ class StaleOrderCancellerTest {
 
         assertEquals(OrderStatus.SUBMITTED, fresh.getStatus());
         verify(orderRepository, never()).save(fresh);
+        verify(brokerPort, never()).cancelOrder(anyString(), anyString(), anyLong());
+    }
+
+    @Test
+    void 취소요청_저장이_충돌하고_그_사이_체결됐으면_취소하지_않는다() {
+        TradingProperties properties = new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
+        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock);
+        OrderEntity stale = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(6)));
+        OrderEntity latest = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(6)));
+        latest.applyFill(4); // 목록 조회 뒤 체결 통보가 먼저 저장됐다(R2)
+        when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(stale));
+        doThrow(new ObjectOptimisticLockingFailureException(OrderEntity.class, 1L))
+                .when(orderRepository).save(stale);
+        when(orderRepository.findById(any())).thenReturn(Optional.of(latest));
+
+        canceller.cancelStaleOrders();
+
+        assertEquals(OrderStatus.PARTIALLY_FILLED, latest.getStatus());
+        verify(orderRepository, never()).save(latest);
         verify(brokerPort, never()).cancelOrder(anyString(), anyString(), anyLong());
     }
 

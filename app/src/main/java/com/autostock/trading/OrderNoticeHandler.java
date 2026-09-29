@@ -113,11 +113,40 @@ public class OrderNoticeHandler {
             return;
         }
 
-        OrderEntity order = entity.get();
+        // 증분은 DB 영속 누적치 기준이라, 다른 경로(취소·대사)와 저장이 충돌하면 최신 주문을 다시 읽어
+        // 처음부터 다시 계산한다 — 옛 누적치로 저장하면 체결이 덮이거나 이중계상된다(R2).
+        AppliedFill applied = OptimisticRetry.run("체결통보 " + notice.brokerOrderId(), entity.get(),
+                () -> orderRepository.findByBrokerOrderId(notice.brokerOrderId()),
+                order -> applyFillNotice(order, notice));
+        if (applied == null) {
+            return;
+        }
+        OrderEntity order = applied.order();
+        if (applied.cumulativeNotional() != null) {
+            cumulativeNotional.put(notice.brokerOrderId(), applied.cumulativeNotional());
+        }
+        if (notice.remainingQuantity() == 0 || order.getStatus() == OrderStatus.FILLED) {
+            cumulativeNotional.remove(notice.brokerOrderId());
+        }
+
         String clientOrderId = original != null ? original.idempotencyKey() : order.getClientOrderId();
         // 매수/매도 방향은 통보에 없으므로 원 주문(인메모리 우선, 없으면 DB 엔티티)에서 가져온다
         Side side = original != null ? original.side() : order.getSide();
+        publisher.publishEvent(new Fill(
+                clientOrderId,
+                notice.brokerOrderId(),
+                notice.symbol(),
+                side,
+                applied.delta(),          // 증분 수량 — PositionBook은 증분 합산 전제(이중계상 수정)
+                applied.deltaPrice(),
+                notice.timestamp()));
+    }
 
+    /**
+     * 누적 통보 1건을 주문에 반영하고 저장한다. 중복/역순 통보면 null. 충돌 재시도 때 다시 실행되므로
+     * 인메모리 누적금액은 여기서 바꾸지 않고 결과로 돌려준다.
+     */
+    private AppliedFill applyFillNotice(OrderEntity order, OrderNotice notice) {
         // ── 누적 → 증분 변환 (운영 1일차 ⑥, 실측 확정 2026-09-11) ───────────────
         long cumulativeQty = notice.filledQuantity();     // FID 911 = 누적 체결량(실측)
         long previousQty = order.getFilledQuantity();
@@ -125,10 +154,14 @@ public class OrderNoticeHandler {
         if (delta <= 0) {
             log.info("누적 체결량({})이 기존 누적({}) 이하 — 중복/역순 통보로 보고 무시: {}",
                     cumulativeQty, previousQty, notice.brokerOrderId());
-            return;
+            return null;
         }
         BigDecimal deltaPrice = resolveDeltaPrice(notice, cumulativeQty, previousQty, delta);
+        BigDecimal avgPrice = notice.fillPrice();
+        BigDecimal cumNotional = avgPrice == null || avgPrice.signum() <= 0
+                ? null : avgPrice.multiply(BigDecimal.valueOf(cumulativeQty));
 
+        OrderEntity saved = order;
         try {
             order.applyFill(delta);
             // 실측 확정 2026-09-11(FID 902): 미체결 잔량 0 = 브로커 기준 완전 소진 확정.
@@ -136,25 +169,19 @@ public class OrderNoticeHandler {
             if (notice.remainingQuantity() == 0 && order.getStatus() != OrderStatus.FILLED) {
                 order.transitionTo(OrderStatus.FILLED);
             }
-            orderRepository.save(order);
+            saved = orderRepository.save(order);
         } catch (IllegalStateException e) {
             // 상태기계상 이미 종결된 주문에 체결통보가 중복 도착한 경우 등 — Fill 발행 자체는
             // 계속 진행하되(PositionBook 등은 별개로 최신 상태를 반영해야 하므로), 원인 추적을
             // 위해 에러로 남긴다.
             log.error("체결통보 반영 중 주문 상태 갱신 실패(Fill은 계속 발행): {}", e.getMessage());
         }
-        if (notice.remainingQuantity() == 0 || order.getStatus() == OrderStatus.FILLED) {
-            cumulativeNotional.remove(notice.brokerOrderId());
-        }
+        return new AppliedFill(saved, delta, deltaPrice, cumNotional);
+    }
 
-        publisher.publishEvent(new Fill(
-                clientOrderId,
-                notice.brokerOrderId(),
-                notice.symbol(),
-                side,
-                delta,                    // 증분 수량 — PositionBook은 증분 합산 전제(이중계상 수정)
-                deltaPrice,
-                notice.timestamp()));
+    /** 체결 반영 결과 — 저장된 주문, 증분 수량·단가, 이번 누적금액(평균가 없으면 null). */
+    private record AppliedFill(OrderEntity order, long delta, BigDecimal deltaPrice,
+                               BigDecimal cumulativeNotional) {
     }
 
     /**
@@ -180,7 +207,7 @@ public class OrderNoticeHandler {
             }
             prevNotional = avgPrice.multiply(BigDecimal.valueOf(previousQty));
         }
-        cumulativeNotional.put(notice.brokerOrderId(), cumNotional);
+        // 누적금액 맵 갱신은 저장 성공 뒤 호출부가 한다(충돌 재시도 시 직전 값이 오염되지 않게).
         if (previousQty == 0) {
             // 첫 체결: 누적=증분이므로 평균가가 곧 증분 단가 — 원 스케일 그대로 반환
             return avgPrice;
@@ -197,16 +224,22 @@ public class OrderNoticeHandler {
      * 체결과 달리 접수 누락은 계좌 정합성에 치명적이지 않아 warn까지는 아니다.
      */
     private void handleAccepted(OrderNotice notice) {
-        orderRepository.findByBrokerOrderId(notice.brokerOrderId()).ifPresentOrElse(order -> {
-            try {
-                order.transitionTo(OrderStatus.ACCEPTED);
-                orderRepository.save(order);
-            } catch (IllegalStateException e) {
-                // 이미 ACCEPTED를 지나 체결/취소 등으로 넘어간 뒤 접수 통보가 뒤늦게 도착한
-                // 경우 등 — 상태기계를 거스르지 않고 원인만 로그로 남긴다.
-                log.error("접수통보 반영 중 주문 상태 갱신 실패: {}", e.getMessage());
-            }
-        }, () -> log.debug("brokerOrderId 매핑 없는 접수통보 무시 (수동 주문 등으로 추정): {}", notice.brokerOrderId()));
+        OrderEntity found = OptimisticRetry.run("접수통보 " + notice.brokerOrderId(), null,
+                () -> orderRepository.findByBrokerOrderId(notice.brokerOrderId()),
+                order -> {
+                    try {
+                        order.transitionTo(OrderStatus.ACCEPTED);
+                        orderRepository.save(order);
+                    } catch (IllegalStateException e) {
+                        // 이미 ACCEPTED를 지나 체결/취소 등으로 넘어간 뒤 접수 통보가 뒤늦게 도착한
+                        // 경우 등 — 상태기계를 거스르지 않고 원인만 로그로 남긴다.
+                        log.error("접수통보 반영 중 주문 상태 갱신 실패: {}", e.getMessage());
+                    }
+                    return order;
+                });
+        if (found == null) {
+            log.debug("brokerOrderId 매핑 없는 접수통보 무시 (수동 주문 등으로 추정): {}", notice.brokerOrderId());
+        }
     }
 
     private boolean isFilled(String status) {

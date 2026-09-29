@@ -64,10 +64,23 @@ public class StaleOrderCanceller {
 
     private void cancelOne(OrderEntity order) {
         try {
-            order.transitionTo(OrderStatus.CANCEL_REQUESTED);
-            orderRepository.save(order);
-            long remaining = order.getQuantity() - order.getFilledQuantity();
-            brokerPort.cancelOrder(order.getBrokerOrderId(), order.getSymbol(), remaining);
+            // 목록 조회 뒤 체결 통보가 먼저 반영됐으면 충돌 → 최신 상태로 다시 판정한다(R2).
+            OrderEntity requested = OptimisticRetry.run("타임아웃 취소 " + order.getClientOrderId(), order,
+                    () -> orderRepository.findById(order.getId()),
+                    current -> {
+                        if (current.getStatus() != OrderStatus.SUBMITTED) {
+                            log.info("타임아웃 취소 생략 — 그 사이 {}로 진행됨: {}",
+                                    current.getStatus(), current.getClientOrderId());
+                            return null;
+                        }
+                        current.transitionTo(OrderStatus.CANCEL_REQUESTED);
+                        return orderRepository.save(current);
+                    });
+            if (requested == null) {
+                return;
+            }
+            long remaining = requested.getQuantity() - requested.getFilledQuantity();
+            brokerPort.cancelOrder(requested.getBrokerOrderId(), requested.getSymbol(), remaining);
             log.info("미체결 타임아웃 취소 요청: clientOrderId={} brokerOrderId={} 경과 상태 갱신 시각={}",
                     order.getClientOrderId(), order.getBrokerOrderId(), order.getUpdatedAt());
         } catch (Exception e) {

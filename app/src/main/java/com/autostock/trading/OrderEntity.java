@@ -9,6 +9,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -69,6 +70,14 @@ public class OrderEntity {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /**
+     * 낙관적 잠금 버전(V8). {@code save}는 버전이 오른 새 사본을 돌려주므로, 같은 인스턴스를 다시 저장하려면
+     * 반환값을 받아 써야 한다 — 옛 인스턴스로 저장하면 충돌 예외가 난다.
+     */
+    @Version
+    @Column(nullable = false)
+    private long version;
 
     /** JPA 전용 — 직접 사용 금지. */
     protected OrderEntity() {

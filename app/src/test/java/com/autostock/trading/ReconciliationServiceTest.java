@@ -32,6 +32,7 @@ class ReconciliationServiceTest {
     @BeforeEach
     void setUp() {
         orderRepository = mock(OrderRepository.class);
+        when(orderRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         brokerPort = mock(BrokerPort.class);
         TradingProperties liveProperties = new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
         service = new ReconciliationService(orderRepository, brokerPort, liveProperties);
