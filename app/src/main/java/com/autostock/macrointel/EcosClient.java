@@ -1,6 +1,7 @@
 package com.autostock.macrointel;
 
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -71,7 +72,8 @@ public class EcosClient {
             Map<String, Object> response = callApi(statCode, today);
             return parse(statCode, response);
         } catch (RuntimeException e) {
-            log.error("ECOS 조회 실패(statCode={})", statCode, e);
+            // 키가 URL 경로에 실려 예외 메시지에 그대로 들어간다 — 마스킹 후 기록.
+            log.error("ECOS 조회 실패(statCode={})", statCode, SecretMasking.sanitizeForLogging(e));
             return Optional.empty();
         }
     }
@@ -119,7 +121,7 @@ public class EcosClient {
                 if (result instanceof Map<?, ?> r && "INFO-200".equals(String.valueOf(r.get("CODE")))) {
                     log.info("ECOS {} 최근 {}일 데이터 없음 — 이번 수집 스킵", statCode, LOOKBACK_DAYS);
                 } else {
-                    log.warn("ECOS {} 응답에 StatisticSearch 없음: {}", statCode, response);
+                    log.warn("ECOS {} 응답에 StatisticSearch 없음: RESULT={}", statCode, result);
                 }
                 return Optional.empty();
             }
@@ -143,7 +145,7 @@ public class EcosClient {
             BigDecimal value = new BigDecimal(String.valueOf(last.get("DATA_VALUE")));
             return Optional.of(new Observation(date, value));
         } catch (RuntimeException e) {
-            log.error("ECOS 응답 파싱 실패: {}", response, e);
+            log.error("ECOS 응답 파싱 실패(statCode={}, keys={})", statCode, response.keySet(), e);
             return Optional.empty();
         }
     }
