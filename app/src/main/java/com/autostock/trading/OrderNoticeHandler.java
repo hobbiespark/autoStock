@@ -8,11 +8,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -71,11 +73,37 @@ public class OrderNoticeHandler {
      */
     private final Map<String, BigDecimal> cumulativeNotional = new ConcurrentHashMap<>();
 
+    /** 주문번호 등록 전에 도착한 체결 통보 보류함(R4). */
+    private final PendingOrderNotices pending = new PendingOrderNotices();
+    private final Clock clock;
+
     public OrderNoticeHandler(TradingService tradingService, OrderRepository orderRepository,
-                              ApplicationEventPublisher publisher) {
+                              ApplicationEventPublisher publisher, Clock clock) {
         this.tradingService = tradingService;
         this.orderRepository = orderRepository;
         this.publisher = publisher;
+        this.clock = clock;
+    }
+
+    /**
+     * 보류한 체결 통보 중 주문번호가 등록된 것을 재처리하고, 보류 시간이 지난 것은 버린다.
+     * 1초 주기라 등록 후 최대 1초 늦게 반영된다.
+     */
+    @Scheduled(fixedDelay = 1_000)
+    public void replayPendingNotices() {
+        for (OrderNotice expired : pending.removeExpired(clock.instant())) {
+            log.warn("brokerOrderId 매핑 없는 체결통보 무시 (보류 {}초 경과, 수동 주문 등으로 추정): {}",
+                    PendingOrderNotices.HOLD.toSeconds(), expired.brokerOrderId());
+        }
+        for (String brokerOrderId : pending.brokerOrderIds()) {
+            if (tradingService.findByBrokerOrderId(brokerOrderId) != null
+                    || orderRepository.findByBrokerOrderId(brokerOrderId).isPresent()) {
+                for (OrderNotice notice : pending.drain(brokerOrderId)) {
+                    log.info("보류했던 체결통보 재처리: {}", brokerOrderId);
+                    onOrderNotice(notice);
+                }
+            }
+        }
     }
 
     @EventListener
@@ -100,9 +128,15 @@ public class OrderNoticeHandler {
         Optional<OrderEntity> entity = orderRepository.findByBrokerOrderId(notice.brokerOrderId());
 
         if (original == null && entity.isEmpty()) {
-            // 이 시스템이 낸 주문이 아니거나(수동 주문 등), 둘 다 유실된 경우.
-            // 조용히 버리면 사고 원인 추적이 안 되므로 반드시 경고로 남긴다.
-            log.warn("brokerOrderId 매핑 없는 체결통보 무시 (수동 주문 등으로 추정): {}", notice.brokerOrderId());
+            // 주문 응답(주문번호 저장)보다 WS 통보가 먼저 온 경우일 수 있다 — 버리지 않고 보류했다가
+            // 등록되면 재처리한다(R4). 보류 시간이 지나도 등록되지 않으면 수동 주문 등으로 보고 경고 후 버린다.
+            if (pending.park(notice, clock.instant())) {
+                log.info("brokerOrderId 매핑 전 체결통보 보류(최대 {}초): {}",
+                        PendingOrderNotices.HOLD.toSeconds(), notice.brokerOrderId());
+            } else {
+                log.warn("brokerOrderId 매핑 없는 체결통보 무시 (보류함 상한 {} 도달): {}",
+                        PendingOrderNotices.MAX_PENDING, notice.brokerOrderId());
+            }
             return;
         }
         if (entity.isEmpty()) {
