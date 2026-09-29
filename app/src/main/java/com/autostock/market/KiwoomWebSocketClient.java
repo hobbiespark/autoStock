@@ -13,6 +13,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
@@ -68,6 +69,14 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <p>autostock.ws.enabled=true일 때만 동작 (앱키 필요).
  *
+ * <p><b>장외 대기 (2026-09-29)</b>: {@link MarketSessionService}가 STANDBY(기본 16:00~익거래일
+ * 08:30, 주말·휴장일 종일)이면 연결을 스스로 닫고 재연결·단절 감시를 모두 쉰다. 장외에는 받을
+ * 시세가 없는데도 연결을 유지하면 ① 야간·주말 서버 점검 때 재연결 실패 로그가 쌓이고
+ * ② 단절이 180초를 넘기면 {@link MarketDataStale} → 킬스위치가 켜져 다음 날 아침 사람이
+ * 수동 해제해야 하는 상태로 장을 맞게 된다. 대기 중에는 단절 시계 자체를 멈춰 이 경로를 끊고,
+ * ACTIVE로 돌아오는 첫 watchdog 틱에서 곧바로 재연결한다(LOGIN 성공 시 기존 재구독 경로가
+ * 구독 종목·체결통보를 일괄 복구).
+ *
  * <p><b>실측 확정 (2026-09-10, mockapi wss 포트 10000 — docs/measured/ws_probe_20260910_offhours.txt)</b>:
  * <ul>
  *   <li>REG는 <b>LOGIN 응답(return_code=0) 수신 후에만</b> 유효 — 인증 완료 전에 보낸 REG는
@@ -91,6 +100,10 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     private final boolean enabled;
     private final Clock clock;
     private final long staleAfterSeconds;
+    private final MarketSessionService marketSession;
+
+    /** 장외 대기 중인지 — 대기 진입/해제 로그를 전환 시 한 번만 남기기 위한 플래그. */
+    private final AtomicBoolean standby = new AtomicBoolean(false);
 
     private final Set<String> subscribedSymbols = ConcurrentHashMap.newKeySet();
     private final AtomicReference<WebSocketSession> session = new AtomicReference<>();
@@ -141,7 +154,8 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                                  ObjectMapper objectMapper,
                                  @Value("${autostock.ws.enabled:false}") boolean enabled,
                                  Clock clock,
-                                 @Value("${autostock.ws.stale-after:180}") long staleAfterSeconds) {
+                                 @Value("${autostock.ws.stale-after:180}") long staleAfterSeconds,
+                                 MarketSessionService marketSession) {
         this.kiwoomProperties = kiwoomProperties;
         this.tokenManager = tokenManager;
         this.publisher = publisher;
@@ -149,12 +163,19 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         this.enabled = enabled;
         this.clock = clock;
         this.staleAfterSeconds = staleAfterSeconds;
+        this.marketSession = marketSession;
     }
 
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
         if (!enabled) {
             log.info("WS 비활성 (autostock.ws.enabled=false) — 앱키 발급 후 활성화");
+            return;
+        }
+        if (!marketSession.isActive()) {
+            // 장외 기동 — 연결하지 않는다. ACTIVE가 되는 첫 watchdog 틱에서 연결된다.
+            standby.set(true);
+            log.info("WS 장외 대기 — 연결은 다음 장 대응 시각({} KST)에", marketSession.wakeTime());
             return;
         }
         connect();
@@ -182,6 +203,13 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         if (!enabled) {
             return;
         }
+        if (!marketSession.isActive()) {
+            enterStandby();
+            return;
+        }
+        if (standby.compareAndSet(true, false)) {
+            log.info("WS 장외 대기 해제 — 연결 시작");
+        }
         WebSocketSession current = session.get();
         boolean connected = current != null && current.isOpen();
         trackDisconnection(connected);
@@ -201,6 +229,39 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
             log.warn("WS 단절 감지 — 재연결 시도");
             connect();
         }
+    }
+
+    /**
+     * 장외 대기 처리 — 연결이 열려 있으면 정상 종료하고, 단절 시계·백오프를 초기화한다.
+     *
+     * <p>매 틱 호출돼도 안전하다(멱등): 연결이 이미 닫혀 있으면 아무것도 하지 않는다. 대기 진입
+     * 직전에 시작된 connect()가 대기 중에 완료돼 세션이 열리더라도 다음 틱에서 닫힌다.
+     * 단절 시계를 비우는 이유는 클래스 설명 "장외 대기" 참고 — 대기 시간을 단절로 세면
+     * 깨어나는 순간 180초를 넘긴 것으로 판정돼 킬스위치가 켜진다.
+     */
+    private void enterStandby() {
+        if (standby.compareAndSet(false, true)) {
+            log.info("WS 장외 대기 진입 — 연결 해제, 다음 연결 {} KST", marketSession.wakeTime());
+        }
+        disconnectedSince.set(null);
+        staleEventFired.set(false);
+        consecutiveFailures.set(0);
+        nextAttemptAt.set(null);
+
+        WebSocketSession current = session.get();
+        if (current != null && current.isOpen()) {
+            loggedIn.set(false);
+            try {
+                current.close(CloseStatus.NORMAL);
+            } catch (Exception e) {
+                log.warn("WS 대기 진입 중 연결 종료 실패 — 다음 틱에 재시도: {}", e.getMessage());
+            }
+        }
+    }
+
+    /** 장외 대기 중인가 — 테스트 확인용(패키지 접근). */
+    boolean isStandby() {
+        return standby.get();
     }
 
     /**
