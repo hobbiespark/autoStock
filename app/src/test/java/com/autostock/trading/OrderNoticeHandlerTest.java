@@ -13,8 +13,11 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -53,7 +56,37 @@ class OrderNoticeHandlerTest {
         tradingService = new TradingService(
                 new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5)),
                 brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry());
-        handler = new OrderNoticeHandler(tradingService, orderRepository, publisher);
+        handler = new OrderNoticeHandler(tradingService, orderRepository, publisher, clock);
+    }
+
+    private final MutableClock clock = new MutableClock(Instant.parse("2026-09-30T01:00:00Z"));
+
+    /** 보류 만료를 결정론적으로 검증하기 위한 시계. */
+    private static final class MutableClock extends Clock {
+        private Instant now;
+
+        MutableClock(Instant now) {
+            this.now = now;
+        }
+
+        void advance(Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
     }
 
     private OrderRequest order(String idempotencyKey) {
@@ -103,10 +136,40 @@ class OrderNoticeHandlerTest {
     }
 
     @Test
-    void 매핑_없는_통보는_무시() {
+    void 매핑_없는_통보는_즉시_반영하지_않고_보류한다() {
         // tradingService.onOrderRequest를 호출하지 않았고, DB 폴백도 비어있으므로(mock 기본값)
         // 인메모리·DB 둘 다 매핑이 없다
         handler.onOrderNotice(notice("체결", 10, new BigDecimal("70100")));
+
+        assertEquals(0, published.size());
+    }
+
+    @Test
+    void 주문번호_저장보다_먼저_온_체결통보는_등록_후_재처리되어_Fill이_발행된다() {
+        // R4: REST 주문 응답(주문번호 저장)보다 WS 체결 통보가 먼저 도착 — 전량 즉시 체결이면 뒤따르는 통보가 없다
+        handler.onOrderNotice(notice("체결", 10, new BigDecimal("70100"), 0));
+        handler.replayPendingNotices();
+        assertEquals(0, published.size()); // 아직 미등록 → 계속 보류
+
+        OrderEntity entity = stubEntity("key-late", Side.BUY, 10); // 주문번호 저장 완료
+        handler.replayPendingNotices();
+
+        assertEquals(1, published.size());
+        assertEquals(10, ((Fill) published.get(0)).filledQuantity());
+        assertEquals(OrderStatus.FILLED, entity.getStatus());
+
+        handler.replayPendingNotices();
+        assertEquals(1, published.size()); // 한 번 재처리한 통보는 다시 나오지 않는다
+    }
+
+    @Test
+    void 보류_시간이_지나도_등록되지_않은_체결통보는_버린다() {
+        handler.onOrderNotice(notice("체결", 10, new BigDecimal("70100")));
+        clock.advance(PendingOrderNotices.HOLD.plusSeconds(1));
+        handler.replayPendingNotices(); // 만료 → 버림(수동 주문 등)
+
+        stubEntity("key-too-late", Side.BUY, 10);
+        handler.replayPendingNotices();
 
         assertEquals(0, published.size());
     }
