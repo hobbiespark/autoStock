@@ -1,9 +1,9 @@
 package com.autostock.monitor;
 
+import com.autostock.ipo.IpoDealCommandService;
 import com.autostock.ipo.IpoDealEntity;
 import com.autostock.ipo.IpoDealRepository;
 import com.autostock.ipo.IpoStatus;
-import com.autostock.ipo.IpoSyncScheduler;
 import com.autostock.monitor.view.IpoDealView;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,26 +15,28 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 공모주 반자동 파이프라인 API (FE-3, PLAN.md ADR-9 트랙 E2) —
  * {@code GET /api/ipo?status=}, {@code POST /api/ipo/{id}/record}, {@code POST /api/ipo/{id}/metrics}.
  *
- * <p>ipo 모듈의 {@link IpoDealRepository}를 직접 참조한다 — {@code OrderHistoryController}가
+ * <p>조회는 ipo 모듈의 {@link IpoDealRepository}를 직접 참조한다 — {@code OrderHistoryController}가
  * trading 모듈을 직접 참조하는 기존 패턴과 동일(단일 소스 조회라 별도 Facade 없음,
- * ARCHITECTURE.md 규칙 20). 청약 "실행"은 이 API의 범위가 아니다 — 영웅문S#에서 수동
- * (ADR-9 확정).
+ * ARCHITECTURE.md 규칙 20). 수동 입력(명령)은 트랜잭션 경계를 가진 {@link IpoDealCommandService}에
+ * 맡긴다(ARCHITECTURE.md 10절 "Command는 Application Service"). 청약 "실행"은 이 API의 범위가
+ * 아니다 — 영웅문S#에서 수동(ADR-9 확정).
  */
 @RestController
 @RequestMapping("/api/ipo")
 public class IpoController {
 
     private final IpoDealRepository repository;
-    private final IpoSyncScheduler syncScheduler;
+    private final IpoDealCommandService commandService;
 
-    public IpoController(IpoDealRepository repository, IpoSyncScheduler syncScheduler) {
+    public IpoController(IpoDealRepository repository, IpoDealCommandService commandService) {
         this.repository = repository;
-        this.syncScheduler = syncScheduler;
+        this.commandService = commandService;
     }
 
     @GetMapping
@@ -48,14 +50,9 @@ public class IpoController {
     /** 내 청약/배정/매도 기록 upsert — 부분 갱신(null 필드는 기존 값 유지). */
     @PostMapping("/{id}/record")
     public ResponseEntity<IpoDealView> record(@PathVariable Long id, @RequestBody IpoRecordRequest request) {
-        IpoDealEntity entity = repository.findById(id).orElse(null);
-        if (entity == null) {
-            return ResponseEntity.notFound().build();
-        }
-        entity.applyRecord(request.appliedQty(), request.deposit(), request.allocatedQty(),
-                request.sellPrice(), request.sellDate(), request.memo());
-        repository.save(entity);
-        return ResponseEntity.ok(toView(entity));
+        return toResponse(commandService.recordMyDeal(id, new IpoDealCommandService.RecordCommand(
+                request.appliedQty(), request.deposit(), request.allocatedQty(),
+                request.sellPrice(), request.sellDate(), request.memo())));
     }
 
     /**
@@ -65,15 +62,13 @@ public class IpoController {
      */
     @PostMapping("/{id}/metrics")
     public ResponseEntity<IpoDealView> metrics(@PathVariable Long id, @RequestBody IpoMetricsRequest request) {
-        IpoDealEntity entity = repository.findById(id).orElse(null);
-        if (entity == null) {
-            return ResponseEntity.notFound().build();
-        }
-        entity.applyMetrics(request.institutionalCompetitionRate(), request.lockupCommitRate(), request.listingDate());
-        syncScheduler.evaluateFilter(entity);
-        syncScheduler.refreshStatus(entity);
-        repository.save(entity);
-        return ResponseEntity.ok(toView(entity));
+        return toResponse(commandService.updateMetrics(id, new IpoDealCommandService.MetricsCommand(
+                request.institutionalCompetitionRate(), request.lockupCommitRate(), request.listingDate())));
+    }
+
+    private static ResponseEntity<IpoDealView> toResponse(Optional<IpoDealEntity> updated) {
+        return updated.map(entity -> ResponseEntity.ok(toView(entity)))
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     private static IpoStatus parseStatus(String raw) {

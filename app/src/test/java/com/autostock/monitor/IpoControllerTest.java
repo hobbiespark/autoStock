@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.ipo.DartClient;
 import com.autostock.ipo.DartProperties;
+import com.autostock.ipo.IpoDealCommandService;
 import com.autostock.ipo.IpoDealEntity;
 import com.autostock.ipo.IpoDealRepository;
 import com.autostock.ipo.IpoFilterProperties;
@@ -38,7 +39,8 @@ class IpoControllerTest {
             new DartProperties(true, "test-key", 14),
             new IpoFilterProperties(new BigDecimal("500"), new BigDecimal("0.20")),
             mock(DartClient.class), repository, mock(ApplicationEventPublisher.class), Clock.systemUTC());
-    private final IpoController controller = new IpoController(repository, syncScheduler);
+    private final IpoController controller =
+            new IpoController(repository, new IpoDealCommandService(repository, syncScheduler));
 
     @Test
     void status_생략시_전체_목록을_반환한다() {

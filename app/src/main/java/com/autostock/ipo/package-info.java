@@ -12,10 +12,10 @@
  * monitor.TradeNotificationListener}와 같은 브리지 패턴, ARCHITECTURE.md 9절). ipo →
  * monitor 방향 타입 의존은 없다(단방향, 순환 없음).
  *
- * <p>monitor 모듈은 이 모듈의 {@link com.autostock.ipo.IpoDealRepository}를 직접 참조해
- * API(GET /api/ipo, POST /api/ipo/{id}/record, POST /api/ipo/{id}/metrics)를 제공한다 —
- * monitor가 이미 trading.OrderRepository를 직접 참조하는 기존 패턴과 동일하다
- * (monitor/OrderHistoryController Javadoc 참고).
+ * <p>monitor 모듈은 조회(GET /api/ipo)에 이 모듈의 {@link com.autostock.ipo.IpoDealRepository}를
+ * 직접 참조한다 — monitor가 이미 trading.OrderRepository를 직접 참조하는 기존 패턴과 동일하다
+ * (monitor/OrderHistoryController Javadoc 참고). 수동 입력(POST /api/ipo/{id}/record,
+ * POST /api/ipo/{id}/metrics)은 {@link com.autostock.ipo.IpoDealCommandService}를 거친다.
  */
 @org.springframework.modulith.ApplicationModule(displayName = "ipo")
 package com.autostock.ipo;
