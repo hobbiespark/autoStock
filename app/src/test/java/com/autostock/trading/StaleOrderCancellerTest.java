@@ -103,7 +103,7 @@ class StaleOrderCancellerTest {
     @Test
     void 취소요청_저장이_충돌하고_그_사이_체결됐으면_취소하지_않는다() {
         TradingProperties properties = new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
-        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock);
+        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock, marketSession);
         OrderEntity stale = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(6)));
         OrderEntity latest = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(6)));
         latest.applyFill(4); // 목록 조회 뒤 체결 통보가 먼저 저장됐다(R2)
