@@ -3,6 +3,7 @@ package com.autostock.smoke;
 import com.autostock.macrointel.DisclosureBlacklistProperties;
 import com.autostock.macrointel.MajorDisclosureDartClient;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.http.client.reactive.ClientHttpConnectorSettings;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.LocalDate;
@@ -31,7 +32,8 @@ class DartDisclosureSmokeIT {
                 "DART_API_KEY가 없어 스모크 테스트를 스킵함 — .env를 source한 뒤 다시 실행할 것");
 
         DisclosureBlacklistProperties properties = new DisclosureBlacklistProperties(true, apiKey, 14, 180);
-        MajorDisclosureDartClient client = new MajorDisclosureDartClient(WebClient.builder(), properties);
+        MajorDisclosureDartClient client = new MajorDisclosureDartClient(WebClient.builder(),
+                ClientHttpConnectorSettings.defaults(), properties);
 
         // 최근 14일 주요사항보고서(유상증자/CB/BW/EB) — 결과 건수는 시점마다 달라지므로 예외 없이
         // 호출이 성공하는지(빈 리스트 포함 정상)만 확인한다.

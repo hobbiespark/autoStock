@@ -134,6 +134,12 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     private static final long MAX_BACKOFF_SECONDS = 300;
     /** 전체 스택트레이스를 남기는 최대 연속 실패 횟수 — 이후에는 한 줄 요약만. */
     private static final int STACKTRACE_UNTIL = 3;
+    /**
+     * 연결(TCP·TLS·업그레이드) 단계 IO 상한 — Tomcat WebSocket 클라이언트 속성. 기본값(5초)과 같지만 명시한다:
+     * 이 상한이 없으면 연결 future가 끝나지 않아 {@code connecting}이 true로 남고 재연결이 영구히 멈춘다.
+     */
+    static final Map<String, Object> CONNECT_PROPERTIES =
+            Map.of("org.apache.tomcat.websocket.IO_TIMEOUT_MS", String.valueOf(Duration.ofSeconds(5).toMillis()));
 
     public KiwoomWebSocketClient(KiwoomProperties kiwoomProperties,
                                  TokenManager tokenManager,
@@ -237,6 +243,7 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         }
         try {
             StandardWebSocketClient client = new StandardWebSocketClient();
+            client.setUserProperties(CONNECT_PROPERTIES);
             client.execute(this, null, URI.create(kiwoomProperties.wsUrl()))
                     .whenComplete((s, ex) -> {
                         connecting.set(false);

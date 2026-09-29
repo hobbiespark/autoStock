@@ -3,6 +3,7 @@ package com.autostock.smoke;
 import com.autostock.ipo.DartClient;
 import com.autostock.ipo.DartProperties;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.http.client.reactive.ClientHttpConnectorSettings;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.LocalDate;
@@ -32,7 +33,7 @@ class DartIpoSmokeIT {
                 "DART_API_KEY가 없어 스모크 테스트를 스킵함 — .env를 source한 뒤 다시 실행할 것");
 
         DartProperties properties = new DartProperties(true, apiKey, 14);
-        DartClient client = new DartClient(WebClient.builder(), properties);
+        DartClient client = new DartClient(WebClient.builder(), ClientHttpConnectorSettings.defaults(), properties);
 
         // 최근 14일 증권신고서(지분증권) 목록 — 결과 건수는 시점마다 달라지므로 예외 없이
         // 호출이 성공하는지(빈 리스트 포함 정상)만 확인한다.
