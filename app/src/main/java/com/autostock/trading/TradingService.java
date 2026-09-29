@@ -176,12 +176,12 @@ public class TradingService {
         }
 
         entity.transitionTo(OrderStatus.SUBMITTING);
-        orderRepository.save(entity);
+        entity = save(entity);
 
         try {
             BrokerOrderResult result = brokerPort.placeOrder(request);
             entity.markSubmitted(result.brokerOrderId());
-            orderRepository.save(entity);
+            entity = save(entity);
             brokerOrderIdToRequest.put(result.brokerOrderId(), request);
             log.info("[LIVE] 주문 접수: {} → 주문번호 {}", request.symbol(), result.brokerOrderId());
         } catch (BrokerRejectedException e) {
@@ -217,35 +217,80 @@ public class TradingService {
      */
     @EventListener
     public void onCancelRequest(CancelRequest request) {
-        var entityOpt = orderRepository.findByClientOrderId(request.clientOrderId());
+        String clientOrderId = request.clientOrderId();
+        var entityOpt = orderRepository.findByClientOrderId(clientOrderId);
         if (entityOpt.isEmpty()) {
-            log.warn("취소 요청 대상 주문 없음: {}", request.clientOrderId());
+            log.warn("취소 요청 대상 주문 없음: {}", clientOrderId);
             return;
         }
-        OrderEntity entity = entityOpt.get();
-        boolean cancellable = entity.getBrokerOrderId() != null
+        OrderEntity requested = OptimisticRetry.run("취소 요청 " + clientOrderId, entityOpt.get(),
+                () -> orderRepository.findByClientOrderId(clientOrderId),
+                entity -> {
+                    if (!isCancellable(entity)) {
+                        log.warn("취소 불가 상태({}, brokerOrderId={}) — 무시: {}",
+                                entity.getStatus(), entity.getBrokerOrderId(), clientOrderId);
+                        return null;
+                    }
+                    entity.transitionTo(OrderStatus.CANCEL_REQUESTED);
+                    return save(entity);
+                });
+        if (requested == null) {
+            return;
+        }
+
+        boolean cancelled;
+        try {
+            brokerPort.cancelOrder(requested.getBrokerOrderId(), requested.getSymbol(), 0L); // 0 = 잔량 전량
+            cancelled = true;
+        } catch (Exception e) {
+            log.error("[LIVE] 취소 실패 — UNKNOWN 처리 후 대사 요청: {} ({})", clientOrderId, e.getMessage());
+            cancelled = false;
+        }
+        // 브로커 호출 동안 체결 통보가 먼저 반영됐을 수 있다 — 들고 있던 사본이 아니라 최신 주문에
+        // 결과를 적용해야 체결 수량이 덮이지 않는다(R2 F1).
+        applyCancelOutcome(requested, cancelled);
+        if (cancelled) {
+            log.info("[LIVE] 취소 완료({}): {}", request.requestedBy(), clientOrderId);
+        } else {
+            reconciliationService.requestReconcile(clientOrderId);
+        }
+    }
+
+    private static boolean isCancellable(OrderEntity entity) {
+        return entity.getBrokerOrderId() != null
                 && (entity.getStatus() == OrderStatus.SUBMITTED
                     || entity.getStatus() == OrderStatus.ACCEPTED
                     || entity.getStatus() == OrderStatus.PARTIALLY_FILLED);
-        if (!cancellable) {
-            log.warn("취소 불가 상태({}, brokerOrderId={}) — 무시: {}",
-                    entity.getStatus(), entity.getBrokerOrderId(), request.clientOrderId());
-            return;
-        }
-        entity.transitionTo(OrderStatus.CANCEL_REQUESTED);
-        orderRepository.save(entity);
-        try {
-            brokerPort.cancelOrder(entity.getBrokerOrderId(), entity.getSymbol(), 0L); // 0 = 잔량 전량
-            entity.transitionTo(OrderStatus.CANCELLED);
-            orderRepository.save(entity);
-            log.info("[LIVE] 취소 완료({}): {}", request.requestedBy(), request.clientOrderId());
-        } catch (Exception e) {
-            log.error("[LIVE] 취소 실패 — UNKNOWN 처리 후 대사 요청: {} ({})",
-                    request.clientOrderId(), e.getMessage());
-            entity.transitionTo(OrderStatus.UNKNOWN);
-            orderRepository.save(entity);
-            reconciliationService.requestReconcile(request.clientOrderId());
-        }
+    }
+
+    /**
+     * 브로커 취소 결과를 최신 주문에 적용한다. 성공이면 잔량 취소 확정(그 사이 부분체결이 반영됐으면
+     * 체결분은 보존하고 CANCEL_REQUESTED를 거쳐 CANCELLED), 실패면 UNKNOWN. 이미 전량 체결 등으로
+     * 해당 전이가 불가능하면 최신 상태를 존중해 그대로 둔다.
+     */
+    private void applyCancelOutcome(OrderEntity requested, boolean cancelled) {
+        String clientOrderId = requested.getClientOrderId();
+        OptimisticRetry.run("취소 결과 " + clientOrderId, null,
+                () -> orderRepository.findByClientOrderId(clientOrderId),
+                entity -> {
+                    OrderStatus target = cancelled ? OrderStatus.CANCELLED : OrderStatus.UNKNOWN;
+                    if (cancelled && entity.getStatus() != OrderStatus.CANCEL_REQUESTED
+                            && entity.getStatus().canTransitionTo(OrderStatus.CANCEL_REQUESTED)) {
+                        entity.transitionTo(OrderStatus.CANCEL_REQUESTED);
+                    }
+                    if (!entity.getStatus().canTransitionTo(target)) {
+                        log.warn("취소 결과({}) 반영 생략 — 그 사이 {}로 진행됨: {}",
+                                target, entity.getStatus(), clientOrderId);
+                        return entity;
+                    }
+                    entity.transitionTo(target);
+                    return save(entity);
+                });
+    }
+
+    /** 버전이 오른 사본을 돌려준다 — 같은 주문을 다시 저장할 때는 반드시 이 반환값을 쓴다(OrderEntity.version). */
+    private OrderEntity save(OrderEntity entity) {
+        return orderRepository.save(entity);
     }
 
     /**

@@ -151,13 +151,17 @@ public class ReconciliationService {
 
         BrokerOutstandingOrder found = outstandingByBrokerOrderId.get(order.getBrokerOrderId());
         if (found != null) {
-            if (order.getStatus() == OrderStatus.UNKNOWN) {
-                order.transitionTo(OrderStatus.SUBMITTED);
-                orderRepository.save(order);
-                log.info("Reconciliation: UNKNOWN → SUBMITTED 확정(브로커 미체결 목록에서 발견): {}",
-                        order.getClientOrderId());
-            }
-            return; // 이미 SUBMITTED면 상태 변화 없음
+            // 브로커 조회 동안 WS 통보가 먼저 반영됐으면 충돌 → 최신 상태로 다시 판정한다(R2 F2).
+            updateLatest(order, current -> {
+                if (current.getStatus() == OrderStatus.UNKNOWN) {
+                    current.transitionTo(OrderStatus.SUBMITTED);
+                    orderRepository.save(current);
+                    log.info("Reconciliation: UNKNOWN → SUBMITTED 확정(브로커 미체결 목록에서 발견): {}",
+                            current.getClientOrderId());
+                }
+                return current; // 이미 SUBMITTED 이후 상태면 변화 없음
+            });
+            return;
         }
 
         // 브로커 미체결 목록에 없다 — 체결 완료돼 목록에서 빠졌을 수도, 애초에 거부됐을 수도 있다.
@@ -169,16 +173,24 @@ public class ReconciliationService {
             // order.applyFill(...)을 호출하고 Fill 이벤트도 재발행해야 한다.
         } else if (filled.isPresent()) {
             // 명시적으로 "체결 아님"이 확인된 경우에만 REJECTED로 확정한다(정책).
-            if (order.getStatus().canTransitionTo(OrderStatus.REJECTED)) {
-                order.transitionTo(OrderStatus.REJECTED);
-                orderRepository.save(order);
-                log.warn("Reconciliation: 브로커 미체결/체결 어디에도 없음 — REJECTED로 확정: {}",
-                        order.getClientOrderId());
-            }
+            updateLatest(order, current -> {
+                if (current.getStatus().canTransitionTo(OrderStatus.REJECTED)) {
+                    current.transitionTo(OrderStatus.REJECTED);
+                    orderRepository.save(current);
+                    log.warn("Reconciliation: 브로커 미체결/체결 어디에도 없음 — REJECTED로 확정: {}",
+                            current.getClientOrderId());
+                }
+                return current;
+            });
         } else {
             log.warn("Reconciliation: 브로커 미체결 목록에 없음 — 체결/거부 여부 확인 불가(TODO 실측 "
                     + "체결내역 조회 TR 필요), UNKNOWN 유지·수동 확인 필요: {}", order.getClientOrderId());
         }
+    }
+
+    private void updateLatest(OrderEntity order, Function<OrderEntity, OrderEntity> update) {
+        OptimisticRetry.run("대사 " + order.getClientOrderId(), order,
+                () -> orderRepository.findByClientOrderId(order.getClientOrderId()), update);
     }
 
     /**

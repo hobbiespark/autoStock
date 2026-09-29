@@ -5,6 +5,8 @@ import com.autostock.ipo.IpoDealEntity;
 import com.autostock.ipo.IpoDealRepository;
 import com.autostock.ipo.IpoStatus;
 import com.autostock.monitor.view.IpoDealView;
+import org.springframework.dao.OptimisticLockingFailureException;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -16,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * 공모주 반자동 파이프라인 API (FE-3, PLAN.md ADR-9 트랙 E2) —
@@ -50,7 +53,7 @@ public class IpoController {
     /** 내 청약/배정/매도 기록 upsert — 부분 갱신(null 필드는 기존 값 유지). */
     @PostMapping("/{id}/record")
     public ResponseEntity<IpoDealView> record(@PathVariable Long id, @RequestBody IpoRecordRequest request) {
-        return toResponse(commandService.recordMyDeal(id, new IpoDealCommandService.RecordCommand(
+        return toResponse(() -> commandService.recordMyDeal(id, new IpoDealCommandService.RecordCommand(
                 request.appliedQty(), request.deposit(), request.allocatedQty(),
                 request.sellPrice(), request.sellDate(), request.memo())));
     }
@@ -62,13 +65,18 @@ public class IpoController {
      */
     @PostMapping("/{id}/metrics")
     public ResponseEntity<IpoDealView> metrics(@PathVariable Long id, @RequestBody IpoMetricsRequest request) {
-        return toResponse(commandService.updateMetrics(id, new IpoDealCommandService.MetricsCommand(
+        return toResponse(() -> commandService.updateMetrics(id, new IpoDealCommandService.MetricsCommand(
                 request.institutionalCompetitionRate(), request.lockupCommitRate(), request.listingDate())));
     }
 
-    private static ResponseEntity<IpoDealView> toResponse(Optional<IpoDealEntity> updated) {
-        return updated.map(entity -> ResponseEntity.ok(toView(entity)))
-                .orElseGet(() -> ResponseEntity.notFound().build());
+    /** 없는 딜은 404, 배치와 동시 갱신 충돌은 409(최신 값으로 다시 입력). */
+    private static ResponseEntity<IpoDealView> toResponse(Supplier<Optional<IpoDealEntity>> command) {
+        try {
+            return command.get().map(entity -> ResponseEntity.ok(toView(entity)))
+                    .orElseGet(() -> ResponseEntity.notFound().build());
+        } catch (OptimisticLockingFailureException e) {
+            return ResponseEntity.status(HttpStatus.CONFLICT).build();
+        }
     }
 
     private static IpoStatus parseStatus(String raw) {

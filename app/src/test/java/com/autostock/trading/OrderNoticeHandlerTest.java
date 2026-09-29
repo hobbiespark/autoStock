@@ -10,6 +10,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.math.BigDecimal;
 import java.time.Duration;
@@ -20,6 +21,7 @@ import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -43,6 +45,7 @@ class OrderNoticeHandlerTest {
     @BeforeEach
     void setUp() {
         orderRepository = mock(OrderRepository.class);
+        when(orderRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         BrokerPort brokerPort = mock(BrokerPort.class);
         when(brokerPort.placeOrder(any(OrderRequest.class))).thenReturn(new BrokerOrderResult(BROKER_ORDER_ID));
         ReconciliationService reconciliationService = mock(ReconciliationService.class);
@@ -223,6 +226,33 @@ class OrderNoticeHandlerTest {
 
         assertEquals(1, published.size());
         assertEquals(OrderStatus.FILLED, entity.getStatus());
+    }
+
+    @Test
+    void 체결_저장이_동시_갱신과_충돌하면_최신_누적치로_증분을_다시_계산한다() {
+        // 통보 처리 중 다른 경로가 먼저 4주를 반영해 저장했다 — 옛 사본(누적 0)으로 저장하면 충돌(R2).
+        OrderEntity stale = new OrderEntity("key-conflict", "005930", Side.BUY,
+                10, new BigDecimal("70000"), "test-strategy");
+        stale.transitionTo(OrderStatus.VALIDATED);
+        stale.transitionTo(OrderStatus.SUBMITTING);
+        stale.markSubmitted(BROKER_ORDER_ID);
+        OrderEntity latest = new OrderEntity("key-conflict", "005930", Side.BUY,
+                10, new BigDecimal("70000"), "test-strategy");
+        latest.transitionTo(OrderStatus.VALIDATED);
+        latest.transitionTo(OrderStatus.SUBMITTING);
+        latest.markSubmitted(BROKER_ORDER_ID);
+        latest.applyFill(4);
+        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID))
+                .thenReturn(Optional.of(stale), Optional.of(latest));
+        doThrow(new ObjectOptimisticLockingFailureException(OrderEntity.class, 1L))
+                .when(orderRepository).save(stale);
+
+        handler.onOrderNotice(notice("체결", 10, new BigDecimal("70000")));
+
+        assertEquals(1, published.size());
+        assertEquals(6, ((Fill) published.get(0)).filledQuantity()); // 10 − 최신 누적 4
+        assertEquals(10, latest.getFilledQuantity());
+        assertEquals(OrderStatus.FILLED, latest.getStatus());
     }
 
     // ── 실측 전문 재생 (docs/measured/ws_probe_20260911_intraday.txt, 마스킹 없음) ──

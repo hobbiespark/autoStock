@@ -8,6 +8,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import jakarta.persistence.Version;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -108,6 +109,11 @@ public class IpoDealEntity {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+
+    /** 낙관적 잠금 버전(V8) — 배치와 수동 입력이 같은 딜을 동시에 갱신할 때 나중 저장이 앞 입력을 덮지 않게 한다. */
+    @Version
+    @Column(nullable = false)
+    private long version;
 
     /** JPA 전용 — 직접 사용 금지. */
     protected IpoDealEntity() {

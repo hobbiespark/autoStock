@@ -12,6 +12,7 @@ import com.autostock.ipo.IpoSyncScheduler;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatus;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
@@ -89,6 +90,17 @@ class IpoControllerTest {
         assertEquals(10, response.getBody().appliedQty());
         assertEquals(0, response.getBody().deposit().compareTo(new BigDecimal("503000")));
         assertEquals("메모", response.getBody().memo());
+    }
+
+    @Test
+    void 배치와_동시_갱신_충돌이면_409를_반환한다() {
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        when(repository.findById(1L)).thenReturn(Optional.of(entity));
+        when(repository.save(entity)).thenThrow(new ObjectOptimisticLockingFailureException(IpoDealEntity.class, 1L));
+
+        var response = controller.metrics(1L, new IpoMetricsRequest(new BigDecimal("600"), null, null));
+
+        assertEquals(409, response.getStatusCode().value());
     }
 
     @Test

@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
+import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -117,6 +118,8 @@ public class IpoSyncScheduler {
         for (DartClient.DealNotice deal : deals) {
             try {
                 syncOneDeal(deal, since, today);
+            } catch (OptimisticLockingFailureException e) {
+                log.info("공모주 딜 동기화 저장 생략(동시 수동 입력, 다음 배치 재시도) — corpName={}", deal.corpName());
             } catch (RuntimeException e) {
                 log.error("공모주 딜 동기화 실패(스킵) — corpName={}, rceptNo={}",
                         deal.corpName(), deal.rceptNo(), e);
@@ -130,8 +133,14 @@ public class IpoSyncScheduler {
             recalculateStatus(entity, today);
             evaluateFilter(entity);
             maybeAlert(entity, today);
+            try {
+                repository.save(entity);
+            } catch (OptimisticLockingFailureException e) {
+                // 조회 뒤 수동 입력(IpoDealCommandService)이 먼저 저장됐다 — 그 입력을 덮지 않고 이번엔
+                // 건너뛴다. 상태·필터는 다음 배치(또는 입력 직후 재평가)에서 다시 맞춰진다.
+                log.info("공모주 딜 재계산 저장 생략(동시 수동 입력) — corpName={}", entity.getCorpName());
+            }
         }
-        repository.saveAll(all);
     }
 
     private void syncOneDeal(DartClient.DealNotice deal, LocalDate since, LocalDate today) {
