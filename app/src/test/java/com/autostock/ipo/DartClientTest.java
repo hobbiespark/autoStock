@@ -2,6 +2,7 @@ package com.autostock.ipo;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.http.client.reactive.ClientHttpConnectorSettings;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
@@ -100,7 +101,7 @@ class DartClientTest {
         private final Map<String, Object> detailResponse;
 
         TestableDartClient(Map<String, Object> listResponse, Map<String, Object> detailResponse) {
-            super(WebClient.builder(), new DartProperties(true, "test-key", 14));
+            super(WebClient.builder(), ClientHttpConnectorSettings.defaults(), new DartProperties(true, "test-key", 14));
             this.listResponse = listResponse;
             this.detailResponse = detailResponse;
         }

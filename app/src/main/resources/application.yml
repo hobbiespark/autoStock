@@ -33,6 +33,13 @@ spring:
         order_inserts: true
   flyway:
     enabled: true
+  http:
+    reactiveclient:
+      # 모든 외부 HTTP(WebClient) 호출의 공통 상한 — Reactor Netty 기본은 응답 타임아웃이 없어
+      # 절전 복귀·망 단절 뒤 block()이 무한 대기한다(2026-09-22 사고 계열). DART 전용 커넥터도 이 값을 쓴다.
+      # 키움 REST는 KiwoomRestClient의 15초 per-call 상한이 먼저 걸린다.
+      connect-timeout: 5s
+      read-timeout: 20s
 
 server:
   # 루프백 전용 바인딩 — 무인증 shutdown·킬스위치·test-signal·Swagger를 외부망에서 막는다.

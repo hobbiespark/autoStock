@@ -84,7 +84,7 @@ public class FredClient {
                         .build())
                 .retrieve()
                 .bodyToMono(Map.class)
-                .block(); // TODO 실측: 타임아웃/재시도 정책은 실제 응답 지연 확인 후 결정
+                .block(); // 타임아웃은 공통 설정(spring.http.reactiveclient.*), 재시도는 스케줄 따라잡기가 대신한다
     }
 
     @SuppressWarnings("unchecked")

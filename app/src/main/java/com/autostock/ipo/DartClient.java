@@ -3,12 +3,13 @@ package com.autostock.ipo;
 import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.client.reactive.ReactorClientHttpConnector;
+import org.springframework.boot.http.client.reactive.ClientHttpConnectorBuilder;
+import org.springframework.boot.http.client.reactive.ClientHttpConnectorSettings;
+import org.springframework.http.client.reactive.ClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SupportedCipherSuiteFilter;
-import reactor.netty.http.client.HttpClient;
 
 import javax.net.ssl.SSLContext;
 import java.security.GeneralSecurityException;
@@ -85,8 +86,9 @@ public class DartClient {
     private final WebClient webClient;
     private final DartProperties properties;
 
-    public DartClient(WebClient.Builder webClientBuilder, DartProperties properties) {
-        this.webClient = webClientBuilder.baseUrl(BASE_URL).clientConnector(jdkCipherConnector()).build();
+    public DartClient(WebClient.Builder webClientBuilder, ClientHttpConnectorSettings connectorSettings,
+                      DartProperties properties) {
+        this.webClient = webClientBuilder.baseUrl(BASE_URL).clientConnector(jdkCipherConnector(connectorSettings)).build();
         this.properties = properties;
     }
 
@@ -98,14 +100,19 @@ public class DartClient {
      * ECDHE·TLS_RSA 계열뿐이고(DHE 없음), JDK 21은 TLS_RSA_*를 비활성화해 두어 서버와 겹치는 스위트가 0개 →
      * handshake_failure. 순수 JDK SSLSocket(scripts/TlsProbe.java)은 JDK 기본 목록에 DHE가 있어 성공한다.
      * 신뢰 저장소·프로토콜 협상은 JDK 기본 그대로다.
+     *
+     * <p>커넥터를 교체하면 Boot 자동구성 커넥터의 타임아웃이 빠지므로, 같은 설정(spring.http.reactiveclient.*)으로
+     * 빌드하고 TLS만 customizer로 얹는다(customizer는 설정 적용 뒤에 실행된다).
      */
-    private static ReactorClientHttpConnector jdkCipherConnector() {
+    private static ClientHttpConnector jdkCipherConnector(ClientHttpConnectorSettings settings) {
         try {
             String[] jdkCiphers = SSLContext.getDefault().getDefaultSSLParameters().getCipherSuites();
             var ssl = SslContextBuilder.forClient()
                     .ciphers(Arrays.asList(jdkCiphers), SupportedCipherSuiteFilter.INSTANCE)
                     .build();
-            return new ReactorClientHttpConnector(HttpClient.create().secure(spec -> spec.sslContext(ssl)));
+            return ClientHttpConnectorBuilder.reactor()
+                    .withHttpClientCustomizer(client -> client.secure(spec -> spec.sslContext(ssl)))
+                    .build(settings);
         } catch (GeneralSecurityException | javax.net.ssl.SSLException e) {
             throw new IllegalStateException("DART용 SslContext 생성 실패", e);
         }
