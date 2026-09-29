@@ -3,6 +3,7 @@ package com.autostock.trading;
 import com.autostock.common.event.Side;
 import com.autostock.execution.BrokerOutstandingOrder;
 import com.autostock.execution.BrokerPort;
+import com.autostock.market.MarketSessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,14 +29,17 @@ class ReconciliationServiceTest {
     private OrderRepository orderRepository;
     private BrokerPort brokerPort;
     private ReconciliationService service;
+    private MarketSessionService marketSession;
 
     @BeforeEach
     void setUp() {
         orderRepository = mock(OrderRepository.class);
         when(orderRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         brokerPort = mock(BrokerPort.class);
+        marketSession = mock(MarketSessionService.class);
+        when(marketSession.isActive()).thenReturn(true);
         TradingProperties liveProperties = new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
-        service = new ReconciliationService(orderRepository, brokerPort, liveProperties);
+        service = new ReconciliationService(orderRepository, brokerPort, liveProperties, marketSession);
     }
 
     private OrderEntity submittedEntity(String clientOrderId, String brokerOrderId) {
@@ -139,11 +143,30 @@ class ReconciliationServiceTest {
     @Test
     void SIM_모드에서는_startup_이벤트로_대사하지_않는다() {
         TradingProperties simProperties = new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5));
-        ReconciliationService simService = new ReconciliationService(orderRepository, brokerPort, simProperties);
+        ReconciliationService simService = new ReconciliationService(orderRepository, brokerPort, simProperties, marketSession);
 
         simService.onStartup();
         simService.scheduledReconcile();
 
         verify(orderRepository, never()).findByStatusIn(anyCollection());
+    }
+
+    @Test
+    void 장외_대기중에는_주기_대사를_쉰다() {
+        when(marketSession.isActive()).thenReturn(false);
+
+        service.scheduledReconcile();
+
+        verify(orderRepository, never()).findByStatusIn(anyCollection());
+        verify(brokerPort, never()).outstandingOrders();
+    }
+
+    @Test
+    void 장외_대기중에도_기동_대사는_수행한다() {
+        when(marketSession.isActive()).thenReturn(false);
+
+        service.onStartup(); // 재시작 복구는 시각과 무관하게 우선
+
+        verify(orderRepository, times(1)).findByStatusIn(anyCollection());
     }
 }

@@ -2,6 +2,7 @@ package com.autostock.trading;
 
 import com.autostock.common.event.Side;
 import com.autostock.execution.BrokerPort;
+import com.autostock.market.MarketSessionService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
@@ -36,12 +37,15 @@ class StaleOrderCancellerTest {
     private OrderRepository orderRepository;
     private BrokerPort brokerPort;
     private Clock fixedClock;
+    private MarketSessionService marketSession;
 
     @BeforeEach
     void setUp() {
         orderRepository = mock(OrderRepository.class);
         when(orderRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         brokerPort = mock(BrokerPort.class);
+        marketSession = mock(MarketSessionService.class);
+        when(marketSession.isActive()).thenReturn(true);
         fixedClock = Clock.fixed(NOW, ZoneOffset.UTC);
     }
 
@@ -69,7 +73,7 @@ class StaleOrderCancellerTest {
     @Test
     void 타임아웃_경과한_SUBMITTED_주문은_취소요청된다() {
         TradingProperties properties = new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
-        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock);
+        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock, marketSession);
         // 6분 전 갱신 — 5분 타임아웃을 넘겼다
         OrderEntity stale = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(6)));
         when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(stale));
@@ -84,7 +88,7 @@ class StaleOrderCancellerTest {
     @Test
     void 타임아웃_미경과_주문은_그대로_둔다() {
         TradingProperties properties = new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
-        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock);
+        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock, marketSession);
         // 1분 전 갱신 — 아직 5분 안 지났다
         OrderEntity fresh = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(1)));
         when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(fresh));
@@ -118,10 +122,22 @@ class StaleOrderCancellerTest {
     @Test
     void SIM_모드에서는_동작하지_않는다() {
         TradingProperties properties = new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5));
-        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock);
+        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock, marketSession);
 
         canceller.cancelStaleOrders();
 
         verify(orderRepository, never()).findByStatusIn(anyCollection());
+    }
+
+    @Test
+    void 장외_대기중에는_미체결_취소_점검을_쉰다() {
+        when(marketSession.isActive()).thenReturn(false);
+        TradingProperties properties = new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
+        StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock, marketSession);
+
+        canceller.cancelStaleOrders();
+
+        verify(orderRepository, never()).findByStatusIn(anyCollection());
+        verify(brokerPort, never()).cancelOrder(anyString(), anyString(), anyLong());
     }
 }

@@ -87,6 +87,7 @@ autostock.ws.enabled: true
 ```
 
 - **원클릭/자동 시작 (2026-09-11)**: `scripts\start_autostock.bat` — .env 로드→Docker 대기→postgres→bootRun(LIVE+C3+WS+auto-start)을 한 번에. 종료는 `scripts\stop_autostock.bat`(graceful, POST /actuator/shutdown). **Windows 로그인 시 자동 시작**: `scripts\install_autostart.bat` 1회 실행(+ Docker Desktop 설정에서 "Start when you sign in" 켜기, PC 절전 해제 필수). `autostock.trading.auto-start=true`가 [시작] 클릭까지 자동화 — 킬스위치가 켜진 채 재시작해도 RiskGate가 주문을 차단하므로 안전(해제는 수동 원칙 유지)
+- **장외 대기 (2026-09-29)**: 앱은 24시간 켜 두면 된다. 거래일 **08:30~16:00(KST)만 ACTIVE**, 그 외(16:00~익거래일 08:30, 주말·휴장일 종일)는 **STANDBY** — WS 연결 해제, 5분 주기 대사·1분 미체결 취소 점검 중지. 운영 상태기계(RUNNING)는 그대로라 아침에 [시작]을 다시 누를 필요 없음. 로그: `시장 세션 ACTIVE → STANDBY — 장외 대기 … 다음 활성화: …` / `WS 장외 대기 해제 — 연결 시작`. 설정 `autostock.session.{enabled,wake-time,sleep-time}`(NXT 대응 시 07:30/20:30). 장외에 WS·대사를 직접 검증하려면 `--autostock.session.enabled=false`. 텔레그램 명령·DART/매크로/IPO 배치·기동 시 대사는 대기와 무관하게 동작
 - 사전(수동 기동 시): 새 창이면 위 2절의 .env 로더를 먼저 실행(미로드 시 KiwoomProperties 바인딩 실패로 기동 불가)
 - [ ] 앱 시작 → Reconciliation 로그(잔고 대사) 정상 → RUNNING
 - [ ] **WS 로그인 성공(sor_yn=Y) — 재구독 N종목** 로그 확인 (LOGIN→REG 순서 실전 검증 포인트)
@@ -107,6 +108,7 @@ autostock.ws.enabled: true
 | 토큰 발급 실패 "응답 없음" / UnsupportedMediaType | 주말·공휴일 모의 서버 점검(HTML 응답) | 정상 — 앱 백오프로 대기, 평일 재확인 |
 | WS 연결 후 시세 없음 | REG 미등록/재구독 누락 | ws_probe로 REG 응답 확인, KiwoomWebSocketClient 로그 |
 | 주문 UNKNOWN 발생 | 타임아웃 | 정상 설계 — Reconciliation 로그 확인, 자동 해소 안 되면 미체결 조회로 수동 확정 |
+| 08:30 이후에도 WS 미연결 | 휴장일 판정(market_holidays) 오류 또는 session 설정 | 로그 `시장 세션 … STANDBY … 다음 활성화` 시각 확인, 휴장일 DB 점검. 급하면 `autostock.session.enabled=false`로 재기동 |
 | 킬스위치가 저절로 켜짐 | WS 180초 단절 or 일 손실 -2% or VIX≥35 | 원인 로그 확인 후 해소 → 수동 해제(`/resume` 또는 대시보드) |
 | 보수 모드 ON | VIX≥25 or 환율≥1450 | 정상 동작(매수만 금지) — 임계치는 macrointel.* 설정 |
 | Flyway 마이그레이션 실패 | DB 초기화 필요 | `docker compose down -v` 후 재기동(모의 데이터라 소실 무방) |
