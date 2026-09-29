@@ -1,6 +1,7 @@
 package com.autostock.trading;
 
 import com.autostock.execution.BrokerPort;
+import com.autostock.market.MarketSessionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,13 +34,16 @@ public class StaleOrderCanceller {
     private final BrokerPort brokerPort;
     private final TradingProperties properties;
     private final Clock clock;
+    private final MarketSessionService marketSession;
 
     public StaleOrderCanceller(OrderRepository orderRepository, BrokerPort brokerPort,
-                               TradingProperties properties, Clock clock) {
+                               TradingProperties properties, Clock clock,
+                               MarketSessionService marketSession) {
         this.orderRepository = orderRepository;
         this.brokerPort = brokerPort;
         this.properties = properties;
         this.clock = clock;
+        this.marketSession = marketSession;
     }
 
     /**
@@ -50,6 +54,11 @@ public class StaleOrderCanceller {
      */
     @Scheduled(fixedDelay = 60_000)
     public void cancelStaleOrders() {
+        // 장외 대기 중에는 쉰다 — 장 마감 후 미체결은 브로커에서 당일 소멸하므로 취소 TR을 보낼
+        // 이유가 없다. 남은 SUBMITTED는 대기 해제 후 ReconciliationService가 먼저 대사한다.
+        if (!marketSession.isActive()) {
+            return;
+        }
         if (properties.mode() != TradingProperties.Mode.LIVE) {
             return;
         }

@@ -34,6 +34,7 @@ class KiwoomWebSocketClientTest {
     private final List<Object> published = new ArrayList<>();
     private MutableClock clock;
     private KiwoomWebSocketClient client;
+    private MarketSessionService marketSession;
 
     @BeforeEach
     void setUp() {
@@ -41,6 +42,10 @@ class KiwoomWebSocketClientTest {
         TokenManager tokenManager = mock(TokenManager.class);
         // afterConnectionEstablished가 LOGIN 전문에 토큰을 담는다 — null이면 Map.of가 NPE.
         org.mockito.Mockito.when(tokenManager.accessToken()).thenReturn("test-token");
+        // 기본은 장중(ACTIVE) — 기존 테스트는 장외 대기와 무관한 동작을 검증한다.
+        marketSession = mock(MarketSessionService.class);
+        org.mockito.Mockito.when(marketSession.isActive()).thenReturn(true);
+        org.mockito.Mockito.when(marketSession.wakeTime()).thenReturn(java.time.LocalTime.of(8, 30));
         client = new KiwoomWebSocketClient(
                 mock(KiwoomProperties.class),
                 tokenManager,
@@ -48,7 +53,8 @@ class KiwoomWebSocketClientTest {
                 new ObjectMapper(),
                 true,           // enabled
                 clock,
-                STALE_AFTER);
+                STALE_AFTER,
+                marketSession);
     }
 
     @Test
@@ -222,6 +228,64 @@ class KiwoomWebSocketClientTest {
         client.watchdog();
 
         assertEquals(false, connectingFlag(), "connect() 시도/완료 후에는 connecting이 false로 돌아와야 한다");
+    }
+
+    // ── 장외 대기 (2026-09-29) ─────────────────────────────────────────────
+
+    @Test
+    void 장외_대기중에는_오래_끊겨_있어도_MarketDataStale을_발행하지_않는다() throws Exception {
+        org.mockito.Mockito.when(marketSession.isActive()).thenReturn(false);
+
+        for (int i = 0; i < 10; i++) {   // 대기 중 watchdog 틱 — 누적 단절 시간이 임계치를 한참 넘도록
+            client.watchdog();
+            clock.advance(STALE_AFTER);
+        }
+
+        assertTrue(published.isEmpty(), "대기 시간은 단절로 세지 않는다 — 킬스위치 오작동 방지");
+        assertTrue(client.isStandby());
+        assertEquals(false, connectingFlag(), "대기 중에는 재연결을 시도하지 않는다");
+    }
+
+    @Test
+    void 장외_대기_진입시_열린_세션을_닫는다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        client.afterConnectionEstablished(s);
+        org.mockito.Mockito.when(marketSession.isActive()).thenReturn(false);
+
+        client.watchdog();
+
+        org.mockito.Mockito.verify(s).close(org.springframework.web.socket.CloseStatus.NORMAL);
+    }
+
+    @Test
+    void 대기중_쌓인_단절_시간은_깨어난_뒤_새로_잰다() throws Exception {
+        // 대기 직전에 단절이 이미 시작돼 있었다고 가정
+        client.trackDisconnection(false);
+        clock.advance(STALE_AFTER - 10);
+        org.mockito.Mockito.when(marketSession.isActive()).thenReturn(false);
+        client.watchdog();                 // 대기 진입 — 단절 시계 초기화
+        clock.advance(12 * 3600);          // 밤새 대기
+
+        org.mockito.Mockito.when(marketSession.isActive()).thenReturn(true);
+        setConnectingFlag(true);           // 깨어난 틱의 connect()는 진행 중인 것으로(네트워크 부작용 회피)
+        client.watchdog();                 // 대기 해제 — 단절 시작을 지금으로 새로 기록
+
+        assertTrue(published.isEmpty(), "깨어나자마자 킬스위치가 켜지면 안 된다");
+        assertEquals(false, client.isStandby());
+        clock.advance(STALE_AFTER);
+        client.trackDisconnection(false);  // 깨어난 뒤에도 계속 끊겨 있으면 정상적으로 감지
+        assertEquals(1, published.size());
+    }
+
+    @Test
+    void 장외에_기동하면_연결하지_않는다() throws Exception {
+        org.mockito.Mockito.when(marketSession.isActive()).thenReturn(false);
+
+        client.start();
+
+        assertTrue(client.isStandby());
+        assertEquals(false, connectingFlag());
     }
 
     /** 테스트 전용 가변 Clock — 단절 경과시간을 결정론적으로 진행시킨다. */

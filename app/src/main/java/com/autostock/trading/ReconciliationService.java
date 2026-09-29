@@ -2,6 +2,7 @@ package com.autostock.trading;
 
 import com.autostock.execution.BrokerOutstandingOrder;
 import com.autostock.execution.BrokerPort;
+import com.autostock.market.MarketSessionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -36,12 +37,14 @@ public class ReconciliationService {
     private final OrderRepository orderRepository;
     private final BrokerPort brokerPort;
     private final TradingProperties properties;
+    private final MarketSessionService marketSession;
 
     public ReconciliationService(OrderRepository orderRepository, BrokerPort brokerPort,
-                                 TradingProperties properties) {
+                                 TradingProperties properties, MarketSessionService marketSession) {
         this.orderRepository = orderRepository;
         this.brokerPort = brokerPort;
         this.properties = properties;
+        this.marketSession = marketSession;
     }
 
     /**
@@ -71,9 +74,17 @@ public class ReconciliationService {
     /**
      * 주기적 전체 대사(5분). 실패는 경고 후 다음 회차 재시도 — 스케줄러를 죽이지 않는다.
      * fixedDelay인 이유는 {@code StaleOrderCanceller} 참고(절전 후 밀린 회차 동시 실행 방지).
+     *
+     * <p>장외 대기(market.MarketSessionService STANDBY) 중에는 쉰다 — 장외에는 주문 상태가 바뀌지
+     * 않고, 야간·주말 모의 서버 점검 중 호출은 실패 로그만 남긴다. 대기 해제(기본 08:30) 후 첫
+     * 회차가 밤사이 쌓인 UNKNOWN/SUBMITTED를 장 시작 전에 대사한다. 기동 시 대사({@link #onStartup})와
+     * 시작 절차의 {@link #reconcile()}은 시각과 무관하게 그대로 수행한다(재시작 복구가 우선).
      */
     @Scheduled(fixedDelay = 5 * 60 * 1000)
     public void scheduledReconcile() {
+        if (!marketSession.isActive()) {
+            return;
+        }
         if (properties.mode() == TradingProperties.Mode.LIVE) {
             reconcileSafely("주기");
         }

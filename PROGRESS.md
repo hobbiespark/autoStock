@@ -179,6 +179,12 @@ C2-3. **운영 재개 전 장애(2026-09-18 금) — 모의 키 무효화 → �
    - ✅ ⑬ **호가단위(RC4003) 사전 보정**: 수동 폼 193주 매도 지정가 259,250원이 `RC4003 모의투자 호가단위 오류`로 거부됨(20만 원 이상 500원 단위). 전략 계산 기준가도 같은 위험 → `risk.KrxTickSize`(KRX 7단계 눈금, 최근접 반올림)를 RiskGate의 OrderRequest 발행 직전에 적용, 보정 시 로그. 테스트 `KrxTickSizeTest`
    - ✅ ka10001·ka10004 실측 확정(docs/measured/tr_probe_20260918_*.json): cur_prc/open_pric/high_pric/low_pric/stk_nm, sel_fpr_bid/buy_fpr_bid(최우선 매도/매수호가, 부호 접두) — DashboardController 추정 후보 키 제거. ka10075 원소 필드는 미체결 주문이 없어 미확정(BUY 220,000×1주로 미체결 생성 후 재실측 예정)
    - ⚠️ 운영 교훈: 대시보드 폼은 가격 기본값=현재가, 수량 공란=자동 사이징(약 5,000만 원)이라 실측용 주문을 낼 때 두 칸을 반드시 직접 입력할 것 — 11:23 193주(5,000만 원) 즉시 체결 사고. 수동 주문 수량 필수화 또는 제출 전 확인 단계 추가 검토
+C2-4. **장외 대기 전환(2026-09-29)** — 상시 실행 중 장외에 WS·브로커 호출을 멈춘다:
+   - 배경: 24시간 실행 시 야간·주말 모의 서버 점검 중 WS 재연결 실패가 반복되고(9/24 03:24 절전 복귀 직후 재연결 실패 실측), 단절이 180초를 넘기면 `MarketDataStale` → 킬스위치가 장외에 켜져 다음 날 수동 해제가 필요해지는 경로가 열려 있었음
+   - ✅ `market.MarketSessionService`(신규, market 공개 API): 거래일 && 08:30 ≤ KST < 16:00 → ACTIVE, 그 외 STANDBY. 상태를 저장하지 않고 매 호출 계산(절전·시계 점프 내성), 30초마다 전환 로그. `autostock.session.*` 설정
+   - ✅ 소비자: `KiwoomWebSocketClient`(STANDBY면 연결 종료·단절 시계/백오프 초기화·재연결 중지, ACTIVE 첫 틱에 재연결 → LOGIN 후 기존 재구독 경로), `ReconciliationService.scheduledReconcile`·`StaleOrderCanceller`(STANDBY면 스킵; 기동 시 대사·시작 절차 대사는 유지). trading → market 조회 의존 추가(순환 없음, ModularityTests 통과)
+   - ✅ 테스트: `MarketSessionServiceTest`(경계 08:30/16:00·주말·휴장일·UTC 서버 존) + WS 대기 4건 + 대사/취소 대기 3건 — 전체 445건 통과(skip 16)
+   - 의도적으로 제외: `TradingSystemStatus`에 STANDBY 상태 추가(운영자 허가와 장 시간은 직교 — 상태기계·FE 변경 불필요), 텔레그램 폴링·DART/매크로/IPO 배치(장외 배치가 본래 목적)
 C3. 복구 훈련(재시작·Reconciliation·킬스위치 발동/해제), 21일 vs 5일 판단주기 paper A/B
 C4. 게이트 ② 판정 → 실계좌 소액. **실전 전환 전 키 전량 재발급(5절)**
 
