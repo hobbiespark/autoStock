@@ -12,7 +12,8 @@ export default defineConfig({
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:8080',
+      // 백엔드가 IPv4 루프백에만 바인딩하므로(server.address) ::1로 먼저 풀릴 수 있는 localhost 대신 명시
+      '/api': 'http://127.0.0.1:8080',
     },
   },
 });

@@ -34,6 +34,11 @@ spring:
   flyway:
     enabled: true
 
+server:
+  # 루프백 전용 바인딩 — 무인증 shutdown·킬스위치·test-signal·Swagger를 외부망에서 막는다.
+  # 원격 접속이 필요해지면 인증(Spring Security)을 먼저 붙인 뒤 연다.
+  address: 127.0.0.1
+
 management:
   endpoints:
     web:
