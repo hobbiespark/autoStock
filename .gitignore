@@ -8,6 +8,8 @@ out/
 .idea/
 *.iml
 .vscode/
+# IDE 빌드 출력(VS Code Java·Eclipse가 app/bin, common/bin에 컴파일 결과·리소스를 복사) — Gradle 산출물은 build/
+bin/
 
 # Secrets — 절대 커밋 금지
 .env
