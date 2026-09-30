@@ -2,6 +2,7 @@ package com.autostock.execution;
 
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.KiwoomNumbers;
 import com.autostock.kiwoom.KiwoomApiException;
 import com.autostock.kiwoom.KiwoomRestClient;
@@ -82,11 +83,11 @@ public class KiwoomBrokerAdapter implements BrokerPort {
             throw new BrokerRejectedException(e.getMessage(), e);
         }
         Object orderNo = response.get("ord_no");
-        if (orderNo == null) {
+        if (orderNo == null || String.valueOf(orderNo).isBlank()) {
             // 정상 코드인데 주문번호가 없는 기형 응답 — 접수 여부를 단정할 수 없어 불명으로 남긴다
             throw new KiwoomApiException("주문 응답에 주문번호 없음: " + response);
         }
-        return new BrokerOrderResult(orderNo.toString());
+        return new BrokerOrderResult(new BrokerOrderId(String.valueOf(orderNo).trim()));
     }
 
     /**
@@ -99,12 +100,12 @@ public class KiwoomBrokerAdapter implements BrokerPort {
      * base_orig_ord_no(원주문번호), cncl_qty, return_code:0, return_msg:"모의투자 취소주문완료"}}.
      */
     @Override
-    public void cancelOrder(String brokerOrderId, String symbol, long quantity) {
+    public void cancelOrder(BrokerOrderId brokerOrderId, String symbol, long quantity) {
         Map<String, Object> response;
         try {
             response = client.call(TrId.ORDER_CANCEL, ORDER_PATH, Map.of(
                     "dmst_stex_tp", "KRX",
-                    "orig_ord_no", brokerOrderId,              // 실측 확정: 원주문번호
+                    "orig_ord_no", brokerOrderId.value(),      // 실측 확정: 원주문번호
                     "stk_cd", symbol,
                     "cncl_qty", String.valueOf(quantity)        // 실측 확정: "0"이면 잔량 전량 취소
             ));
@@ -133,6 +134,12 @@ public class KiwoomBrokerAdapter implements BrokerPort {
         List<BrokerOutstandingOrder> result = new ArrayList<>();
         for (Object element : orders) {
             if (element instanceof Map<?, ?> raw) {
+                Object orderNo = raw.get("ord_no");
+                if (orderNo == null || String.valueOf(orderNo).isBlank()) {
+                    // 주문번호 없는 행은 대사 대상으로 식별할 수 없다 — 목록 전체를 실패시키지 않고 이 행만 건너뛴다
+                    log.warn("미체결 목록에 주문번호 없는 행 — 건너뜀: 키={}", raw.keySet());
+                    continue;
+                }
                 result.add(toOutstandingOrder((Map<String, Object>) raw));
             }
         }
@@ -147,7 +154,7 @@ public class KiwoomBrokerAdapter implements BrokerPort {
      * 추정이다. mockapi 미체결 주문 응답을 직접 받아본 뒤 확정해야 한다.
      */
     private BrokerOutstandingOrder toOutstandingOrder(Map<String, Object> raw) {
-        String brokerOrderId = String.valueOf(raw.getOrDefault("ord_no", ""));
+        BrokerOrderId brokerOrderId = new BrokerOrderId(String.valueOf(raw.get("ord_no")).trim());
         String symbol = normalizeSymbol(String.valueOf(raw.getOrDefault("stk_cd", "")));
         Side side = parseSide(raw.get("trde_tp")); // TODO 실측: "1"=매도/"2"=매수 등 코드 체계 추정
         long quantity = KiwoomNumbers.toLongOrZero(raw.get("ord_qty"));

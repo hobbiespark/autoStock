@@ -185,7 +185,7 @@ public class TradingService {
 
         try {
             BrokerOrderResult result = brokerPort.placeOrder(request);
-            BrokerOrderId brokerOrderId = new BrokerOrderId(result.brokerOrderId());
+            BrokerOrderId brokerOrderId = result.brokerOrderId();
             entity.markSubmitted(brokerOrderId);
             entity = save(entity);
             brokerOrderIdToRequest.put(brokerOrderId, request);
@@ -246,7 +246,7 @@ public class TradingService {
 
         boolean cancelled;
         try {
-            brokerPort.cancelOrder(requested.getBrokerOrderId().value(), requested.getSymbol(), 0L); // 0 = 잔량 전량
+            brokerPort.cancelOrder(requested.getBrokerOrderId(), requested.getSymbol(), 0L); // 0 = 잔량 전량
             cancelled = true;
         } catch (Exception e) {
             log.error("[LIVE] 취소 실패 — UNKNOWN 처리 후 대사 요청: {} ({})", clientOrderId, e.getMessage());
