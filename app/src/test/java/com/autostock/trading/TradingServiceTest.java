@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -212,6 +213,41 @@ class TradingServiceTest {
 
         verify(brokerPort, never()).cancelOrder(any(), any(), anyLong());
         assertEquals(OrderStatus.FILLED, latest.getStatus());
+    }
+
+    @Test
+    void requestCancel_선행조건이_거짓이면_취소하지_않고_false를_돌려준다() {
+        OrderEntity order = submitted("key-pre", 10);
+        when(orderRepository.findByClientOrderId("key-pre")).thenReturn(Optional.of(order));
+
+        boolean requested = liveService().requestCancel("key-pre", "test", entity -> false);
+
+        assertFalse(requested);
+        assertEquals(OrderStatus.SUBMITTED, order.getStatus());
+        verify(orderRepository, never()).save(order);
+        verify(brokerPort, never()).cancelOrder(any(), any(), anyLong());
+    }
+
+    @Test
+    void requestCancel_대상이_없으면_false를_돌려준다() {
+        when(orderRepository.findByClientOrderId("missing")).thenReturn(Optional.empty());
+
+        boolean requested = liveService().requestCancel("missing", "test", entity -> true);
+
+        assertFalse(requested);
+        verify(brokerPort, never()).cancelOrder(any(), any(), anyLong());
+    }
+
+    @Test
+    void requestCancel_성공하면_true와_CANCELLED() {
+        OrderEntity order = submitted("key-ok", 10);
+        when(orderRepository.findByClientOrderId("key-ok")).thenReturn(Optional.of(order));
+
+        boolean requested = liveService().requestCancel("key-ok", "test", entity -> true);
+
+        assertTrue(requested);
+        assertEquals(OrderStatus.CANCELLED, order.getStatus());
+        verify(brokerPort, times(1)).cancelOrder(any(), any(), anyLong());
     }
 
     /** 저장 반환본 흉내 — 같은 값·상태를 가진 다른 인스턴스. */

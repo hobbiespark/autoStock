@@ -23,6 +23,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Predicate;
 
 /**
  * 주문 오케스트레이션 서비스 — OrderRequest를 받아 실제(또는 가상) 주문으로 바꾼다
@@ -223,11 +224,25 @@ public class TradingService {
      */
     @EventListener
     public void onCancelRequest(CancelRequest request) {
-        String clientOrderId = request.clientOrderId();
+        requestCancel(request.clientOrderId(), request.requestedBy(), entity -> true);
+    }
+
+    /**
+     * 취소 흐름 단일 진입점 — 대시보드 취소({@link #onCancelRequest})와 미체결 타임아웃 취소
+     * ({@link StaleOrderCanceller})가 같은 경로를 쓴다(Phase 0.1, aiDoc/stale-cancel.md).
+     *
+     * <p>{@code precondition}은 <b>최신 주문</b>(낙관적 잠금 충돌 뒤 다시 읽은 사본 포함)에 대해
+     * 취소 가능 조건과 함께 평가한다 — 목록 조회와 취소 사이에 체결 통보가 먼저 반영돼 더 이상
+     * 정체 주문이 아니면 취소하지 않게 하기 위해서다(R2). 조건이 없으면 {@code e -> true}.
+     *
+     * @return 브로커에 취소를 요청했으면 true(성공·실패 무관 — 실패는 UNKNOWN+대사로 넘어간다),
+     *         대상 없음·취소 불가·조건 불충족으로 요청하지 않았으면 false
+     */
+    public boolean requestCancel(String clientOrderId, String requestedBy, Predicate<OrderEntity> precondition) {
         var entityOpt = orderRepository.findByClientOrderId(clientOrderId);
         if (entityOpt.isEmpty()) {
             log.warn("취소 요청 대상 주문 없음: {}", clientOrderId);
-            return;
+            return false;
         }
         OrderEntity requested = OptimisticRetry.run("취소 요청 " + clientOrderId, entityOpt.get(),
                 () -> orderRepository.findByClientOrderId(clientOrderId),
@@ -237,11 +252,16 @@ public class TradingService {
                                 entity.getStatus(), entity.getBrokerOrderId(), clientOrderId);
                         return null;
                     }
+                    if (!precondition.test(entity)) {
+                        log.info("취소 생략({}) — 최신 상태가 조건 불충족({}, 갱신 {}): {}",
+                                requestedBy, entity.getStatus(), entity.getUpdatedAt(), clientOrderId);
+                        return null;
+                    }
                     entity.transitionTo(OrderStatus.CANCEL_REQUESTED, clock.instant());
                     return save(entity);
                 });
         if (requested == null) {
-            return;
+            return false;
         }
 
         boolean cancelled;
@@ -256,10 +276,11 @@ public class TradingService {
         // 결과를 적용해야 체결 수량이 덮이지 않는다(R2 F1).
         applyCancelOutcome(requested, cancelled);
         if (cancelled) {
-            log.info("[LIVE] 취소 완료({}): {}", request.requestedBy(), clientOrderId);
+            log.info("[LIVE] 취소 완료({}): {}", requestedBy, clientOrderId);
         } else {
             reconciliationService.requestReconcile(clientOrderId);
         }
+        return true;
     }
 
     private static boolean isCancellable(OrderEntity entity) {

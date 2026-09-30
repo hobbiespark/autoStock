@@ -175,4 +175,80 @@ class ReconciliationServiceTest {
 
         verify(orderRepository, times(1)).findByStatusIn(anyCollection());
     }
+
+    // ---- Phase 0.1: CANCEL_REQUESTED 대사 (aiDoc/stale-cancel.md) ----
+
+    private OrderEntity cancelRequestedEntity(String clientOrderId, String brokerOrderId, long filled, Instant requestedAt) {
+        OrderEntity entity = submittedEntity(clientOrderId, brokerOrderId);
+        if (filled > 0) {
+            entity.applyFill(new Quantity(filled), requestedAt);
+        }
+        entity.transitionTo(OrderStatus.CANCEL_REQUESTED, requestedAt);
+        return entity;
+    }
+
+    private static BrokerOutstandingOrder outstanding(String brokerOrderId, long remaining) {
+        return new BrokerOutstandingOrder(new BrokerOrderId(brokerOrderId), new StockCode("005930"), Side.BUY, 10, remaining);
+    }
+
+    @Test
+    void 전체_대사_대상에_CANCEL_REQUESTED가_포함된다() {
+        when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of());
+
+        service.reconcile();
+
+        verify(orderRepository).findByStatusIn(
+                List.of(OrderStatus.UNKNOWN, OrderStatus.SUBMITTED, OrderStatus.CANCEL_REQUESTED));
+    }
+
+    @Test
+    void 취소요청_후_유예가_지나도_브로커_미체결에_남아있으면_SUBMITTED로_되돌린다() {
+        OrderEntity order = cancelRequestedEntity("key-c1", "BROKER-C1", 0, Instant.now().minus(Duration.ofMinutes(2)));
+        when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(order));
+        when(brokerPort.outstandingOrders()).thenReturn(List.of(outstanding("BROKER-C1", 10)));
+
+        service.reconcile();
+
+        // 취소 미반영(요청 저장 직후 앱 중단 등) — 미체결로 되돌려 타임아웃 취소가 다시 취소하게 한다
+        assertEquals(OrderStatus.SUBMITTED, order.getStatus());
+        verify(orderRepository, times(1)).save(order);
+    }
+
+    @Test
+    void 부분체결_주문의_취소가_미반영이면_PARTIALLY_FILLED로_되돌리고_체결분은_보존한다() {
+        OrderEntity order = cancelRequestedEntity("key-c2", "BROKER-C2", 4, Instant.now().minus(Duration.ofMinutes(2)));
+        when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(order));
+        when(brokerPort.outstandingOrders()).thenReturn(List.of(outstanding("BROKER-C2", 6)));
+
+        service.reconcile();
+
+        assertEquals(OrderStatus.PARTIALLY_FILLED, order.getStatus());
+        assertEquals(4L, order.getFilledQuantity());
+    }
+
+    @Test
+    void 취소요청_직후에는_브로커_미체결에_남아있어도_건드리지_않는다() {
+        // 진행 중인 취소(브로커 호출 수 초)와 겹치지 않게 유예 1분 안에는 판단하지 않는다
+        OrderEntity order = cancelRequestedEntity("key-c3", "BROKER-C3", 0, Instant.now());
+        when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(order));
+        when(brokerPort.outstandingOrders()).thenReturn(List.of(outstanding("BROKER-C3", 10)));
+
+        service.reconcile();
+
+        assertEquals(OrderStatus.CANCEL_REQUESTED, order.getStatus());
+        verify(orderRepository, never()).save(order);
+    }
+
+    @Test
+    void 취소요청_주문이_브로커_미체결에_없으면_단정하지_않고_CANCEL_REQUESTED를_유지한다() {
+        OrderEntity order = cancelRequestedEntity("key-c4", "BROKER-C4", 0, Instant.now().minus(Duration.ofMinutes(2)));
+        when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(order));
+        when(brokerPort.outstandingOrders()).thenReturn(List.of());
+
+        service.reconcile();
+
+        // 취소됐는지 체결됐는지는 체결내역 조회 TR 없이는 모른다 — CANCELLED로 단정하지 않는다(1.6에서 확장)
+        assertEquals(OrderStatus.CANCEL_REQUESTED, order.getStatus());
+        verify(orderRepository, never()).save(order);
+    }
 }
