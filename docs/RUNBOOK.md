@@ -88,6 +88,7 @@ autostock.ws.enabled: true
 
 - **원클릭/자동 시작 (2026-09-11)**: `scripts\start_autostock.bat` — .env 로드→Docker 대기→postgres→bootRun(LIVE+C3+WS+auto-start)을 한 번에. 종료는 `scripts\stop_autostock.bat`(graceful, POST /actuator/shutdown). **Windows 로그인 시 자동 시작**: `scripts\install_autostart.bat` 1회 실행(+ Docker Desktop 설정에서 "Start when you sign in" 켜기, PC 절전 해제 필수). `autostock.trading.auto-start=true`가 [시작] 클릭까지 자동화 — 킬스위치가 켜진 채 재시작해도 RiskGate가 주문을 차단하므로 안전(해제는 수동 원칙 유지)
 - **장외 대기 (2026-09-29)**: 앱은 24시간 켜 두면 된다. 거래일 **08:30~16:00(KST)만 ACTIVE**, 그 외(16:00~익거래일 08:30, 주말·휴장일 종일)는 **STANDBY** — WS 연결 해제, 5분 주기 대사·1분 미체결 취소 점검 중지. 운영 상태기계(RUNNING)는 그대로라 아침에 [시작]을 다시 누를 필요 없음. 로그: `시장 세션 ACTIVE → STANDBY — 장외 대기 … 다음 활성화: …` / `WS 장외 대기 해제 — 연결 시작`. 설정 `autostock.session.{enabled,wake-time,sleep-time}`(NXT 대응 시 07:30/20:30). 장외에 WS·대사를 직접 검증하려면 `--autostock.session.enabled=false`. 텔레그램 명령·DART/매크로/IPO 배치·기동 시 대사는 대기와 무관하게 동작
+- **장중 절전 방지 (2026-09-30)**: ACTIVE(거래일 08:30~16:00) 동안 앱이 Windows **유휴 절전**을 막는다(`autostock.session.keep-awake`, 기본 true). 수동 절전·노트북 덮개 닫기는 못 막으니 장중엔 하지 말 것. 확인: 장중 관리자 PowerShell `powercfg /requests` → SYSTEM에 java.exe. 절전에서 깨어나면 `절전 복귀 감지 — A ~ B (N시간 M분)` 로그(장중 구간이 걸리면 WARN 알림). 키움이 만료 전 토큰을 `8005`로 거부하면 자동 재발급 후 1회 재시도 — 근거 `aiDoc/sleep-resume.md`
 - 사전(수동 기동 시): 새 창이면 위 2절의 .env 로더를 먼저 실행(미로드 시 KiwoomProperties 바인딩 실패로 기동 불가)
 - [ ] 앱 시작 → Reconciliation 로그(잔고 대사) 정상 → RUNNING
 - [ ] **WS 로그인 성공(sor_yn=Y) — 재구독 N종목** 로그 확인 (LOGIN→REG 순서 실전 검증 포인트)

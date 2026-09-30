@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -41,6 +42,10 @@ import java.util.concurrent.locks.ReentrantLock;
  *       synchronized가 아니라 ReentrantLock인 이유: JDK21 가상 스레드에서 synchronized 블록 안의
  *       블로킹 I/O(webClient.block())는 캐리어 스레드를 고정(pinning)시키는 문제가 있다
  *       (execution.BrokerEquitySource, monitor.EventFeed와 동일한 근거 — ADR-5).</li>
+ *   <li><b>서버 거부 시 폐기</b>({@link #invalidate(String)}, 2026-09-30): 만료 전인데도 서버가
+ *       {@code [8005:Token이 유효하지 않습니다]}로 거부하면 캐시를 버려 다음 호출이 재발급하게 한다.
+ *       실측: 07:12 발급 토큰이 PC 절전 복귀(17:51) 직후 8005로 거부됐고, 캐시상 유효라 재발급 없이
+ *       일일 리포트(kt00018)·분봉 적재(ka10080)가 전부 실패했다.</li>
  * </ul>
  */
 @Component
@@ -66,6 +71,13 @@ public class TokenManager {
     /** issue() 동시 호출을 한 번의 실제 발급으로 합치기 위한 락(single-flight). 클래스 Javadoc 참고. */
     private final ReentrantLock issueLock = new ReentrantLock();
     private final Clock clock;
+
+    /**
+     * 발급 직후 이 시간 안에 거부된 토큰은 폐기하지 않는다 — 막 받은 토큰까지 거부된다면 원인은 토큰이
+     * 아니라(키 오류·서버 점검 등) 재발급해도 소용없고, 거부될 때마다 재발급하면 토큰 발급 호출만 쌓인다.
+     * 결과적으로 재발급은 최대 1분에 한 번으로 묶인다.
+     */
+    static final Duration MIN_AGE_TO_INVALIDATE = Duration.ofSeconds(60);
 
     public TokenManager(WebClient.Builder builder, KiwoomProperties properties, Clock clock) {
         this.clock = clock;
@@ -97,6 +109,29 @@ public class TokenManager {
         return token.value();
     }
 
+    /**
+     * 서버가 거부한 토큰을 캐시에서 버린다 — 다음 {@link #accessToken()} 호출이 새로 발급한다.
+     *
+     * <p>거부된 토큰이 지금 캐시와 같을 때만 버린다: 여러 스레드가 같은 거부를 동시에 보고해도
+     * 이미 다른 스레드가 재발급한 새 토큰을 지우지 않는다. 발급 후 {@link #MIN_AGE_TO_INVALIDATE}가
+     * 지나지 않은 토큰도 버리지 않는다(필드 설명 참고).
+     *
+     * @param rejectedToken 서버가 거부한 요청에 실었던 토큰
+     */
+    public void invalidate(String rejectedToken) {
+        CachedToken current = cached.get();
+        if (current == null || !current.value().equals(rejectedToken)) {
+            return;     // 이미 다른 스레드가 폐기·재발급했다
+        }
+        if (current.issuedAt().plus(MIN_AGE_TO_INVALIDATE).isAfter(clock.instant())) {
+            log.warn("방금 발급한 접근토큰이 거부됨 — 토큰 문제가 아닌 것으로 보고 폐기하지 않는다");
+            return;
+        }
+        if (cached.compareAndSet(current, null)) {
+            log.warn("접근토큰이 만료 전에 서버에서 거부됨 — 캐시 폐기, 다음 호출에서 재발급");
+        }
+    }
+
     /** 키움에 토큰 발급을 요청한다. 실패 시 예외 — 호출자(재시도 로직)가 처리. */
     private CachedToken issue() {
         log.info("접근토큰 발급 요청");
@@ -110,7 +145,7 @@ public class TokenManager {
         if (returnCode != null && ((Number) returnCode).intValue() != 0) {
             throw new KiwoomApiException("토큰 발급 실패: " + response.get("return_msg"));
         }
-        return new CachedToken((String) response.get("token"), parseExpiresAt(response));
+        return new CachedToken((String) response.get("token"), parseExpiresAt(response), clock.instant());
     }
 
     /**
@@ -153,8 +188,9 @@ public class TokenManager {
      *
      * @param value     토큰 문자열
      * @param expiresAt 만료 시각
+     * @param issuedAt  발급받은 시각 — {@link #invalidate(String)}의 최소 수명 판단용
      */
-    private record CachedToken(String value, Instant expiresAt) {
+    private record CachedToken(String value, Instant expiresAt, Instant issuedAt) {
 
         /** 만료 5분 전부터 true — 선제 갱신 트리거. */
         boolean expiresSoon(Instant now) {

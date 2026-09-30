@@ -73,12 +73,81 @@ class TokenManagerTest {
         assertEquals(1, tokenManager.callCount.get());
     }
 
+    // ── 서버 거부 시 폐기(2026-09-30: 절전 복귀 직후 만료 전 토큰이 8005로 거부됨) ──────────
+
+    @Test
+    void 거부된_토큰을_폐기하면_다음_호출에서_재발급한다() {
+        MutableClock clock = new MutableClock();
+        FakeTokenManager tokenManager = new FakeTokenManager(clock);
+        String first = tokenManager.accessToken();
+        clock.advance(TokenManager.MIN_AGE_TO_INVALIDATE.plusSeconds(1));
+
+        tokenManager.invalidate(first);
+        tokenManager.accessToken();
+
+        assertEquals(2, tokenManager.callCount.get());
+    }
+
+    @Test
+    void 방금_발급한_토큰은_거부돼도_폐기하지_않는다() {
+        MutableClock clock = new MutableClock();
+        FakeTokenManager tokenManager = new FakeTokenManager(clock);
+        String first = tokenManager.accessToken();
+        clock.advance(TokenManager.MIN_AGE_TO_INVALIDATE.minusSeconds(1));
+
+        tokenManager.invalidate(first);
+        tokenManager.accessToken();
+
+        assertEquals(1, tokenManager.callCount.get(), "발급 1분 안의 거부는 토큰 문제로 보지 않는다 — 재발급 폭주 방지");
+    }
+
+    @Test
+    void 이미_교체된_토큰의_거부는_새_토큰을_지우지_않는다() {
+        MutableClock clock = new MutableClock();
+        FakeTokenManager tokenManager = new FakeTokenManager(clock);
+        tokenManager.accessToken();
+        clock.advance(TokenManager.MIN_AGE_TO_INVALIDATE.plusSeconds(1));
+
+        tokenManager.invalidate("다른-스레드가-이미-폐기한-옛-토큰");
+        tokenManager.accessToken();
+
+        assertEquals(1, tokenManager.callCount.get());
+    }
+
+    /** 테스트가 직접 앞으로 돌리는 시계. */
+    private static final class MutableClock extends Clock {
+        private java.time.Instant now = java.time.Instant.parse("2026-09-30T00:00:00Z");
+
+        void advance(java.time.Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public java.time.Instant instant() {
+            return now;
+        }
+
+        @Override
+        public java.time.ZoneId getZone() {
+            return java.time.ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
+    }
+
     /** 실제 HTTP 호출 없이 준비된 응답으로 대체하고, 호출 시마다 짧게 지연시켜 동시성 경합을 재현한다. */
     private static final class FakeTokenManager extends TokenManager {
         final AtomicInteger callCount = new AtomicInteger();
 
         FakeTokenManager() {
-            super(WebClient.builder(), PROPERTIES, Clock.systemUTC());
+            this(Clock.systemUTC());
+        }
+
+        FakeTokenManager(Clock clock) {
+            super(WebClient.builder(), PROPERTIES, clock);
         }
 
         @Override

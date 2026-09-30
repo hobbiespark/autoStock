@@ -32,6 +32,8 @@ dependencies {
 
     implementation 'io.github.resilience4j:resilience4j-ratelimiter:2.2.0'
     implementation 'io.github.resilience4j:resilience4j-retry:2.2.0'
+    // Windows 유휴 절전 차단(SetThreadExecutionState) — monitor.SystemSleepBlocker. 장중 PC 절전 사고(2026-09-30) 대응
+    implementation 'net.java.dev.jna:jna-platform:5.14.0'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.modulith:spring-modulith-starter-test'

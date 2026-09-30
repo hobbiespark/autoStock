@@ -105,28 +105,36 @@ public class DisclosureBlacklistSyncScheduler {
         List<MajorDisclosureDartClient.MajorDisclosureNotice> notices =
                 dartClient.fetchRecentIssuanceDecisions(since, today);
         lastSuccessDate = today;
+        int published = 0;
         for (MajorDisclosureDartClient.MajorDisclosureNotice notice : notices) {
             try {
-                publishIfListed(notice);
+                if (publishIfListed(notice)) {
+                    published++;
+                }
             } catch (RuntimeException e) {
                 log.error("공시 블랙리스트 이벤트 발행 실패(스킵) — corpName={}, rceptNo={}",
                         notice.corpName(), notice.rceptNo(), e);
             }
         }
+        // 건별 로그는 DEBUG — 조회 창(lookback) 안의 공시를 매번 전부 다시 발행하므로 INFO로 남기면 같은
+        // 29줄이 수집마다 반복된다(2026-09-30 로그). 실제 신규 등록은 risk가 판단해 "매수 금지 등록" 알림으로 남긴다.
+        log.info("공시 블랙리스트 수집 완료 — {}~{} 주요사항 {}건 중 상장사 {}건 발행", since, today, notices.size(), published);
     }
 
-    private void publishIfListed(MajorDisclosureDartClient.MajorDisclosureNotice notice) {
+    /** @return 이벤트를 발행했으면 true(상장사), 종목코드가 없어 건너뛰었으면 false */
+    private boolean publishIfListed(MajorDisclosureDartClient.MajorDisclosureNotice notice) {
         String stockCode = notice.stockCode();
         if (stockCode == null || stockCode.isBlank()) {
             log.debug("종목코드 없음(비상장) — 블랙리스트 대상 아님, 스킵: corpName={}, rceptNo={}",
                     notice.corpName(), notice.rceptNo());
-            return;
+            return false;
         }
         LocalDate expiresOn = notice.rceptDt().plusDays(properties.retentionDays());
         publisher.publishEvent(new DisclosureRisk(
                 stockCode, notice.corpName(), notice.type().name(), notice.rceptNo(),
                 notice.rceptDt(), expiresOn, clock.instant()));
-        log.info("공시 리스크 이벤트 발행: {}({}) — {}, 만료 {}",
+        log.debug("공시 리스크 이벤트 발행: {}({}) — {}, 만료 {}",
                 notice.corpName(), stockCode, notice.type().label(), expiresOn);
+        return true;
     }
 }

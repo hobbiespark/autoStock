@@ -185,6 +185,12 @@ C2-4. **장외 대기 전환(2026-09-29)** — 상시 실행 중 장외에 WS·�
    - ✅ 소비자: `KiwoomWebSocketClient`(STANDBY면 연결 종료·단절 시계/백오프 초기화·재연결 중지, ACTIVE 첫 틱에 재연결 → LOGIN 후 기존 재구독 경로), `ReconciliationService.scheduledReconcile`·`StaleOrderCanceller`(STANDBY면 스킵; 기동 시 대사·시작 절차 대사는 유지). trading → market 조회 의존 추가(순환 없음, ModularityTests 통과)
    - ✅ 테스트: `MarketSessionServiceTest`(경계 08:30/16:00·주말·휴장일·UTC 서버 존) + WS 대기 4건 + 대사/취소 대기 3건 — 전체 445건 통과(skip 16)
    - 의도적으로 제외: `TradingSystemStatus`에 STANDBY 상태 추가(운영자 허가와 장 시간은 직교 — 상태기계·FE 변경 불필요), 텔레그램 폴링·DART/매크로/IPO 배치(장외 배치가 본래 목적)
+C2-5. **장중 절전·토큰 거부 대응(2026-09-30 로그)** — 10:08 WS 단절 후 17:51까지 앱 정지(PC 절전), 깨어난 직후 kt00018·ka10080이 `8005 Token이 유효하지 않습니다`로 전부 실패:
+   - ✅ `TokenManager.invalidate` + `KiwoomRestClient`: 8005면 토큰 폐기 후 새 토큰으로 1회 재시도(인증 거절이라 주문도 중복 없음). WS LOGIN 실패 시에도 폐기. 발급 1분 이내 토큰은 폐기 안 함(재발급 폭주 방지)
+   - ✅ `monitor.SleepGuard`/`SystemSleepBlocker`(JNA): ACTIVE 동안 Windows 유휴 절전 차단, 30초 틱 간격 3분 이상이면 절전 복귀 감지(장중 걸리면 WARN 알림). `autostock.session.keep-awake`
+   - ✅ 로그 소음: 대기 해제 직후 `WS 단절 감지` 경고 제거, 공시 블랙리스트 건별 발행 로그 DEBUG + 요약 1줄
+   - ✅ 테스트 신규 12건(KiwoomRestClientTest 3, TokenManagerTest 3, SleepGuardTest 5, WS 1) — 전체 543건 통과(skip 16). 근거 `aiDoc/sleep-resume.md`
+   - [ ] 다음 장중 `powercfg /requests`로 절전 차단 실측 확인
 C3. 복구 훈련(재시작·Reconciliation·킬스위치 발동/해제), 21일 vs 5일 판단주기 paper A/B
 C4. 게이트 ② 판정 → 실계좌 소액. **실전 전환 전 키 전량 재발급(5절)**
 

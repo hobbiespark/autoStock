@@ -119,6 +119,9 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
      */
     private final AtomicBoolean loggedIn = new AtomicBoolean(false);
 
+    /** 마지막 LOGIN에 실은 토큰 — 로그인이 거부되면 이 토큰을 폐기해 재연결이 새 토큰을 쓰게 한다. */
+    private final AtomicReference<String> loginToken = new AtomicReference<>();
+
     /**
      * connect() 진행 중(연결 시도가 아직 완료되지 않음)을 나타내는 가드 — 실측(2026-09-11 운영 로그):
      * start()(ApplicationReadyEvent)의 connect()와 watchdog의 첫 틱이 거의 동시에 실행되면,
@@ -213,7 +216,8 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
             enterStandby();
             return;
         }
-        if (standby.compareAndSet(true, false)) {
+        boolean wokeUp = standby.compareAndSet(true, false);
+        if (wokeUp) {
             log.info("WS 장외 대기 해제 — 연결 시작");
         }
         WebSocketSession current = session.get();
@@ -232,7 +236,10 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                 log.debug("WS 재연결 백오프 대기 중 (다음 시도 {})", notBefore);
                 return;
             }
-            log.warn("WS 단절 감지 — 재연결 시도");
+            if (!wokeUp) {
+                // 대기 해제 직후의 첫 연결은 예정된 동작이다 — 단절 경고를 남기지 않는다(2026-09-30 로그 소음).
+                log.warn("WS 단절 감지 — 재연결 시도");
+            }
             connect();
         }
     }
@@ -350,8 +357,10 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         // 새 연결은 미인증 상태에서 시작 — LOGIN만 보내고 REG는 LOGIN 응답 후로 미룬다
         // (실측: 인증 전 REG는 100013으로 무시됨, 클래스 Javadoc).
         loggedIn.set(false);
+        String token = tokenManager.accessToken();
+        loginToken.set(token);
         newSession.sendMessage(new TextMessage(objectMapper.writeValueAsString(
-                Map.of("trnm", "LOGIN", "token", tokenManager.accessToken()))));
+                Map.of("trnm", "LOGIN", "token", token))));
         log.info("WS 연결 — LOGIN 전송, 응답 대기 (구독 {}종목은 로그인 후 등록)", subscribedSymbols.size());
     }
 
@@ -409,10 +418,12 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                 log.info("WS 로그인 성공(sor_yn={}) — 재구독 {}종목 + 체결통보 등록",
                         root.path("sor_yn").asText(), subscribedSymbols.size());
             } else {
-                // 인증 실패 — 이 연결로는 어떤 REG도 유효하지 않다. 닫아서 watchdog이
-                // 새 토큰으로 재연결하게 한다(토큰 만료가 원인일 수 있음).
-                log.error("WS 로그인 실패 return_code={} msg={} — 연결을 닫고 재연결에 맡긴다",
+                // 인증 실패 — 이 연결로는 어떤 REG도 유효하지 않다. 토큰을 폐기하고 닫아서 watchdog이
+                // 새 토큰으로 재연결하게 한다. 폐기하지 않으면 캐시상 유효한 같은 토큰으로 계속 재로그인해
+                // 실패가 반복된다(2026-09-30 REST 8005 실측과 같은 경로). 폐기 빈도는 TokenManager가 제한한다.
+                log.error("WS 로그인 실패 return_code={} msg={} — 토큰 폐기 후 연결을 닫고 재연결에 맡긴다",
                         returnCode, root.path("return_msg").asText());
+                tokenManager.invalidate(loginToken.get());
                 current.close();
             }
             return;
