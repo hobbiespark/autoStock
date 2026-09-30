@@ -5,6 +5,7 @@ import com.autostock.ipo.IpoDealCommandService;
 import com.autostock.ipo.IpoDealRepository;
 import com.autostock.market.MarketDataPort;
 import com.autostock.risk.KillSwitch;
+import com.autostock.trading.TradingProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.MediaType;
@@ -12,9 +13,11 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 import java.time.Clock;
+import java.time.Duration;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -35,7 +38,8 @@ class RequestValidationTest {
 
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(
             new DashboardController(mock(DashboardFacade.class), killSwitch, publisher,
-                    mock(MarketDataPort.class), Clock.systemUTC()),
+                    mock(MarketDataPort.class),
+            new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5)), Clock.systemUTC()),
             new IpoController(mock(IpoDealRepository.class), ipoCommands))
             .setControllerAdvice(new ApiExceptionHandler()).build();
 
@@ -70,11 +74,28 @@ class RequestValidationTest {
     // ── 테스트 시그널 ──────────────────────────────────────────
 
     @Test
-    void 정상_테스트_시그널은_발행된다_수량이_비면_자동_사이징() throws Exception {
+    void 정상_테스트_시그널은_지정_수량으로_발행되고_실행_모드를_돌려준다() throws Exception {
+        postJson("/api/dashboard/test-signal",
+                "{\"symbol\":\"005930\",\"side\":\"BUY\",\"price\":\"258000\",\"quantity\":\"3\"}")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.accepted").value(true))
+                .andExpect(jsonPath("$.executionMode").value("SIM"));
+        verify(publisher).publishEvent(argThat((Object e) -> e instanceof Signal signal
+                && Long.valueOf(3L).equals(signal.fixedQuantity())));
+    }
+
+    @Test
+    void 수량이_비었거나_없으면_400이다_자동_사이징_폐지() throws Exception {
+        // Phase 0.4(D-06): 2026-09-18 수량 공란 → 자동 사이징 193주 체결 사고의 재발 방지
         postJson("/api/dashboard/test-signal",
                 "{\"symbol\":\"005930\",\"side\":\"BUY\",\"price\":\"258000\",\"quantity\":\"\"}")
-                .andExpect(status().isOk());
-        verify(publisher).publishEvent(any(Signal.class));
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("quantity"));
+        postJson("/api/dashboard/test-signal",
+                "{\"symbol\":\"005930\",\"side\":\"BUY\",\"price\":\"258000\"}")
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(publisher);
     }
 
     @Test

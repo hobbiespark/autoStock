@@ -76,7 +76,7 @@ class DailyReportSchedulerTest {
         positionBook = new PositionBook();
         killSwitch = new KillSwitch(event -> { }, mock(RiskStateStore.class), Clock.systemUTC());
         RiskProperties properties = new RiskProperties(0.10, 5, -0.03, 0.05, -0.02, 30,
-                10_000_000, 0.00015, 0.0015, false);
+                10_000_000, 0.00015, 0.0015, false, 1_000_000);
         dailyLimits = new DailyLimitTracker(properties, Clock.systemUTC());
         clock = Clock.fixed(Instant.parse("2026-08-13T02:00:00Z"), ZoneOffset.UTC);
         dailyPnl = new DailyPnlTracker(properties, new PaperEquitySource(properties), killSwitch, mock(RiskStateStore.class), clock);

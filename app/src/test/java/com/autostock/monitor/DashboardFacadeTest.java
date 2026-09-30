@@ -52,7 +52,7 @@ class DashboardFacadeTest {
         return new DashboardFacade(positionBook, eventFeed, killSwitch, dailyLimitTracker, dailyPnlTracker,
                 macroGuard, mock(DisclosureBlacklist.class), tradingSystemManager, executionProperties,
                 new SlippageTracker(java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
-                c3Enabled, wsEnabled);
+                c3Enabled, wsEnabled, 1_000_000);
     }
 
     @Test
@@ -111,6 +111,7 @@ class DashboardFacadeTest {
         SystemStatusView view = facade.system();
 
         assertEquals("LIVE", view.executionMode());
+        assertEquals(1_000_000, view.manualOrderMaxKrw()); // Phase 0.4 — 화면 확인 창이 같은 상한으로 미리 막는다
         assertTrue(view.c3Enabled());
         assertFalse(view.wsEnabled());
     }

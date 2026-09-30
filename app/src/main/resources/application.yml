@@ -76,6 +76,7 @@ risk:
   fee-rate: 0.00015             # 매수/매도 수수료율 — 실현손익 추정용(backtest.CostModel과 동일값)
   sell-tax-rate: 0.0020         # 매도 증권거래세율(2026-01-01 시행: 코스피 0.05%+농특세 0.15%, 코스닥 0.20%) — CostModel과 동일값
   enforce-market-hours: true    # 장 시간(09:00~15:30 KST) 외 Signal 거부 — SIM 테스트에서만 개별적으로 false
+  manual-order-max-krw: 1000000 # 대시보드 수동 매수 1건 금액 상한(원) — 초과하면 RiskGate가 거부(D-06, 9/18 193주 사고 재발 방지). 실전 전환 시 재설정
 
 execution:
   mode: SIM                     # SIM: 즉시 체결 시뮬레이션 / LIVE: 키움 주문 API

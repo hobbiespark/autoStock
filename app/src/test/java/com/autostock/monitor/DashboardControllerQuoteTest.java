@@ -2,11 +2,13 @@ package com.autostock.monitor;
 
 import com.autostock.market.MarketDataPort;
 import com.autostock.risk.KillSwitch;
+import com.autostock.trading.TradingProperties;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -21,7 +23,8 @@ class DashboardControllerQuoteTest {
     private final MarketDataPort marketData = mock(MarketDataPort.class);
     private final DashboardController controller = new DashboardController(
             mock(DashboardFacade.class), mock(KillSwitch.class), mock(ApplicationEventPublisher.class),
-            marketData, Clock.systemUTC());
+            marketData,
+            new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5)), Clock.systemUTC());
 
     @Test
     void 시세와_최우선호가를_옮겨_담는다() {

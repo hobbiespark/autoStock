@@ -14,6 +14,8 @@ package com.autostock.monitor.view;
  * @param executionMode SIM/LIVE (trading.TradingProperties.Mode.name())
  * @param c3Enabled     C3 라이브 전략 활성화 여부(strategy.c3.enabled)
  * @param wsEnabled     키움 실시간 WS 연결 활성화 여부(autostock.ws.enabled)
+ * @param manualOrderMaxKrw 대시보드 수동 매수 1건 금액 상한(원, risk.manual-order-max-krw) — 화면의 발행 전 확인 창이
+ *                      같은 값으로 미리 막는다(판정은 RiskGate, Phase 0.4)
  */
-public record SystemStatusView(String executionMode, boolean c3Enabled, boolean wsEnabled) {
+public record SystemStatusView(String executionMode, boolean c3Enabled, boolean wsEnabled, long manualOrderMaxKrw) {
 }
