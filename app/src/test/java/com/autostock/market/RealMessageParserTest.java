@@ -37,10 +37,21 @@ class RealMessageParserTest {
         Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         MarketTick tick = assertInstanceOf(MarketTick.class, result);
-        assertEquals("005930", tick.symbol());
+        assertEquals(new StockCode("005930"), tick.symbol());
         assertEquals(new BigDecimal("70100"), tick.price());
         assertEquals(12345L, tick.volume());
         assertEquals(MarketTick.Source.LIVE, tick.source());
+    }
+
+    @Test
+    void 종목코드_형식이_틀린_시세는_null() throws Exception {
+        for (String item : new String[]{"", "5930", "005930_AL"}) {
+            JsonNode data = mapper.readTree("""
+                    {"type":"0B","item":"%s","values":{"10":"+70100","15":"1"}}
+                    """.formatted(item));
+
+            assertNull(RealMessageParser.parse(data, Clock.systemUTC()), item);
+        }
     }
 
     @Test
@@ -152,7 +163,7 @@ class RealMessageParserTest {
         Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         MarketTick tick = assertInstanceOf(MarketTick.class, result);
-        assertEquals("005930", tick.symbol());
+        assertEquals(new StockCode("005930"), tick.symbol());
         assertEquals(new BigDecimal("257750"), tick.price());
         assertEquals(19L, tick.volume()); // FID 15 "-19" → 부호 벗긴 크기
         Instant expectedTimestamp = LocalDate.now(MarketConstants.KST)

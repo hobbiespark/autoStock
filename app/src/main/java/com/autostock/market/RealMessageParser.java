@@ -69,12 +69,18 @@ final class RealMessageParser {
      * (필요해지면 MarketTick 확장 또는 별도 이벤트로 다룰 것).
      */
     private static MarketTick parseTick(JsonNode data, Clock clock) {
-        String symbol = data.path("item").asText("");
+        String rawSymbol = data.path("item").asText("").trim();
         JsonNode values = data.path("values");
         String priceRaw = values.path("10").asText("");
-        if (symbol.isEmpty() || priceRaw.isEmpty()) {
+        if (rawSymbol.isEmpty() || priceRaw.isEmpty()) {
             return null;
         }
+        if (!rawSymbol.matches(StockCode.PATTERN)) {
+            // 시세는 초당 여러 건이라 WARN이면 로그가 넘친다. 소비자는 감사 기록·trace 로그뿐이라 버려도 매매 영향이 없다
+            log.debug("시세 종목코드 형식 오류 — 버림: '{}'", rawSymbol);
+            return null;
+        }
+        StockCode symbol = new StockCode(rawSymbol);
         // 키움 REST/WS는 등락 부호(+/-)를 숫자 앞에 붙여 보내는 경우가 있어 제거 후 파싱한다.
         // 부호 정규화는 KiwoomNumbers로 공통화했다(market REST 파서와 중복 제거, PLAN ADR-5).
         BigDecimal price = KiwoomNumbers.toBigDecimal(priceRaw);
