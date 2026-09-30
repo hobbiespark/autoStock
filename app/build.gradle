@@ -35,6 +35,7 @@ dependencies {
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.modulith:spring-modulith-starter-test'
+    testImplementation 'com.tngtech.archunit:archunit:1.4.2'                  // ArchitectureRulesTest — Modulith가 끌고 오는 버전과 동일하게 고정(BOM 미관리)
     testRuntimeOnly 'com.h2database:h2'
 }
 
