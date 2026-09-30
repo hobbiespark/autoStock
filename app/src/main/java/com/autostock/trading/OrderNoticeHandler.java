@@ -184,6 +184,11 @@ public class OrderNoticeHandler {
                 notice.timestamp()));
     }
 
+    /** 통보의 누적 평균 체결가(FID 910). 없으면 null — 빈 값·0·형식 오류는 파서가 null로 번역한다. */
+    private static BigDecimal averagePriceOf(OrderNotice notice) {
+        return notice.fillPrice() == null ? null : notice.fillPrice().value();
+    }
+
     /**
      * Fill에 실을 체결가. 실측(2026-09-11) 체결 통보는 FID 910(누적 평균가)이 늘 있지만, 빠지거나 0이면 주문 지정가로
      * 근사한다 — 지정가 주문의 체결가는 지정가와 같거나 유리하므로 포지션 평단·손익의 오차는 그 차이만큼이다.
@@ -219,9 +224,8 @@ public class OrderNoticeHandler {
             return null;
         }
         BigDecimal deltaPrice = resolveDeltaPrice(notice, cumulativeQty, previousQty, delta);
-        BigDecimal avgPrice = notice.fillPrice();
-        BigDecimal cumNotional = avgPrice == null || avgPrice.signum() <= 0
-                ? null : avgPrice.multiply(BigDecimal.valueOf(cumulativeQty));
+        BigDecimal avgPrice = averagePriceOf(notice);
+        BigDecimal cumNotional = avgPrice == null ? null : avgPrice.multiply(BigDecimal.valueOf(cumulativeQty));
 
         OrderEntity saved = order;
         try {
@@ -252,9 +256,9 @@ public class OrderNoticeHandler {
      */
     private BigDecimal resolveDeltaPrice(OrderNotice notice, long cumulativeQty,
                                          long previousQty, long delta) {
-        BigDecimal avgPrice = notice.fillPrice();
-        if (avgPrice == null || avgPrice.signum() <= 0) {
-            return avgPrice;
+        BigDecimal avgPrice = averagePriceOf(notice);
+        if (avgPrice == null) {
+            return null;
         }
         if (cumulativeNotional.size() >= MAX_TRACKED) {
             log.warn("누적금액 추적 맵 상한({}) 도달 — 비움(단가는 평균가 폴백)", MAX_TRACKED);

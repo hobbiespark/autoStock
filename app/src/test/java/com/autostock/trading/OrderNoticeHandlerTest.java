@@ -105,7 +105,9 @@ class OrderNoticeHandlerTest {
     }
 
     private OrderNotice notice(String status, long filledQuantity, BigDecimal fillPrice, long remainingQuantity) {
-        return new OrderNotice(new BrokerOrderId(BROKER_ORDER_ID), new StockCode("005930"), status, filledQuantity, fillPrice,
+        // 파서(RealMessageParser)와 같은 번역 — 빈 값·0은 "체결가 없음"(null)
+        Price price = fillPrice == null || fillPrice.signum() <= 0 ? null : new Price(fillPrice);
+        return new OrderNotice(new BrokerOrderId(BROKER_ORDER_ID), new StockCode("005930"), status, filledQuantity, price,
                 remainingQuantity, "00", Instant.now());
     }
 
@@ -354,7 +356,7 @@ class OrderNoticeHandlerTest {
         OrderNotice accepted = new OrderNotice(new BrokerOrderId("0119433"), new StockCode("005930"), "접수", 0, null,
                 1, "00", Instant.now());
         OrderNotice filled = new OrderNotice(new BrokerOrderId("0119433"), new StockCode("005930"), "체결", 1,
-                new BigDecimal("258000"), 0, "00", Instant.now());
+                new Price(new BigDecimal("258000")), 0, "00", Instant.now());
 
         handler.onOrderNotice(accepted);
         assertEquals(OrderStatus.ACCEPTED, entity.getStatus());
@@ -379,7 +381,7 @@ class OrderNoticeHandlerTest {
         OrderNotice accepted = new OrderNotice(new BrokerOrderId("0119574"), new StockCode("005930"), "접수", 0, null,
                 1, "00", Instant.now());
         OrderNotice filled = new OrderNotice(new BrokerOrderId("0119574"), new StockCode("005930"), "체결", 1,
-                new BigDecimal("258000"), 0, "00", Instant.now());
+                new Price(new BigDecimal("258000")), 0, "00", Instant.now());
 
         handler.onOrderNotice(accepted);
         assertEquals(OrderStatus.ACCEPTED, entity.getStatus());

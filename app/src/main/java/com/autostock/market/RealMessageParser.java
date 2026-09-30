@@ -5,6 +5,7 @@ import com.autostock.common.event.OrderNotice;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.KiwoomNumbers;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
@@ -84,11 +85,16 @@ final class RealMessageParser {
         // 키움 REST/WS는 등락 부호(+/-)를 숫자 앞에 붙여 보내는 경우가 있어 제거 후 파싱한다.
         // 부호 정규화는 KiwoomNumbers로 공통화했다(market REST 파서와 중복 제거, PLAN ADR-5).
         BigDecimal price = KiwoomNumbers.toBigDecimal(priceRaw);
+        if (price.signum() <= 0) {
+            // 가격 0인 시세는 쓸 데가 없다(소비자는 감사 기록뿐). 종목코드 형식 오류와 같이 DEBUG로 버린다
+            log.debug("시세 가격 0 — 버림: {} '{}'", symbol, priceRaw);
+            return null;
+        }
         // FID 15(체결량)도 같은 이유로 부호가 붙는다(+매수 주도/-매도 주도) — MarketTick.volume은
         // 방향이 아니라 크기만 의미하므로 부호를 벗긴다.
         long volume = KiwoomNumbers.toLongOrZero(values.path("15").asText(""));
         Instant timestamp = parseTickTimestamp(values.path("20").asText(""), clock);
-        return new MarketTick(symbol, price, volume, timestamp, MarketTick.Source.LIVE);
+        return new MarketTick(symbol, new Price(price), volume, timestamp, MarketTick.Source.LIVE);
     }
 
     /**
@@ -135,13 +141,29 @@ final class RealMessageParser {
         StockCode symbol = rawSymbol.matches(StockCode.PATTERN) ? new StockCode(rawSymbol) : null;
         String status = values.path("913").asText("");
         long filledQuantity = KiwoomNumbers.toLongOrZero(values.path("911").asText(""));
-        String fillPriceRaw = values.path("910").asText("");
-        BigDecimal fillPrice = fillPriceRaw.isEmpty() ? null : KiwoomNumbers.toBigDecimal(fillPriceRaw);
+        Price fillPrice = fillPriceOf(values.path("910").asText(""), rawBrokerOrderId);
         // FID 902(미체결 잔량) — 필드가 아예 없으면(과거 픽스처 등) -1(알 수 없음)로 구분한다.
         // "0"으로 실제로 온 경우와 필드 자체가 없는 경우를 섞으면 안 되기 때문.
         String remainingRaw = values.path("902").asText("");
         long remainingQuantity = remainingRaw.isEmpty() ? -1L : KiwoomNumbers.toLongOrZero(remainingRaw);
         return new OrderNotice(brokerOrderId, symbol, status, filledQuantity, fillPrice,
                 remainingQuantity, TYPE_ORDER_NOTICE, clock.instant());
+    }
+
+    /**
+     * FID 910(누적 평균 체결가) 번역 — 빈 값(접수 통보, 실측)·0은 "체결가 없음"(null)이다. 형식이 깨져도 통보는 살린다:
+     * 체결 통보를 잃으면 포지션·손익이 틀어지고, 체결가가 없으면 소비자(OrderNoticeHandler)가 지정가로 근사한다.
+     */
+    private static Price fillPriceOf(String raw, String brokerOrderId) {
+        if (raw.isEmpty()) {
+            return null;
+        }
+        try {
+            BigDecimal value = KiwoomNumbers.toBigDecimal(raw);
+            return value.signum() > 0 ? new Price(value) : null;
+        } catch (NumberFormatException e) {
+            log.warn("주문체결통보 체결가 형식 오류 — 체결가 없이 통보만 전달: {} '{}'", brokerOrderId, raw);
+            return null;
+        }
     }
 }
