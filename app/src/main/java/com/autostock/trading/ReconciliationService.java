@@ -12,6 +12,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.time.Duration;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -24,7 +25,8 @@ import java.util.stream.Collectors;
  * <p>내부 DB(orders 테이블)만 믿지 않는다. 특히 {@link OrderStatus#UNKNOWN}은 "결과를
  * 모르는" 상태이므로, 이 서비스가 브로커의 미체결 목록과 대사(matching)해 실제 상태로
  * 확정시켜야 한다. SUBMITTED 상태 주문도 함께 대사 대상에 포함한다 — 앱 재시작 등으로
- * 인메모리 매핑이 유실됐을 수 있기 때문이다.
+ * 인메모리 매핑이 유실됐을 수 있기 때문이다. CANCEL_REQUESTED도 대상이다(Phase 0.1) — 취소 요청을
+ * 저장한 뒤 브로커 호출·결과 반영 전에 앱이 멈추면 이 상태에 남는다(aiDoc/stale-cancel.md).
  *
  * <p>실행 시점(ARCHITECTURE.md 8절): 앱 시작({@link ApplicationReadyEvent}) 1회,
  * 이후 5분 주기({@link Scheduled}), 그리고 주문 전송 타임아웃 발생 시
@@ -59,6 +61,17 @@ public class ReconciliationService {
      */
     private volatile long lastFullReconcileMs = 0L;
     private static final long MIN_INTERVAL_MS = 10_000L;
+
+    /** 전체 대사 대상 상태. */
+    static final List<OrderStatus> RECONCILE_STATUSES =
+            List.of(OrderStatus.UNKNOWN, OrderStatus.SUBMITTED, OrderStatus.CANCEL_REQUESTED);
+
+    /**
+     * 취소 요청 후 이 시간이 지나도 브로커 미체결 목록에 남아 있으면 "취소 미반영"으로 본다.
+     * 브로커 취소 호출은 수 초 안에 끝나므로(유량 재시도 포함 약 5초) 진행 중인 취소와 겹치지 않게
+     * 넉넉히 1분을 둔다.
+     */
+    static final Duration CANCEL_GRACE = Duration.ofMinutes(1);
 
     /**
      * 앱 기동 직후 1회 전체 대사 — 재시작 전 인메모리 상태가 유실된 주문을 회복한다.
@@ -103,7 +116,7 @@ public class ReconciliationService {
     }
 
     /**
-     * DB의 UNKNOWN·SUBMITTED 주문 전체를 브로커 미체결 목록과 대사한다.
+     * DB의 UNKNOWN·SUBMITTED·CANCEL_REQUESTED 주문 전체를 브로커 미체결 목록과 대사한다.
      * 대상이 없으면 브로커 호출 자체를 생략한다(불필요한 API 호출 방지).
      * 직전 실행 후 10초 이내 재호출은 스킵한다(기동 시 이중 호출 가드 — 필드 Javadoc 참고).
      */
@@ -114,8 +127,7 @@ public class ReconciliationService {
             return;
         }
         lastFullReconcileMs = now;
-        List<OrderEntity> pending = orderRepository.findByStatusIn(
-                List.of(OrderStatus.UNKNOWN, OrderStatus.SUBMITTED));
+        List<OrderEntity> pending = orderRepository.findByStatusIn(RECONCILE_STATUSES);
         if (pending.isEmpty()) {
             return;
         }
@@ -145,7 +157,9 @@ public class ReconciliationService {
     /**
      * 주문 1건을 브로커 미체결 목록과 대사한다. 세 가지 경우:
      * <ol>
-     *   <li>브로커에 존재 → 최소한 접수는 됐다는 뜻이므로 SUBMITTED로 유지/확정</li>
+     *   <li>브로커에 존재 → 최소한 접수는 됐다는 뜻이므로 SUBMITTED로 유지/확정. CANCEL_REQUESTED인데
+     *       유예({@link #CANCEL_GRACE})가 지나도 남아 있으면 취소가 반영되지 않은 것이므로 미체결로
+     *       되돌린다({@link #reopenUncancelled}) — 미체결 타임아웃 취소가 다시 취소한다.</li>
      *   <li>브로커에 없고 체결로 추정됨 → 체결 수량 확정에는 체결내역 조회 TR이 필요하다
      *       (TODO 실측 — 아직 구현하지 않고 자리만 마련해 둔다, {@link #probeFillStatus(OrderEntity)})</li>
      *   <li>어느 쪽도 판단할 수 없음 → REJECTED로 자동 확정하지 않는다. 실제로는 체결됐는데
@@ -173,6 +187,9 @@ public class ReconciliationService {
                     orderRepository.save(current);
                     log.info("Reconciliation: UNKNOWN → SUBMITTED 확정(브로커 미체결 목록에서 발견): {}",
                             current.getClientOrderId());
+                } else if (current.getStatus() == OrderStatus.CANCEL_REQUESTED
+                        && current.getUpdatedAt().isBefore(clock.instant().minus(CANCEL_GRACE))) {
+                    reopenUncancelled(current);
                 }
                 return current; // 이미 SUBMITTED 이후 상태면 변화 없음
             });
@@ -198,9 +215,24 @@ public class ReconciliationService {
                 return current;
             });
         } else {
-            log.warn("Reconciliation: 브로커 미체결 목록에 없음 — 체결/거부 여부 확인 불가(TODO 실측 "
-                    + "체결내역 조회 TR 필요), UNKNOWN 유지·수동 확인 필요: {}", order.getClientOrderId());
+            log.warn("Reconciliation: 브로커 미체결 목록에 없음 — 체결/거부/취소 여부 확인 불가(TODO 실측 "
+                    + "체결내역 조회 TR 필요), {} 유지·수동 확인 필요: {}", order.getStatus(), order.getClientOrderId());
         }
+    }
+
+    /**
+     * 취소 미반영 주문을 미체결로 되돌린다 — CANCEL_REQUESTED → UNKNOWN(취소 결과 불명) → 브로커
+     * 미체결 목록 근거로 SUBMITTED(체결분이 있으면 PARTIALLY_FILLED). 상태기계가 CANCEL_REQUESTED에서
+     * 미체결로 바로 가는 전이를 두지 않으므로 UNKNOWN 확정 경로(UNKNOWN → 브로커 조회로 확정)를 그대로 쓴다.
+     * 체결 수량은 건드리지 않는다.
+     */
+    private void reopenUncancelled(OrderEntity current) {
+        OrderStatus reopened = current.getFilledQuantity() > 0 ? OrderStatus.PARTIALLY_FILLED : OrderStatus.SUBMITTED;
+        current.transitionTo(OrderStatus.UNKNOWN, clock.instant());
+        current.transitionTo(reopened, clock.instant());
+        orderRepository.save(current);
+        log.warn("Reconciliation: 취소 요청 후 {} 넘게 브로커 미체결 목록에 남아 있음 — 취소 미반영으로 보고 {}로 되돌림"
+                + "(미체결 타임아웃 취소가 다시 취소한다): {}", CANCEL_GRACE, reopened, current.getClientOrderId());
     }
 
     private void updateLatest(OrderEntity order, Function<OrderEntity, OrderEntity> update) {
