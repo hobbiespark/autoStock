@@ -9,6 +9,10 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +43,7 @@ class TelegramCommandPollerPollTest {
     private PositionBook positionBook;
     private final List<String> notices = new ArrayList<>();
     private final Notifier fakeNotifier = (level, message) -> notices.add(level + ":" + message);
+    private final MovableClock clock = new MovableClock(Instant.parse("2026-10-06T00:00:00Z"));
 
     @BeforeEach
     void setUp() {
@@ -56,6 +61,36 @@ class TelegramCommandPollerPollTest {
         return webClient;
     }
 
+    /** 폴링할 때마다 다음 update를 하나씩 돌려주는 WebClient(마지막 이후는 빈 결과). */
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private WebClient mockWebClientReturningSequence(List<Map<String, Object>> updates) {
+        WebClient webClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
+        Mono[] responses = new Mono[updates.size() + 1];
+        for (int i = 0; i < updates.size(); i++) {
+            responses[i] = Mono.just(Map.of("ok", true, "result", List.of(updates.get(i))));
+        }
+        responses[updates.size()] = Mono.just(Map.of("ok", true, "result", List.of()));
+        when(webClient.get()
+                .uri(any(Function.class))
+                .retrieve()
+                .bodyToMono(Map.class))
+                .thenReturn(responses[0], java.util.Arrays.copyOfRange(responses, 1, responses.length));
+        return webClient;
+    }
+
+    private TelegramCommandPoller pollerWithUpdates(List<Map<String, Object>> updates) {
+        TelegramProperties properties = new TelegramProperties(true, "test-token", CHAT_ID);
+        return new TelegramCommandPoller(builderReturning(mockWebClientReturningSequence(updates)), properties,
+                killSwitch, positionBook, fakeNotifier, clock);
+    }
+
+    /** 가장 최근 알림에서 4자리 확인 코드를 꺼낸다. */
+    private String issuedCode() {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("/resume (\\d{4})").matcher(notices.get(notices.size() - 1));
+        assertTrue(m.find(), notices.toString());
+        return m.group(1);
+    }
+
     private WebClient.Builder builderReturning(WebClient webClient) {
         WebClient.Builder builder = mock(WebClient.Builder.class);
         when(builder.baseUrl(anyString())).thenReturn(builder);
@@ -68,7 +103,7 @@ class TelegramCommandPollerPollTest {
         TelegramProperties properties = new TelegramProperties(true, "test-token", CHAT_ID);
         WebClient webClient = mockWebClientReturning(response);
         return new TelegramCommandPoller(builderReturning(webClient), properties,
-                killSwitch, positionBook, fakeNotifier);
+                killSwitch, positionBook, fakeNotifier, clock);
     }
 
     private Map<String, Object> updateWith(String chatId, String text) {
@@ -89,13 +124,69 @@ class TelegramCommandPollerPollTest {
     }
 
     @Test
-    void resume_명령을_받으면_킬스위치가_해제된다() {
+    void resume_명령은_확인_코드만_보내고_아직_해제하지_않는다() {
+        // Phase 0.7(D-09): 위험 명령 2단계 확인 — 잘못 누른 /resume 한 번으로 비상 정지가 풀리지 않는다
         killSwitch.engage("사전 준비");
         TelegramCommandPoller poller = pollerWithUpdate(updateWith(CHAT_ID, "/resume"));
 
         poller.poll();
 
+        assertTrue(killSwitch.isEngaged());
+        assertTrue(notices.get(0).startsWith("WARN:킬스위치 해제 확인"), notices.toString());
+        issuedCode();
+    }
+
+    @Test
+    void 코드가_틀리면_해제하지_않고_코드도_버린다() {
+        killSwitch.engage("사전 준비");
+        TelegramCommandPoller poller = pollerWithUpdates(List.of(updateWith(CHAT_ID, "/resume")));
+        poller.poll();
+        String code = issuedCode();
+        String wrong = code.equals("0000") ? "0001" : "0000";
+
+        poller.handleUpdate(updateWith(CHAT_ID, "/resume " + wrong));
+        poller.handleUpdate(updateWith(CHAT_ID, "/resume " + code)); // 버려진 코드 — 맞아도 해제 안 됨
+
+        assertTrue(killSwitch.isEngaged());
+        assertTrue(notices.stream().anyMatch(n -> n.contains("확인 코드가 맞지 않습니다")), notices.toString());
+        assertTrue(notices.get(notices.size() - 1).contains("없거나 만료"), notices.toString());
+    }
+
+    @Test
+    void 맞는_코드를_60초_안에_보내면_해제된다() {
+        killSwitch.engage("사전 준비");
+        TelegramCommandPoller poller = pollerWithUpdates(List.of(updateWith(CHAT_ID, "/resume")));
+        poller.poll();
+        String code = issuedCode();
+        clock.advance(Duration.ofSeconds(59));
+
+        poller.handleUpdate(updateWith(CHAT_ID, "/resume " + code));
+
         assertFalse(killSwitch.isEngaged());
+    }
+
+    @Test
+    void 만료된_코드로는_해제되지_않는다() {
+        killSwitch.engage("사전 준비");
+        TelegramCommandPoller poller = pollerWithUpdates(List.of(updateWith(CHAT_ID, "/resume")));
+        poller.poll();
+        String code = issuedCode();
+        clock.advance(Duration.ofSeconds(61));
+
+        poller.handleUpdate(updateWith(CHAT_ID, "/resume " + code));
+
+        assertTrue(killSwitch.isEngaged());
+        assertTrue(notices.get(notices.size() - 1).contains("없거나 만료"), notices.toString());
+    }
+
+    @Test
+    void 이미_해제_상태면_확인_코드를_발급하지_않는다() {
+        TelegramCommandPoller poller = pollerWithUpdate(updateWith(CHAT_ID, "/resume"));
+
+        poller.poll();
+
+        assertEquals(1, notices.size());
+        assertTrue(notices.get(0).startsWith("INFO:킬스위치는 이미 해제 상태"), notices.toString());
     }
 
     @Test
@@ -115,5 +206,33 @@ class TelegramCommandPollerPollTest {
         poller.poll();
 
         assertFalse(killSwitch.isEngaged());
+    }
+
+    /** 테스트 전용 가변 시계. */
+    private static final class MovableClock extends Clock {
+        private Instant now;
+
+        MovableClock(Instant now) {
+            this.now = now;
+        }
+
+        void advance(Duration duration) {
+            now = now.plus(duration);
+        }
+
+        @Override
+        public Instant instant() {
+            return now;
+        }
+
+        @Override
+        public ZoneId getZone() {
+            return ZoneOffset.UTC;
+        }
+
+        @Override
+        public Clock withZone(ZoneId zone) {
+            return this;
+        }
     }
 }

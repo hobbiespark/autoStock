@@ -47,7 +47,13 @@ if errorlevel 1 (
 echo [O] Docker ready
 docker compose -f infra\docker-compose.yml up -d postgres
 
+REM ---- telegram alerts + remote commands (Phase 0.7, D-09): on only when both keys are in .env ----
+set "TG_ARGS="
+if not "%TELEGRAM_BOT_TOKEN%"=="" if not "%TELEGRAM_CHAT_ID%"=="" set "TG_ARGS= --monitor.telegram.enabled=true"
+if defined TG_ARGS (echo [O] telegram on) else (echo [.] telegram off - set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env to enable)
+if "%MONITOR_HEARTBEAT_URL%"=="" (echo [.] heartbeat off - set MONITOR_HEARTBEAT_URL in .env to enable) else (echo [O] heartbeat on)
+
 echo [O] starting autoStock (stop = Ctrl+C or scripts\stop_autostock.bat)
-REM flags: LIVE(mock) mode, C3, WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync
-call gradlew.bat :app:bootRun --args="--execution.mode=LIVE --strategy.c3.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true"
+REM flags: LIVE(mock) mode, C3, WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync (+ telegram when keys exist)
+call gradlew.bat :app:bootRun --args="--execution.mode=LIVE --strategy.c3.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true%TG_ARGS%"
 pause
