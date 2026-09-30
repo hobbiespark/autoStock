@@ -8,6 +8,7 @@ import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.StockCode;
 import com.autostock.market.KiwoomDailyChartService;
 import com.autostock.market.MarketCalendarService;
+import com.autostock.market.MarketDataPort;
 import com.autostock.market.MarketHolidayRepository;
 import com.autostock.monitor.TradingSystemManager;
 import com.autostock.monitor.TradingSystemStatus;
@@ -28,6 +29,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -44,6 +46,9 @@ class C3LiveStrategyTest {
     // repository는 mock — market_holidays에 해당 연도 데이터가 없으므로 MarketCalendarService는
     // TradingCalendar 하드코딩 폴백으로 판정한다(기존 동작과 동일, RiskGateTest와 같은 이유).
     private final MarketCalendarService marketCalendarService = new MarketCalendarService(mock(MarketHolidayRepository.class));
+
+    /** 시세 조회 포트 — 강제 청산 기준가(최우선 매수호가) 조회용. 스텁하지 않은 조회는 null → "호가 없음"으로 처리된다. */
+    private final MarketDataPort marketData = mock(MarketDataPort.class);
 
     /**
      * 운영 상태기계가 RUNNING이라고 가정하는 스텁 — 이 테스트 파일은 C3LiveStrategy의
@@ -153,7 +158,7 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook();
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(false, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(false, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 mock(TradingSystemManager.class), Clock.systemUTC()); // enabled=false는 상태 조회 전에 반환되므로 스텁 불필요
 
         strategy.run();
@@ -175,7 +180,7 @@ class C3LiveStrategyTest {
         when(notRunning.status()).thenReturn(TradingSystemStatus.STARTING);
 
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 notRunning, Clock.systemUTC());
 
         strategy.run();
@@ -195,8 +200,11 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
+
+        when(marketData.bestQuote("000660")).thenReturn(new MarketDataPort.BestQuote(
+                new BigDecimal("49550"), new BigDecimal("49500")));
 
         strategy.run();
 
@@ -206,6 +214,33 @@ class C3LiveStrategyTest {
         assertEquals(new StockCode("000660"), signal.symbol());
         assertEquals(Side.SELL, signal.side());
         assertEquals("C3-MOMENTUM", signal.strategyId());
+        // 기준가는 평균매입가(50000)가 아니라 주문 시점 최우선 매수호가 — 손실 구간에서도 체결되는 매도 지정가(조각 20)
+        assertEquals(0, new BigDecimal("49500").compareTo(signal.refPrice()));
+    }
+
+    @Test
+    void 강제_청산_호가가_없으면_현재가_둘_다_없으면_기준가_없이_신호를_내고_다른_종목은_계속한다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOffIndexCandles());
+        PositionBook positionBook = new PositionBook();
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10), new Price(new BigDecimal("70000")), Instant.now()));
+        positionBook.onFill(new Fill("k2", new BrokerOrderId("b2"), new StockCode("000660"), Side.BUY, new Quantity(10), new Price(new BigDecimal("50000")), Instant.now()));
+        when(marketData.bestQuote("005930")).thenThrow(new RuntimeException("ka10004 실패"));
+        when(marketData.stockQuote("005930")).thenReturn(new MarketDataPort.StockQuote("삼성전자", new BigDecimal("68000"), null, null, null));
+        when(marketData.bestQuote("000660")).thenReturn(MarketDataPort.BestQuote.EMPTY);
+        when(marketData.stockQuote("000660")).thenReturn(MarketDataPort.StockQuote.EMPTY);
+
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
+                runningManager(), Clock.systemUTC());
+
+        strategy.run();
+
+        List<Signal> signals = onlySignals(published);
+        assertEquals(2, signals.size());
+        assertEquals(0, new BigDecimal("68000").compareTo(signals.get(0).refPrice()), "호가 조회 실패 → 현재가");
+        assertNull(signals.get(1).refPrice(), "호가·현재가 모두 없음 → 기준가 없음(RiskGate가 거부)");
     }
 
     @Test
@@ -217,7 +252,7 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook(); // 미보유
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
         strategy.run();
@@ -242,7 +277,7 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
         strategy.run();
@@ -265,7 +300,7 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
         strategy.run();
@@ -283,7 +318,7 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook();
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
         assertDoesNotThrow(strategy::run, "한 종목의 예외가 전체 배치 실행을 중단시키면 안 됨");
@@ -308,7 +343,7 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook();
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
         strategy.run();
@@ -341,7 +376,7 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook();
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
         strategy.run();
@@ -364,7 +399,7 @@ class C3LiveStrategyTest {
         PositionBook positionBook = new PositionBook(); // 미보유
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
         strategy.run();
@@ -387,7 +422,7 @@ class C3LiveStrategyTest {
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
-                properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
+                properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
         strategy.run();
