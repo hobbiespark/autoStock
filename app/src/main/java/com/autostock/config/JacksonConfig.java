@@ -1,6 +1,7 @@
 package com.autostock.config;
 
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import com.fasterxml.jackson.core.JsonGenerator;
@@ -42,6 +43,19 @@ public class JacksonConfig {
             @Override
             public Quantity deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
                 return new Quantity(p.getValueAsLong());
+            }
+        });
+        // Price: 기존 BigDecimal 필드와 같은 숫자 JSON(값을 받은 그대로 — 자릿수 보존)
+        module.addSerializer(Price.class, new JsonSerializer<>() {
+            @Override
+            public void serialize(Price value, JsonGenerator gen, SerializerProvider provider) throws IOException {
+                gen.writeNumber(value.value());
+            }
+        });
+        module.addDeserializer(Price.class, new JsonDeserializer<>() {
+            @Override
+            public Price deserialize(JsonParser p, DeserializationContext ctxt) throws IOException {
+                return new Price(p.getDecimalValue());
             }
         });
         return module;

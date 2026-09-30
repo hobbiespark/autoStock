@@ -510,6 +510,43 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - `.\gradlew.bat test` 전체 통과(2026-09-30).
 - **미검증:** 실제 주문 전송(`ord_qty`), 대시보드 이벤트 피드·텔레그램 알림 문구, event_store의 수량 JSON.
 
+## 조각 15 — `Price` 1단계: 타입과 JSON (2026-09-30)
+
+### 1. 결정과 근거
+
+`StockCode`와 같은 단계적 도입(조각 3)을 따른다. 이번 조각은 타입과 JSON 기반만 두고, 이벤트·엔티티에는 아직 쓰지 않는다.
+
+- `common/util/Price`(record, `BigDecimal value`): 양수만 허용한다. 0·음수·null은 만들 수 없다.
+  - 가격을 모르는 경우는 값 객체가 아니라 호출부의 `null`로 표현한다(규칙: 단일 값의 없음은 null).
+  - 평균단가처럼 원 아래 소수가 생길 수 있어 정수로 제한하지 않는다. 호가 단위 정렬은 `risk.KrxTickSize`의 일이다.
+- **같음은 수치로 판단한다.** `BigDecimal.equals`는 자릿수(scale)까지 비교해 `259000`과 `259000.00`을 다르게 본다. `equals`는 `compareTo`, `hashCode`는 `stripTrailingZeros()` 기준으로 바꿨다. 값은 받은 그대로 보관한다.
+- `toString()`은 `toPlainString()`이다. 지수 표기(`2.59E+5`)가 로그·주문 전문에 나가지 않게 한다.
+- `config/JacksonConfig`: 숫자로 직렬화하고 받은 값의 자릿수를 그대로 쓴다. 이벤트 필드를 `BigDecimal`에서 `Price`로 바꿔도 `event_store` JSON(`"price":258000.00`)이 같다. 0은 읽을 때 생성자가 거부한다.
+
+### 2. 변경 파일
+
+- 신규: `common/util/Price`
+- 수정: `app/config/JacksonConfig`
+- 테스트: 신규 `common/.../PriceTest`(3: 경계값, 수치 기준 같음, 평문 문자열), `ValueObjectJsonTest` +2(BigDecimal 필드와 같은 JSON — 자릿수 포함 3값, 0 거부)
+
+### 3. 검증 상태
+
+- `.\gradlew.bat test` 전체 통과(2026-09-30). `PriceTest` 3, `ValueObjectJsonTest` 8.
+
+### 4. 다음 단계 — 이벤트별 0·null 경로 조사가 먼저다
+
+`Quantity`(조각 14)처럼 이벤트를 만드는 모든 곳이 0 이하·null을 어떻게 다루는지 먼저 확인해야 한다. 코드만 읽고 확인한 것:
+
+| 이벤트 필드 | 0·null 가능성 | 비고 |
+|---|---|---|
+| `OrderRequest.limitPrice` | null 가능(`KrxTickSize.align`이 null·0 이하를 그대로 반환) | `SlippageTracker`가 null·0 이하를 거른다. `KiwoomBrokerAdapter`는 null 검사 없이 `toPlainString()` |
+| `Signal.refPrice` | 생성처(C3, StrategyEngine, 대시보드 테스트 신호)별 확인 필요 | `RiskGate`가 `limitPrice`로 넘긴다 |
+| `OrderNotice.fillPrice` | 빈 값이면 null(`RealMessageParser`). 접수 통보의 `"0"` 여부는 **미실측** | 0이면 파서에서 null로 번역해야 한다 |
+| `Fill.fillPrice` | 체결에서만 발행 — 양수로 **추론** | SIM은 `limitPrice`를 그대로 쓴다 |
+| `PositionRestored.avgPrice` | 잔고 필드가 없으면 null 가능(`PositionRestorer.firstPrice`) | |
+| `MarketTick.price` | 빈 값은 파서가 버림. 0은 **미확인** | |
+| `Candle` OHLC | — | 종목코드와 함께 **보류**(조각 13 사용자 결정) |
+
 ### 10. 변경 이력
 
 - 2026-09-30: 조각 1
@@ -526,3 +563,4 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - 2026-09-30: 조각 12(Fill 주문번호)
 - 2026-09-30: 조각 13(MarketTick 이벤트, Candle 보류)
 - 2026-09-30: 조각 14(Quantity 이벤트 적용)
+- 2026-09-30: 조각 15(Price 1단계: 타입과 JSON)

@@ -1,6 +1,7 @@
 package com.autostock.config;
 
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -99,6 +100,34 @@ class ValueObjectJsonTest {
             assertEquals(new StockCode("005930"), sample.symbol());
             assertEquals(new BrokerOrderId("0119433"), sample.brokerOrderId());
             assertEquals(new Quantity(10), sample.quantity());
+        });
+    }
+
+    record PriceSample(Price price, java.math.BigDecimal raw) {
+    }
+
+    @Test
+    void 가격은_같은_값의_BigDecimal_필드와_같은_JSON이다() {
+        // 이벤트 필드를 BigDecimal에서 Price로 바꿔도 event_store 형식이 같아야 한다(자릿수 포함)
+        runner.run(context -> {
+            ObjectMapper mapper = context.getBean(ObjectMapper.class);
+            for (String value : new String[]{"258000", "258000.00", "1889000.5"}) {
+                java.math.BigDecimal decimal = new java.math.BigDecimal(value);
+
+                String json = mapper.writeValueAsString(new PriceSample(new Price(decimal), decimal));
+
+                assertEquals("{\"price\":" + value + ",\"raw\":" + value + "}", json);
+                assertEquals(new Price(decimal), mapper.readValue(json, PriceSample.class).price());
+            }
+        });
+    }
+
+    @Test
+    void 가격_0은_읽을_때_거부한다() {
+        runner.run(context -> {
+            ObjectMapper mapper = context.getBean(ObjectMapper.class);
+
+            assertThrows(Exception.class, () -> mapper.readValue("{\"price\":0,\"raw\":0}", PriceSample.class));
         });
     }
 
