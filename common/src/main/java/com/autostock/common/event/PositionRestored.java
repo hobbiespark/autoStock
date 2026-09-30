@@ -1,8 +1,7 @@
 package com.autostock.common.event;
 
+import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
-
-import java.math.BigDecimal;
 
 /**
  * 재시작 시 브로커 잔고 기반 포지션 복원 이벤트 (운영 1일차 ⑨).
@@ -15,6 +14,9 @@ import java.math.BigDecimal;
  * Fill을 위조하지 않으므로 슬리피지·실현손익 집계를 오염시키지 않는다.
  *
  * <p>symbol은 {@link StockCode}다. JSON에서는 기존과 같은 문자열이다(JacksonConfig).
+ *
+ * <p>avgPrice는 {@link Price}이고 <b>null일 수 있다</b> — 잔고 응답에서 매입가를 찾지 못하면 "평단 모름"이다
+ * (예전에는 0을 넣어, 그 값이 강제 청산 지정가로 쓰이면 0원 주문이 나갔다 — 사용자 결정 2026-09-30).
  */
-public record PositionRestored(StockCode symbol, long quantity, BigDecimal avgPrice) {
+public record PositionRestored(StockCode symbol, long quantity, Price avgPrice) {
 }

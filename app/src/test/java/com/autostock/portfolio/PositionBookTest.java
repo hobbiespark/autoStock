@@ -14,6 +14,7 @@ import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PositionBookTest {
@@ -53,12 +54,25 @@ class PositionBookTest {
 
     @Test
     void 잔고_복원_이벤트로_포지션을_시드하고_체결_포지션은_덮어쓰지_않는다() {
-        book.onPositionRestored(new PositionRestored(new StockCode("000660"), 3, new BigDecimal("200000")));
+        book.onPositionRestored(new PositionRestored(new StockCode("000660"), 3, new Price(new BigDecimal("200000"))));
         book.onFill(fill(Side.BUY, 10, "70000"));
-        book.onPositionRestored(new PositionRestored(new StockCode("005930"), 19, new BigDecimal("259974")));
+        book.onPositionRestored(new PositionRestored(new StockCode("005930"), 19, new Price(new BigDecimal("259974"))));
 
         assertEquals(3, book.get(new StockCode("000660")).quantity());
         assertEquals(10, book.get(new StockCode("005930")).quantity());
         assertEquals(2, book.openPositionCount());
+    }
+
+    @Test
+    void 평단_미상으로_복원된_포지션은_추가_매수해도_평단_미상이고_매도는_수량만_줄인다() {
+        // 잔고에서 매입가를 못 찾으면 0 대신 null(평단 모름) — 사용자 결정 2026-09-30(조각 19)
+        book.onPositionRestored(new PositionRestored(new StockCode("005930"), 19, null));
+        book.onFill(fill(Side.BUY, 1, "70000"));
+        book.onFill(fill(Side.SELL, 5, "71000"));
+
+        PositionBook.Position position = book.get(new StockCode("005930"));
+        assertEquals(15, position.quantity());
+        assertNull(position.avgPrice());
+        assertEquals("평단 미상", position.avgPriceText());
     }
 }
