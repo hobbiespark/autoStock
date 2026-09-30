@@ -304,7 +304,7 @@ public class C3LiveStrategy {
     /** SignalDecision 발행 — RegimeSnapshot이 없는(=국면 판단과 무관한) 호출 편의 오버로드는 두지 않는다: 항상 국면 지표를 함께 남긴다(FE-6, "왜"를 재구성하려면 국면도 필요). */
     private void publishDecision(String symbol, String conclusion, String reason, Map<String, String> metrics) {
         publisher.publishEvent(new SignalDecision(
-                HORIZON, STRATEGY_ID, symbol, conclusion, reason, metrics, clock.instant()));
+                HORIZON, STRATEGY_ID, new StockCode(symbol), conclusion, reason, metrics, clock.instant()));
     }
 
     /** decisionIntervalDays 주기 판정 — 마지막 판단일이 없거나(첫 판단) 주기가 지났으면 true. */

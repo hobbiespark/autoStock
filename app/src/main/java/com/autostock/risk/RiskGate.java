@@ -355,7 +355,7 @@ public class RiskGate {
         publisher.publishEvent(new SignalDecision(
                 horizonFor(signal.strategyId()),
                 signal.strategyId(),
-                signal.symbol().value(),
+                signal.symbol(),
                 "REJECTED",
                 reason,
                 metrics,

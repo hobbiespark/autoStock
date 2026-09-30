@@ -46,7 +46,7 @@ public class SignalDecisionListener {
             String metricsJson = objectMapper.writeValueAsString(event.metrics());
             repository.save(new SignalDecisionEntity(
                     event.decidedAt(), tradeDate, event.horizon(), event.strategyId(),
-                    event.symbol(), event.conclusion(), event.reason(), metricsJson));
+                    event.symbol().value(), event.conclusion(), event.reason(), metricsJson));
         } catch (Exception ex) {
             // EventAuditListener와 같은 원칙 — 감사성 저장 실패 1건이 시스템을 세울 이유는
             // 없다. 실제 사실은 EventAuditListener가 별도로 남기는 event_store에도 있으므로

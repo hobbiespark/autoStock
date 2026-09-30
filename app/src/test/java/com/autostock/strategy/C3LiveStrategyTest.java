@@ -315,7 +315,7 @@ class C3LiveStrategyTest {
         SignalDecision decision = decisions.get(0);
         assertEquals("MID", decision.horizon());
         assertEquals("C3-MOMENTUM", decision.strategyId());
-        assertEquals("005930", decision.symbol());
+        assertEquals(new StockCode("005930"), decision.symbol());
         assertEquals("BUY", decision.conclusion());
         assertEquals("ON", decision.metrics().get("regimeStatus"));
         assertEquals("5", decision.metrics().get("momentumLookbackN"));
@@ -370,7 +370,7 @@ class C3LiveStrategyTest {
         List<SignalDecision> decisions = onlyDecisions(published);
         assertEquals(1, decisions.size());
         assertEquals("SKIP", decisions.get(0).conclusion());
-        assertEquals("005930", decisions.get(0).symbol());
+        assertEquals(new StockCode("005930"), decisions.get(0).symbol());
     }
 
     @Test
