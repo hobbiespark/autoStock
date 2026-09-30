@@ -45,10 +45,11 @@ class ValueObjectJsonTest {
 
             String json = mapper.writeValueAsString(new com.autostock.common.event.OrderRequest(
                     "20260930-C3-005930-BUY-001", "C3", new StockCode("005930"),
-                    com.autostock.common.event.Side.BUY, 1, new java.math.BigDecimal("258000"),
+                    com.autostock.common.event.Side.BUY, new Quantity(1), new java.math.BigDecimal("258000"),
                     java.time.Instant.parse("2026-09-30T01:00:00Z")));
 
             org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"symbol\":\"005930\""), json);
+            org.junit.jupiter.api.Assertions.assertTrue(json.contains("Quantity\":1,") || json.contains("quantity\":1,"), json);
         });
     }
 
@@ -59,11 +60,12 @@ class ValueObjectJsonTest {
 
             String json = mapper.writeValueAsString(new com.autostock.common.event.Fill(
                     "20260930-C3-005930-BUY-001", new BrokerOrderId("0119433"), new StockCode("005930"),
-                    com.autostock.common.event.Side.BUY, 1, new java.math.BigDecimal("258000"),
+                    com.autostock.common.event.Side.BUY, new Quantity(1), new java.math.BigDecimal("258000"),
                     java.time.Instant.parse("2026-09-30T01:00:00Z")));
 
             org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"brokerOrderId\":\"0119433\""), json);
             org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"symbol\":\"005930\""), json);
+            org.junit.jupiter.api.Assertions.assertTrue(json.contains("Quantity\":1,") || json.contains("quantity\":1,"), json);
         });
     }
 

@@ -53,14 +53,14 @@ public class EventFeed {
     @EventListener
     public void on(OrderRequest e) {
         add(new FeedItem("ORDER",
-                "[%s] %s %d주 @ %s 주문요청".formatted(e.symbol(), e.side(), e.quantity(), e.limitPrice()),
+                "[%s] %s %d주 @ %s 주문요청".formatted(e.symbol(), e.side(), e.quantity().value(), e.limitPrice()),
                 e.timestamp()));
     }
 
     @EventListener
     public void on(Fill e) {
         add(new FeedItem("FILL",
-                "[%s] %s %d주 @ %s 체결 (%s)".formatted(e.symbol(), e.side(), e.filledQuantity(), e.fillPrice(), e.brokerOrderId()),
+                "[%s] %s %d주 @ %s 체결 (%s)".formatted(e.symbol(), e.side(), e.filledQuantity().value(), e.fillPrice(), e.brokerOrderId()),
                 e.timestamp()));
     }
 

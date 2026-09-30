@@ -4,6 +4,7 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -227,7 +228,7 @@ public final class BacktestRunner {
     private void applySell(Ledger ledger, Candle today, BigDecimal referencePrice) {
         OrderRequest order = buildOrder(today, Side.SELL, ledger.positionQty);
         Fill fill = executionHandler.execute(order, referencePrice);
-        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity()));
+        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
         ledger.cash = ledger.cash.add(notional).subtract(costModel.sellFee(notional));
         ledger.positionQty = 0;
         ledger.avgPrice = BigDecimal.ZERO;
@@ -253,7 +254,7 @@ public final class BacktestRunner {
         }
         OrderRequest order = buildOrder(today, Side.BUY, qty);
         Fill fill = executionHandler.execute(order, referencePrice);
-        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity()));
+        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
         ledger.cash = ledger.cash.subtract(notional).subtract(costModel.buyFee(notional));
         ledger.positionQty = qty;
         ledger.avgPrice = fill.fillPrice();
@@ -284,7 +285,7 @@ public final class BacktestRunner {
                 "backtest",
                 new StockCode(candle.symbol()),
                 side,
-                qty,
+                new Quantity(qty),
                 candle.open(),
                 candle.date().atStartOfDay().toInstant(ZoneOffset.UTC)
         );

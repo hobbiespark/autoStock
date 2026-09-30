@@ -1,5 +1,6 @@
 package com.autostock.common.event;
 
+import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 
 import java.math.BigDecimal;
@@ -19,7 +20,7 @@ public record OrderRequest(
         String strategyId,
         StockCode symbol,
         Side side,
-        long quantity,
+        Quantity quantity,
         BigDecimal limitPrice,
         Instant timestamp
 ) {

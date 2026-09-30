@@ -11,6 +11,7 @@ import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketHolidayRepository;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -94,7 +95,7 @@ class RiskGateTest {
         assertEquals(1, published.size());
         OrderRequest order = (OrderRequest) published.get(0);
         // 1,000만원 * 10% = 100만원 / 7만원 = 14주
-        assertEquals(14, order.quantity());
+        assertEquals(new Quantity(14), order.quantity());
         assertEquals(Side.BUY, order.side());
     }
 
@@ -113,7 +114,7 @@ class RiskGateTest {
 
     @Test
     void 보유_종목_추가_매수_차단() {
-        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 10,
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10),
                 new BigDecimal("70000"), Instant.now()));
         gate.onSignal(buySignal("005930", "70000"));
         assertTrue(onlyOrders(published).isEmpty());
@@ -128,13 +129,13 @@ class RiskGateTest {
 
     @Test
     void 보유_종목_매도는_전량_청산() {
-        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 14,
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(14),
                 new BigDecimal("70000"), Instant.now()));
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
                 new BigDecimal("71000"), 1.0, Instant.now()));
 
         assertEquals(1, published.size());
-        assertEquals(14, ((OrderRequest) published.get(0)).quantity());
+        assertEquals(new Quantity(14), ((OrderRequest) published.get(0)).quantity());
     }
 
     @Test
@@ -144,7 +145,7 @@ class RiskGateTest {
         assertEquals(1, published.size());
         OrderRequest order = (OrderRequest) published.get(0);
         // 1,000만원 * 10% * 0.5 = 50만원 / 7만원 = 7.14... → 7주 (confidence=1.0일 때 14주의 절반)
-        assertEquals(7, order.quantity());
+        assertEquals(new Quantity(7), order.quantity());
     }
 
     @Test
@@ -152,7 +153,7 @@ class RiskGateTest {
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new BigDecimal("70000"), 1.5, Instant.now()));
 
         assertEquals(1, published.size());
-        assertEquals(14, ((OrderRequest) published.get(0)).quantity());
+        assertEquals(new Quantity(14), ((OrderRequest) published.get(0)).quantity());
     }
 
     @Test
@@ -160,14 +161,14 @@ class RiskGateTest {
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new BigDecimal("70000"), 0.0, Instant.now()));
 
         assertEquals(1, published.size());
-        assertEquals(14, ((OrderRequest) published.get(0)).quantity());
+        assertEquals(new Quantity(14), ((OrderRequest) published.get(0)).quantity());
     }
 
     @Test
     void 동시_보유_한도_도달시_신규_매수_차단() {
         String[] symbols = {"000001", "000002", "000003", "000004", "000005"};
         for (String s : symbols) {
-            positionBook.onFill(new Fill("k" + s, new BrokerOrderId("b" + s), new StockCode(s), Side.BUY, 1,
+            positionBook.onFill(new Fill("k" + s, new BrokerOrderId("b" + s), new StockCode(s), Side.BUY, new Quantity(1),
                     new BigDecimal("1000"), Instant.now()));
         }
         gate.onSignal(buySignal("005930", "70000"));
