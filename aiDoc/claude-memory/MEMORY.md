@@ -1,0 +1,1 @@
+- [push는 모아서 한 번에](push-batched.md) — 커밋마다 push를 묻지 않는다
