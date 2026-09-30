@@ -21,9 +21,10 @@
 - 다음 후보: `Price` 값 객체, A5 시간대 명시(DB 확인 필요), B3 큰 클래스 조사. `Candle` 종목코드는 사용자 결정으로 보류.
 - 사용자 결정 대기: B4 감사 실패 알림, 엔티티 시각의 Clock 주입, P3 항목(특히 Testcontainers).
 - 재기동 후 확인할 미검증 항목은 각 문서의 "검증 상태" 절에 있다(V8 마이그레이션, 루프백 바인딩, 타임아웃, event_store JSON, 체결·포지션 반영 등).
-- 리포 밖에 있어 따로 옮겨야 하는 것:
-  - `C:\claude\CLAUDE.md`, `C:\claude\coding-rules.md` — 작업 규칙
+- 리포 밖 파일의 사본(2026-09-30 복사). 새 PC에서는 원래 위치로 복사해 쓴다.
+  - `claude-rules/` → `C:\claude\` — `CLAUDE.md`(최상위 규칙, `@C:/claude/coding-rules.md`로 코딩 규칙을 불러온다), `coding-rules.md`
+  - `claude-memory/` → `C:\Users\<사용자>\.claude\projects\<프로젝트 경로 인코딩>\memory\` — `MEMORY.md`(색인), `push-batched.md`(커밋마다 push를 묻지 않음). 프로젝트 경로가 바뀌면 폴더 이름도 바뀐다(예: `C--project-autoStock`).
+  - `market-data/` → `data/` — 백테스트 시세 CSV 5종목(000660, 005930, 035420, 035720, 069500). 루트 `.gitignore`의 `data/` 규칙에 걸리지 않도록 폴더 이름을 바꿔 두었다.
+- 여전히 리포에 없는 것(직접 옮긴다):
   - `.env` — 비밀값, 커밋 금지
-  - `data/` — 시세 CSV
-  - Claude 메모리 — 커밋마다 push를 묻지 않음
   - `.claude/settings.local.json` — 개인 권한 설정
