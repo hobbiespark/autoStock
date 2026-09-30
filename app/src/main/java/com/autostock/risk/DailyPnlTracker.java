@@ -98,11 +98,11 @@ public class DailyPnlTracker {
     private void recordBuy(Fill fill) {
         lots.compute(fill.symbol(), (symbol, current) -> {
             if (current == null) {
-                return new Lot(fill.filledQuantity(), fill.fillPrice());
+                return new Lot(fill.filledQuantity().value(), fill.fillPrice());
             }
-            long newQty = current.quantity() + fill.filledQuantity();
+            long newQty = current.quantity() + fill.filledQuantity().value();
             BigDecimal totalCost = current.avgPrice().multiply(BigDecimal.valueOf(current.quantity()))
-                    .add(fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity())));
+                    .add(fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity().value())));
             BigDecimal avg = totalCost.divide(BigDecimal.valueOf(newQty), 2, RoundingMode.HALF_UP);
             return new Lot(newQty, avg);
         });
@@ -123,7 +123,7 @@ public class DailyPnlTracker {
         }
 
         BigDecimal avgPriceBeforeThisFill = current.avgPrice(); // "갱신 전 평단" — 클래스 설명 핵심
-        long soldQty = fill.filledQuantity();
+        long soldQty = fill.filledQuantity().value();
 
         long remaining = current.quantity() - soldQty;
         if (remaining <= 0) {

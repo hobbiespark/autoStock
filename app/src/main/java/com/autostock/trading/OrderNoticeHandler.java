@@ -174,7 +174,7 @@ public class OrderNoticeHandler {
                 notice.brokerOrderId(),
                 order.getSymbol(),        // DB 주문의 종목코드 — WS 통보 필드(9001)는 비어 올 수 있다
                 side,
-                applied.delta(),          // 증분 수량 — PositionBook은 증분 합산 전제(이중계상 수정)
+                new Quantity(applied.delta()), // 증분 수량 — PositionBook은 증분 합산 전제(이중계상 수정)
                 applied.deltaPrice(),
                 notice.timestamp()));
     }

@@ -31,7 +31,7 @@ public class TradeNotificationListener {
     public void onFill(Fill fill) {
         notifier.notify(NoticeLevel.INFO,
                 "체결: %s %s %d주 @ %s".formatted(
-                        fill.symbol(), fill.side(), fill.filledQuantity(), fill.fillPrice()));
+                        fill.symbol(), fill.side(), fill.filledQuantity().value(), fill.fillPrice()));
     }
 
     /** 주문 요청 발행 — INFO. RiskGate를 통과했다는 뜻(=실제로 브로커에 나갈 주문). */
@@ -39,7 +39,7 @@ public class TradeNotificationListener {
     public void onOrderRequest(OrderRequest order) {
         notifier.notify(NoticeLevel.INFO,
                 "주문요청: %s %s %d주 @ %s (%s)".formatted(
-                        order.symbol(), order.side(), order.quantity(),
+                        order.symbol(), order.side(), order.quantity().value(),
                         order.limitPrice(), order.idempotencyKey()));
     }
 

@@ -5,6 +5,7 @@ import com.autostock.common.event.PositionRestored;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -19,7 +20,7 @@ class PositionBookTest {
     private final PositionBook book = new PositionBook();
 
     private Fill fill(Side side, long qty, String price) {
-        return new Fill("k", new BrokerOrderId("b"), new StockCode("005930"), side, qty, new BigDecimal(price), Instant.now());
+        return new Fill("k", new BrokerOrderId("b"), new StockCode("005930"), side, new Quantity(qty), new BigDecimal(price), Instant.now());
     }
 
     @Test

@@ -118,15 +118,15 @@ public class SlippageTracker {
         synchronized (lock) {
             rolloverIfNeeded();
             fillCount++;
-            totalQuantity += fill.filledQuantity();
-            quantityWeightedBpsSum += bps * fill.filledQuantity();
+            totalQuantity += fill.filledQuantity().value();
+            quantityWeightedBpsSum += bps * fill.filledQuantity().value();
             if (bps > maxBps) {
                 maxBps = bps;
                 maxBpsSymbol = fill.symbol().value();
             }
         }
         log.info("슬리피지: {} {} {}주 결정가 {} → 체결가 {} = {}bps",
-                fill.symbol(), origin.side(), fill.filledQuantity(),
+                fill.symbol(), origin.side(), fill.filledQuantity().value(),
                 origin.decisionPrice(), fill.fillPrice(), String.format("%.2f", bps));
     }
 

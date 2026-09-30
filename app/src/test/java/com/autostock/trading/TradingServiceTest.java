@@ -64,7 +64,7 @@ class TradingServiceTest {
 
     private OrderRequest order(String idempotencyKey) {
         return new OrderRequest(idempotencyKey, "test-strategy", new StockCode("005930"), Side.BUY,
-                10, new BigDecimal("70000"), Instant.now());
+                new Quantity(10), new BigDecimal("70000"), Instant.now());
     }
 
     @Test
@@ -74,7 +74,7 @@ class TradingServiceTest {
         assertEquals(1, published.size());
         Fill fill = (Fill) published.get(0);
         assertEquals("key-1", fill.orderIdempotencyKey());
-        assertEquals(10, fill.filledQuantity());
+        assertEquals(new Quantity(10), fill.filledQuantity());
     }
 
     @Test

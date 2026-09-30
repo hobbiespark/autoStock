@@ -6,6 +6,7 @@ import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -36,7 +37,7 @@ class TradeNotificationListenerTest {
 
     @Test
     void Fill은_INFO로_발송된다() {
-        listener.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 10,
+        listener.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10),
                 new BigDecimal("70000"), Instant.now()));
 
         assertEquals(1, notices.size());
@@ -47,7 +48,7 @@ class TradeNotificationListenerTest {
     @Test
     void OrderRequest는_INFO로_발송된다() {
         listener.onOrderRequest(new OrderRequest("20260813-TEST-005930-BUY-001", "test-strategy",
-                new StockCode("005930"), Side.BUY, 14, new BigDecimal("70000"), Instant.now()));
+                new StockCode("005930"), Side.BUY, new Quantity(14), new BigDecimal("70000"), Instant.now()));
 
         assertEquals(1, notices.size());
         assertEquals(NoticeLevel.INFO, notices.get(0).level());

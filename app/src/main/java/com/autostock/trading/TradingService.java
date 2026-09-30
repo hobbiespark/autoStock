@@ -146,11 +146,11 @@ public class TradingService {
                 request.symbol(), request.side(), request.quantity(), request.limitPrice());
 
         OrderEntity entity = new OrderEntity(request.idempotencyKey(), request.symbol(), request.side(),
-                new Quantity(request.quantity()), request.limitPrice(), request.strategyId());
+                request.quantity(), request.limitPrice(), request.strategyId());
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(brokerOrderId);
-        entity.applyFill(new Quantity(request.quantity())); // SIM은 항상 전량 즉시 체결 가정 → FILLED
+        entity.applyFill(request.quantity()); // SIM은 항상 전량 즉시 체결 가정 → FILLED
         orderRepository.save(entity);
 
         publisher.publishEvent(new Fill(
@@ -169,7 +169,7 @@ public class TradingService {
      */
     private void executeLive(OrderRequest request) {
         OrderEntity entity = new OrderEntity(request.idempotencyKey(), request.symbol(), request.side(),
-                new Quantity(request.quantity()), request.limitPrice(), request.strategyId());
+                request.quantity(), request.limitPrice(), request.strategyId());
         entity.transitionTo(OrderStatus.VALIDATED);
 
         try {

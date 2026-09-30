@@ -11,6 +11,7 @@ import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketHolidayRepository;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -91,7 +92,7 @@ class RiskGateMacroTest {
 
     @Test
     void 보수모드에서도_보유_종목_매도_청산은_허용된다() {
-        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 14,
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(14),
                 new BigDecimal("70000"), Instant.now()));
         engageConservativeMode();
 
@@ -100,7 +101,7 @@ class RiskGateMacroTest {
         assertEquals(1, published.size());
         OrderRequest order = (OrderRequest) published.get(0);
         assertEquals(Side.SELL, order.side());
-        assertEquals(14, order.quantity());
+        assertEquals(new Quantity(14), order.quantity());
     }
 
     @Test
@@ -120,7 +121,7 @@ class RiskGateMacroTest {
 
     @Test
     void 블랙리스트_종목도_보유중이면_매도는_허용된다() {
-        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 14,
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(14),
                 new BigDecimal("70000"), Instant.now()));
         disclosureBlacklist.add("005930");
 

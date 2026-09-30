@@ -94,7 +94,7 @@ class OrderNoticeHandlerTest {
 
     private OrderRequest order(String idempotencyKey) {
         return new OrderRequest(idempotencyKey, "test-strategy", new StockCode("005930"), Side.BUY,
-                10, new BigDecimal("70000"), Instant.now());
+                new Quantity(10), new BigDecimal("70000"), Instant.now());
     }
 
     private OrderNotice notice(String status, long filledQuantity, BigDecimal fillPrice) {
@@ -134,7 +134,7 @@ class OrderNoticeHandlerTest {
         assertEquals(new BrokerOrderId(BROKER_ORDER_ID), fill.brokerOrderId());
         assertEquals(new StockCode("005930"), fill.symbol());
         assertEquals(Side.BUY, fill.side());
-        assertEquals(10, fill.filledQuantity());
+        assertEquals(new Quantity(10), fill.filledQuantity());
         assertEquals(new BigDecimal("70100"), fill.fillPrice());
     }
 
@@ -158,7 +158,7 @@ class OrderNoticeHandlerTest {
         handler.replayPendingNotices();
 
         assertEquals(1, published.size());
-        assertEquals(10, ((Fill) published.get(0)).filledQuantity());
+        assertEquals(new Quantity(10), ((Fill) published.get(0)).filledQuantity());
         assertEquals(OrderStatus.FILLED, entity.getStatus());
 
         handler.replayPendingNotices();
@@ -199,8 +199,8 @@ class OrderNoticeHandlerTest {
         assertEquals(2, published.size());
         Fill first = (Fill) published.get(0);
         Fill second = (Fill) published.get(1);
-        assertEquals(4, first.filledQuantity());                                    // 증분 4
-        assertEquals(6, second.filledQuantity());                                   // 증분 10-4=6
+        assertEquals(new Quantity(4), first.filledQuantity());                                    // 증분 4
+        assertEquals(new Quantity(6), second.filledQuantity());                                   // 증분 10-4=6
         assertEquals(new BigDecimal("70000"), first.fillPrice());                   // 첫 체결 = 평균가 그대로
         // 증분 단가 역산: (10×70030 − 4×70000) / 6 = 70050
         assertEquals(0, new BigDecimal("70050").compareTo(second.fillPrice()));
@@ -316,7 +316,7 @@ class OrderNoticeHandlerTest {
         handler.onOrderNotice(notice("체결", 10, new BigDecimal("70000")));
 
         assertEquals(1, published.size());
-        assertEquals(6, ((Fill) published.get(0)).filledQuantity()); // 10 − 최신 누적 4
+        assertEquals(new Quantity(6), ((Fill) published.get(0)).filledQuantity()); // 10 − 최신 누적 4
         assertEquals(10, latest.getFilledQuantity());
         assertEquals(OrderStatus.FILLED, latest.getStatus());
     }
@@ -346,7 +346,7 @@ class OrderNoticeHandlerTest {
         assertEquals(OrderStatus.FILLED, entity.getStatus());
         assertEquals(1, published.size());
         Fill fill = (Fill) published.get(0);
-        assertEquals(1, fill.filledQuantity());
+        assertEquals(new Quantity(1), fill.filledQuantity());
         assertEquals(new BigDecimal("258000"), fill.fillPrice());
     }
 
@@ -371,7 +371,7 @@ class OrderNoticeHandlerTest {
         assertEquals(1, published.size());
         Fill fill = (Fill) published.get(0);
         assertEquals(Side.SELL, fill.side());
-        assertEquals(1, fill.filledQuantity());
+        assertEquals(new Quantity(1), fill.filledQuantity());
         assertEquals(new BigDecimal("258000"), fill.fillPrice());
     }
 }

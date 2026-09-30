@@ -13,6 +13,7 @@ import com.autostock.monitor.TradingSystemManager;
 import com.autostock.monitor.TradingSystemStatus;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -189,7 +190,7 @@ class C3LiveStrategyTest {
         chart.put("005930", uptrendSymbolCandles("005930"));
 
         PositionBook positionBook = new PositionBook();
-        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("000660"), Side.BUY, 10, new BigDecimal("50000"), Instant.now()));
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("000660"), Side.BUY, new Quantity(10), new BigDecimal("50000"), Instant.now()));
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
@@ -236,7 +237,7 @@ class C3LiveStrategyTest {
         chart.put("005930", downtrendSymbolCandles("005930"));
 
         PositionBook positionBook = new PositionBook();
-        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10), new BigDecimal("10000"), Instant.now()));
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
@@ -259,7 +260,7 @@ class C3LiveStrategyTest {
         chart.put("005930", uptrendSymbolCandles("005930"));
 
         PositionBook positionBook = new PositionBook();
-        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10), new BigDecimal("10000"), Instant.now()));
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
@@ -381,7 +382,7 @@ class C3LiveStrategyTest {
         chart.put("005930", uptrendSymbolCandles("005930"));
 
         PositionBook positionBook = new PositionBook();
-        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10), new BigDecimal("10000"), Instant.now()));
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
