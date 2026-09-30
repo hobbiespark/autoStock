@@ -22,12 +22,10 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -99,7 +97,6 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     private final ObjectMapper objectMapper;
     private final boolean enabled;
     private final Clock clock;
-    private final long staleAfterSeconds;
     private final MarketSessionService marketSession;
 
     /** 장외 대기 중인지 — 대기 진입/해제 로그를 전환 시 한 번만 남기기 위한 플래그. */
@@ -108,10 +105,8 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     private final Set<String> subscribedSymbols = ConcurrentHashMap.newKeySet();
     private final AtomicReference<WebSocketSession> session = new AtomicReference<>();
 
-    /** 단절이 시작된 것으로 판단한 시각. null이면 현재 연결 정상(또는 아직 단절 관측 전). */
-    private final AtomicReference<Instant> disconnectedSince = new AtomicReference<>();
-    /** MarketDataStale을 이미 발행했는지 — 같은 단절 구간에서 중복 발행 방지(재연결 성공 시 리셋). */
-    private final AtomicBoolean staleEventFired = new AtomicBoolean(false);
+    /** 장시간 단절 감지(→ MarketDataStale). B3에서 추출 — {@link DisconnectionTracker}. */
+    private final DisconnectionTracker disconnection;
 
     /**
      * LOGIN 응답(return_code=0)을 받았는지 — 실측(클래스 Javadoc)에 따라 인증 전 REG는
@@ -132,24 +127,9 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
      */
     private final AtomicBoolean connecting = new AtomicBoolean(false);
 
-    /**
-     * 연속 연결 실패 횟수 — 지수 백오프와 로그 억제에 쓴다 (운영 2일차 결함, 2026-09-12 실측).
-     *
-     * <p>배경: 토요일 기동 시 키움 모의 서버가 주말 점검으로 닫혀(토큰 엔드포인트가 JSON 대신
-     * {@code text/html} 점검 페이지, WS 업그레이드 502) watchdog이 10초마다 재연결을 시도하며
-     * 전체 스택트레이스를 ERROR로 찍었다 — 주말 이틀이면 로그 수만 줄. 서버가 닫힌 동안의
-     * 재시도는 아무것도 복구하지 못하므로, 실패가 쌓일수록 간격을 늘리고(10초→최대 5분)
-     * 스택트레이스는 처음 몇 번만 남긴다.
-     */
-    private final AtomicInteger consecutiveFailures = new AtomicInteger(0);
+    /** 재연결 지수 백오프·로그 억제(운영 2일차 결함). B3에서 추출 — {@link ReconnectBackoff}. */
+    private final ReconnectBackoff backoff;
 
-    /** 이 시각 전에는 재연결을 시도하지 않는다(지수 백오프). null이면 즉시 시도 가능. */
-    private final AtomicReference<Instant> nextAttemptAt = new AtomicReference<>();
-
-    /** 백오프 상한 — 서버 점검처럼 장시간 닫힌 경우에도 5분마다는 확인한다. */
-    private static final long MAX_BACKOFF_SECONDS = 300;
-    /** 전체 스택트레이스를 남기는 최대 연속 실패 횟수 — 이후에는 한 줄 요약만. */
-    private static final int STACKTRACE_UNTIL = 3;
     /**
      * 연결(TCP·TLS·업그레이드) 단계 IO 상한 — Tomcat WebSocket 클라이언트 속성. 기본값(5초)과 같지만 명시한다:
      * 이 상한이 없으면 연결 future가 끝나지 않아 {@code connecting}이 true로 남고 재연결이 영구히 멈춘다.
@@ -171,7 +151,8 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         this.objectMapper = objectMapper;
         this.enabled = enabled;
         this.clock = clock;
-        this.staleAfterSeconds = staleAfterSeconds;
+        this.disconnection = new DisconnectionTracker(clock, staleAfterSeconds, publisher);
+        this.backoff = new ReconnectBackoff(clock);
         this.marketSession = marketSession;
     }
 
@@ -230,10 +211,9 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                 log.debug("WS 연결 시도 진행 중 — watchdog 재연결 스킵");
                 return;
             }
-            Instant notBefore = nextAttemptAt.get();
-            if (notBefore != null && Instant.now(clock).isBefore(notBefore)) {
+            if (!backoff.readyToAttempt()) {
                 // 지수 백오프 대기 중 — 서버가 닫힌 구간(주말 점검 등)에서 10초마다 두드리지 않는다.
-                log.debug("WS 재연결 백오프 대기 중 (다음 시도 {})", notBefore);
+                log.debug("WS 재연결 백오프 대기 중 (다음 시도 {})", backoff.nextAttemptAt());
                 return;
             }
             if (!wokeUp) {
@@ -256,10 +236,8 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         if (standby.compareAndSet(false, true)) {
             log.info("WS 장외 대기 진입 — 연결 해제, 다음 연결 {} KST", marketSession.wakeTime());
         }
-        disconnectedSince.set(null);
-        staleEventFired.set(false);
-        consecutiveFailures.set(0);
-        nextAttemptAt.set(null);
+        disconnection.reset();
+        backoff.reset();
 
         WebSocketSession current = session.get();
         if (current != null && current.isOpen()) {
@@ -278,28 +256,13 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     }
 
     /**
-     * 단절 지속시간을 추적하고, 임계치({@code staleAfterSeconds})를 넘으면 {@link MarketDataStale}을
-     * 발행한다. {@link #connect()}(실제 재연결 시도, 네트워크 부작용) 호출과 의도적으로 분리했다 —
-     * 이 메서드만 따로 단위테스트할 수 있게 하기 위해서다(패키지 접근 — 테스트 전용 공개 수준).
+     * 이번 틱의 연결 상태를 단절 감지에 반영한다({@link DisconnectionTracker}). 실제 재연결({@link #connect()}, 네트워크
+     * 부작용)과 분리해 단위 테스트할 수 있게 둔 패키지 접근 메서드다.
      *
      * @param connected 이번 watchdog 틱에서 관측한 연결 상태(true=정상)
      */
     void trackDisconnection(boolean connected) {
-        if (connected) {
-            // 연결 정상 — 단절 구간이 있었다면 종료. 다음 단절부터 다시 새로 잰다.
-            disconnectedSince.set(null);
-            staleEventFired.set(false);
-            return;
-        }
-
-        // 이번이 단절의 첫 관측이면 지금을 시작 시각으로 기록, 이미 있으면 그대로 유지(단절 지속 중).
-        Instant since = disconnectedSince.updateAndGet(existing -> existing != null ? existing : Instant.now(clock));
-        long elapsedSeconds = Duration.between(since, Instant.now(clock)).getSeconds();
-
-        if (elapsedSeconds >= staleAfterSeconds && staleEventFired.compareAndSet(false, true)) {
-            log.error("WS 장시간 단절({}초) — MarketDataStale 발행, risk 모듈이 킬스위치를 켤 것이다", elapsedSeconds);
-            publisher.publishEvent(new MarketDataStale(since, elapsedSeconds));
-        }
+        disconnection.observe(connected);
     }
 
     private void connect() {
@@ -325,35 +288,27 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         }
     }
 
-    /**
-     * 연결 실패 처리 — 백오프 연장 + 로그 억제(운영 2일차 결함).
-     *
-     * <p>첫 {@link #STACKTRACE_UNTIL}회까지는 스택트레이스를 남겨 원인 분석이 가능하게 하고,
-     * 그 이후로는 한 줄 요약만 남긴다(같은 예외가 반복되는 상황에서 스택은 정보가 아니라 소음이다).
-     * 백오프는 10초에서 시작해 2배씩 늘리며 {@link #MAX_BACKOFF_SECONDS}에서 멈춘다.
-     */
+    /** 연결 실패 처리 — 백오프를 늘리고, 처음 몇 번만 스택트레이스를 남긴다({@link ReconnectBackoff}). */
     private void onConnectFailed(Throwable ex) {
-        int failures = consecutiveFailures.incrementAndGet();
-        long backoff = Math.min(MAX_BACKOFF_SECONDS, 10L * (1L << Math.min(failures - 1, 5)));
-        nextAttemptAt.set(Instant.now(clock).plusSeconds(backoff));
-        String cause = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
-        if (failures <= STACKTRACE_UNTIL) {
-            log.error("WS 연결 실패({}회 연속) — {}초 후 재시도", failures, backoff, ex);
+        backoff.recordFailure();
+        int failures = backoff.consecutiveFailures();
+        long delay = backoff.currentDelaySeconds();
+        if (backoff.logStackTrace()) {
+            log.error("WS 연결 실패({}회 연속) — {}초 후 재시도", failures, delay, ex);
         } else {
-            log.warn("WS 연결 실패({}회 연속) — {}초 후 재시도: {}", failures, backoff, cause);
+            String cause = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
+            log.warn("WS 연결 실패({}회 연속) — {}초 후 재시도: {}", failures, delay, cause);
         }
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession newSession) throws Exception {
         session.set(newSession);
-        // 연결 성공 — 백오프/실패 카운터 초기화(다음 단절은 다시 10초부터 시작).
-        consecutiveFailures.set(0);
-        nextAttemptAt.set(null);
+        // 연결 성공 — 백오프 초기화(다음 단절은 다시 10초부터 시작).
+        backoff.reset();
         // 재연결 성공 — 단절 구간 종료. watchdog의 다음 틱을 기다리지 않고 즉시 리셋한다
         // ("재연결 성공 시 리셋" 스펙 — watchdog에서도 connected=true면 리셋하므로 이중 방어).
-        disconnectedSince.set(null);
-        staleEventFired.set(false);
+        disconnection.reset();
         // 새 연결은 미인증 상태에서 시작 — LOGIN만 보내고 REG는 LOGIN 응답 후로 미룬다
         // (실측: 인증 전 REG는 100013으로 무시됨, 클래스 Javadoc).
         loggedIn.set(false);
