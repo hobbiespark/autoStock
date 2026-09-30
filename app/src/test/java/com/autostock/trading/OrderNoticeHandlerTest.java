@@ -104,7 +104,7 @@ class OrderNoticeHandlerTest {
     }
 
     private OrderNotice notice(String status, long filledQuantity, BigDecimal fillPrice, long remainingQuantity) {
-        return new OrderNotice(BROKER_ORDER_ID, "005930", status, filledQuantity, fillPrice,
+        return new OrderNotice(new BrokerOrderId(BROKER_ORDER_ID), new StockCode("005930"), status, filledQuantity, fillPrice,
                 remainingQuantity, "00", Instant.now());
     }
 
@@ -333,9 +333,9 @@ class OrderNoticeHandlerTest {
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId("0119433")); // 실측 브로커 주문번호(FID 9203)
         when(orderRepository.findByBrokerOrderId(new BrokerOrderId("0119433"))).thenReturn(Optional.of(entity));
-        OrderNotice accepted = new OrderNotice("0119433", "005930", "접수", 0, null,
+        OrderNotice accepted = new OrderNotice(new BrokerOrderId("0119433"), new StockCode("005930"), "접수", 0, null,
                 1, "00", Instant.now());
-        OrderNotice filled = new OrderNotice("0119433", "005930", "체결", 1,
+        OrderNotice filled = new OrderNotice(new BrokerOrderId("0119433"), new StockCode("005930"), "체결", 1,
                 new BigDecimal("258000"), 0, "00", Instant.now());
 
         handler.onOrderNotice(accepted);
@@ -358,9 +358,9 @@ class OrderNoticeHandlerTest {
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId("0119574")); // 실측 브로커 주문번호(FID 9203)
         when(orderRepository.findByBrokerOrderId(new BrokerOrderId("0119574"))).thenReturn(Optional.of(entity));
-        OrderNotice accepted = new OrderNotice("0119574", "005930", "접수", 0, null,
+        OrderNotice accepted = new OrderNotice(new BrokerOrderId("0119574"), new StockCode("005930"), "접수", 0, null,
                 1, "00", Instant.now());
-        OrderNotice filled = new OrderNotice("0119574", "005930", "체결", 1,
+        OrderNotice filled = new OrderNotice(new BrokerOrderId("0119574"), new StockCode("005930"), "체결", 1,
                 new BigDecimal("258000"), 0, "00", Instant.now());
 
         handler.onOrderNotice(accepted);
