@@ -1,6 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.common.event.KillSwitchChanged;
+import com.autostock.risk.KillSwitch;
 import com.autostock.trading.TradingProperties;
 import com.autostock.trading.ReconciliationService;
 import org.slf4j.Logger;
@@ -30,7 +31,9 @@ import java.util.concurrent.atomic.AtomicReference;
  *
  * <h2>킬스위치 연동</h2>
  * risk 모듈의 {@link KillSwitchChanged} 이벤트를 구독해 RUNNING↔DEGRADED를 오간다 —
- * "매매가 막혔다"는 사실을 운영 상태기계에도 반영한다.
+ * "매매가 막혔다"는 사실을 운영 상태기계에도 반영한다. 킬스위치가 켜진 채 시작하면(재기동 복원 —
+ * Phase 0.2, aiDoc/risk-state-persistence.md) 작동 이벤트가 시작 전에 지나가 버리므로, 시작 절차 끝에서
+ * {@link KillSwitch#isEngaged()}를 직접 보고 DEGRADED로 간다.
  *
  * <h2>trading 모듈 참조 (ADR-6 재편)</h2>
  * 시작 절차에서 trading 모듈의 {@link ReconciliationService#reconcile()}을 직접 호출한다
@@ -45,14 +48,17 @@ public class TradingSystemManager {
 
     private final TradingProperties tradingProperties;
     private final ReconciliationService reconciliationService;
+    private final KillSwitch killSwitch;
 
     private final AtomicReference<TradingSystemStatus> status =
             new AtomicReference<>(TradingSystemStatus.STOPPED);
 
     public TradingSystemManager(TradingProperties tradingProperties,
-                                ReconciliationService reconciliationService) {
+                                ReconciliationService reconciliationService,
+                                KillSwitch killSwitch) {
         this.tradingProperties = tradingProperties;
         this.reconciliationService = reconciliationService;
+        this.killSwitch = killSwitch;
     }
 
     /** 현재 운영 상태 조회 — 대시보드/전략 모듈이 부르는 유일한 공개 조회 메서드. */
@@ -82,6 +88,11 @@ public class TradingSystemManager {
             }
             transitionTo(TradingSystemStatus.RUNNING);
             log.info("TradingSystemManager: 시작 준비 완료 — RUNNING");
+            // 킬스위치가 켜진 채 시작했으면(재기동 복원 등) 곧바로 DEGRADED — 해제되면 on()이 RUNNING으로 되돌린다.
+            if (killSwitch.isEngaged()
+                    && status.compareAndSet(TradingSystemStatus.RUNNING, TradingSystemStatus.DEGRADED)) {
+                log.warn("TradingSystemManager: 킬스위치가 켜진 채 시작 — RUNNING → DEGRADED(해제는 사람만)");
+            }
         } catch (RuntimeException e) {
             log.error("TradingSystemManager: 시작 준비 절차 실패 — ERROR로 전이", e);
             transitionTo(TradingSystemStatus.ERROR);

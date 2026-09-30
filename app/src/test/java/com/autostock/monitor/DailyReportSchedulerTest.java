@@ -11,6 +11,7 @@ import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
+import com.autostock.risk.RiskStateStore;
 import com.autostock.risk.MacroGuard;
 import com.autostock.risk.PaperEquitySource;
 import com.autostock.risk.RiskProperties;
@@ -29,6 +30,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 /**
  * DailyReportScheduler — 리포트 본문에 포지션/킬스위치/주문 수/실현손익이 반영되는지 검증한다.
@@ -72,12 +74,12 @@ class DailyReportSchedulerTest {
     @BeforeEach
     void setUp() {
         positionBook = new PositionBook();
-        killSwitch = new KillSwitch(event -> { }, Clock.systemUTC());
+        killSwitch = new KillSwitch(event -> { }, mock(RiskStateStore.class), Clock.systemUTC());
         RiskProperties properties = new RiskProperties(0.10, 5, -0.03, 0.05, -0.02, 30,
                 10_000_000, 0.00015, 0.0015, false);
         dailyLimits = new DailyLimitTracker(properties, Clock.systemUTC());
         clock = Clock.fixed(Instant.parse("2026-08-13T02:00:00Z"), ZoneOffset.UTC);
-        dailyPnl = new DailyPnlTracker(properties, new PaperEquitySource(properties), killSwitch, clock);
+        dailyPnl = new DailyPnlTracker(properties, new PaperEquitySource(properties), killSwitch, mock(RiskStateStore.class), clock);
         // 보수 모드는 이 테스트의 관심사가 아니라 기본값(OFF)으로 둔다 — MacroGuardTest 참고.
         MacroGuard macroGuard = new MacroGuard(
                 new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0), killSwitch);

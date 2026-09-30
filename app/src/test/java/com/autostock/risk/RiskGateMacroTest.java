@@ -53,7 +53,7 @@ class RiskGateMacroTest {
     void setUp() {
         properties = new RiskProperties(0.10, 5, -0.03, 0.05, -0.02, 30,
                 10_000_000, 0.00015, 0.0015, false);
-        killSwitch = new KillSwitch(event -> { }, Clock.systemUTC());
+        killSwitch = new KillSwitch(event -> { }, mock(RiskStateStore.class), Clock.systemUTC());
         positionBook = new PositionBook();
         macroGuard = new MacroGuard(
                 new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0), killSwitch);

@@ -1,9 +1,11 @@
 package com.autostock.risk;
 
 import com.autostock.common.event.Fill;
+import com.autostock.common.event.PositionRestored;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.StockCode;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -50,6 +52,15 @@ import java.util.concurrent.locks.ReentrantLock;
  * 대신 ReentrantLock을 쓴다 — 가상 스레드 pinning 회피, 다만 이 락 내부 연산은 순수 BigDecimal
  * 계산이라 애초에 블로킹이 없다).
  *
+ * <h2>재기동 복원 (Phase 0.2, 사용자 결정 D-05 — aiDoc/risk-state-persistence.md)</h2>
+ * 예전에는 누계가 메모리에만 있어 재기동하면 일 손실이 0이 됐다(장중 재기동 한 번으로 한도가 다시 열렸다).
+ * 이제 누계가 바뀔 때마다 오늘(KST) 행을 {@code risk_daily_pnl}에 저장하고, 빈 초기화 때 오늘 행으로
+ * 복원한다(다른 날짜 행은 읽지 않는다). 복원만으로는 킬스위치를 켜지 않는다 — 한도 도달로 작동했던
+ * 킬스위치는 그 자체가 복원되고, 사람이 해제했다면 그 판단을 존중한다(다음 손실 체결에서 다시 검사).
+ * 원가 장부({@link Lot})는 브로커 잔고 복원 이벤트({@link PositionRestored})로 평단을 시드한다 —
+ * 예전에는 복원 포지션을 매도하면 "장부에 없는 종목"으로 실현손익 계산을 건너뛰었다.
+ * 저장·복원 실패는 ERROR 로그만 남기고 메모리 계산을 계속한다(한도 판단이 멈추지 않게).
+ *
  * <h2>한계(TODO)</h2>
  * 여기서 보는 것은 "실현"손익뿐이다. 보유 중인 포지션의 미실현 평가손익은 포함하지 않는다 —
  * 실시간 시세 연동이 있어야 계산할 수 있으므로 TODO로 남긴다(클래스 설명 참고,
@@ -67,6 +78,7 @@ public class DailyPnlTracker {
     private final RiskProperties properties;
     private final EquitySource equitySource;
     private final KillSwitch killSwitch;
+    private final RiskStateStore store;
     private final Clock clock;
 
     /** 종목별 평단·수량 자체 장부 — PositionBook과 별개(클래스 설명 참고). */
@@ -77,12 +89,31 @@ public class DailyPnlTracker {
     private BigDecimal realizedPnlToday = BigDecimal.ZERO;
 
     public DailyPnlTracker(RiskProperties properties, EquitySource equitySource,
-                           KillSwitch killSwitch, Clock clock) {
+                           KillSwitch killSwitch, RiskStateStore store, Clock clock) {
         this.properties = properties;
         this.equitySource = equitySource;
         this.killSwitch = killSwitch;
+        this.store = store;
         this.clock = clock;
         this.currentDay = today();
+    }
+
+    /** 오늘(KST) 저장된 누계로 복원한다 — 빈 초기화 때 1회(클래스 설명 "재기동 복원"). */
+    @PostConstruct
+    void restoreToday() {
+        lock.lock();
+        try {
+            LocalDate day = today();
+            currentDay = day;
+            store.loadDailyPnl(day).ifPresent(saved -> {
+                realizedPnlToday = saved;
+                log.info("DailyPnlTracker: 오늘({}) 실현손익 누계 복원 {}원", day, saved);
+            });
+        } catch (RuntimeException e) {
+            log.error("DailyPnlTracker: 오늘 실현손익 누계 복원 실패 — 0에서 시작한다(재기동 전 손실이 한도 계산에서 빠질 수 있음)", e);
+        } finally {
+            lock.unlock();
+        }
     }
 
     @EventListener
@@ -91,6 +122,29 @@ public class DailyPnlTracker {
             recordBuy(fill);
         } else {
             recordSell(fill);
+        }
+    }
+
+    /**
+     * 브로커 잔고 복원 포지션으로 원가 장부를 시드한다(클래스 설명 "재기동 복원"). PositionBook.onPositionRestored와
+     * 같은 규칙 — putIfAbsent: 이 JVM에서 이미 체결로 만든 장부가 더 최신이다. 평단 미상(null)이면 시드하지 않는다
+     * (그 종목 매도는 기존대로 실현손익 계산을 건너뛰고 경고한다).
+     */
+    @EventListener
+    public void onPositionRestored(PositionRestored restored) {
+        if (restored.quantity() <= 0) {
+            return;
+        }
+        if (restored.avgPrice() == null) {
+            log.warn("DailyPnlTracker: {} 평단 미상 — 원가 장부 시드 생략(이 종목 매도의 실현손익은 계산되지 않는다)",
+                    restored.symbol());
+            return;
+        }
+        Lot previous = lots.putIfAbsent(restored.symbol(),
+                new Lot(restored.quantity(), restored.avgPrice().value()));
+        if (previous == null) {
+            log.info("DailyPnlTracker: 원가 장부 시드(브로커 잔고): {} {}주 @ {}",
+                    restored.symbol(), restored.quantity(), restored.avgPrice());
         }
     }
 
@@ -148,9 +202,20 @@ public class DailyPnlTracker {
         try {
             rollDayIfNeeded();
             realizedPnlToday = realizedPnlToday.add(pnl);
+            persistToday();
             checkLimit();
         } finally {
             lock.unlock();
+        }
+    }
+
+    /** 호출자가 이미 lock을 쥔 상태에서만 불러야 한다 — 락 안에서 저장해 여러 체결의 저장 순서가 누계 순서와 같게 한다. */
+    private void persistToday() {
+        try {
+            store.saveDailyPnl(currentDay, realizedPnlToday, clock.instant());
+        } catch (RuntimeException e) {
+            log.error("DailyPnlTracker: 실현손익 누계 저장 실패({} {}원) — 메모리 누계로 한도 판단은 계속한다",
+                    currentDay, realizedPnlToday, e);
         }
     }
 

@@ -15,9 +15,10 @@ import org.springframework.stereotype.Component;
  * 사람이 매번 [시작]을 눌러야 한다면 "무인" 운영이 아니다. 기본값은 false — 수동 기동
  * (개발·SIM 검증)에서는 기존 동작 그대로다.
  *
- * <p>킬스위치와의 관계: 킬스위치가 켜진 채 재시작해도 start() 자체는 RUNNING으로 가지만
- * RiskGate가 모든 주문을 차단하므로 안전하다(킬스위치 해제는 사람이 원인 확인 후 수동으로만 —
- * RUNBOOK 7절 원칙 유지).
+ * <p>킬스위치와의 관계: 킬스위치 상태는 재기동해도 유지된다(Phase 0.2 — {@code risk_state}에서 복원,
+ * aiDoc/risk-state-persistence.md). 켜진 채 재시작하면 start()는 RUNNING을 거쳐 곧바로 DEGRADED로 가고
+ * RiskGate가 모든 주문을 차단한다. 해제는 사람이 원인 확인 후 수동으로만 — RUNBOOK 7절 원칙 유지.
+ * (예전 설명 "켜진 채 재시작해도 안전"은 사실이 아니었다 — 재기동하면 킬스위치가 메모리 초기값(해제)으로 풀렸다.)
  */
 @Component
 public class TradingAutoStarter {

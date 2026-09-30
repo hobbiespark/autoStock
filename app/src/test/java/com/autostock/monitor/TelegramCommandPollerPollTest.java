@@ -1,6 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.risk.KillSwitch;
+import com.autostock.risk.RiskStateStore;
 import com.autostock.portfolio.PositionBook;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,7 +42,7 @@ class TelegramCommandPollerPollTest {
 
     @BeforeEach
     void setUp() {
-        killSwitch = new KillSwitch(published::add, Clock.systemUTC());
+        killSwitch = new KillSwitch(published::add, mock(RiskStateStore.class), Clock.systemUTC());
         positionBook = new PositionBook();
     }
 
