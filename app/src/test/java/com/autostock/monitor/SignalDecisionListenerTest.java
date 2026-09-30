@@ -1,6 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.common.event.SignalDecision;
+import com.autostock.common.util.StockCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -36,7 +37,7 @@ class SignalDecisionListenerTest {
     @Test
     void SignalDecision을_받으면_trade_date를_KST로_환산해_저장한다() {
         SignalDecision event = new SignalDecision(
-                "MID", "C3-MOMENTUM", "005930", "BUY",
+                "MID", "C3-MOMENTUM", new StockCode("005930"), "BUY",
                 "모멘텀 상승 전환 + 국면 ON + 미보유 — 매수 시그널 발행",
                 Map.of("momentumLookbackN", "120", "regimeStatus", "ON"),
                 DECIDED_AT);
@@ -63,7 +64,7 @@ class SignalDecisionListenerTest {
         // 9/10이 됨) 확인한다.
         Instant boundary = Instant.parse("2026-09-10T15:00:00Z");
         SignalDecision event = new SignalDecision(
-                "MID", "C3-MOMENTUM", "000660", "SKIP", "국면 OFF", Map.of(), boundary);
+                "MID", "C3-MOMENTUM", new StockCode("000660"), "SKIP", "국면 OFF", Map.of(), boundary);
 
         listener.on(event);
 
@@ -76,7 +77,7 @@ class SignalDecisionListenerTest {
     void 저장_실패는_삼키고_예외를_전파하지_않는다() {
         when(repository.save(any())).thenThrow(new RuntimeException("DB 오류(테스트)"));
         SignalDecision event = new SignalDecision(
-                "MID", "C3-MOMENTUM", "005930", "REJECTED", "일 주문 한도 초과 — 거부",
+                "MID", "C3-MOMENTUM", new StockCode("005930"), "REJECTED", "일 주문 한도 초과 — 거부",
                 Map.of(), DECIDED_AT);
 
         listener.on(event); // 예외가 던져지지 않아야 함(assertDoesNotThrow 없이도 실패 시 테스트가 곧바로 실패)

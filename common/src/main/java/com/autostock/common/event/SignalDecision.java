@@ -1,5 +1,7 @@
 package com.autostock.common.event;
 
+import com.autostock.common.util.StockCode;
+
 import java.time.Instant;
 import java.util.Map;
 
@@ -17,7 +19,7 @@ import java.util.Map;
  *                   "LONG"(장기). 향후 다른 지평의 전략이 추가되면 그 전략이 같은 필드를 쓴다.
  * @param strategyId 판단을 내린 전략 ID(Signal.strategyId와 동일 값, RiskGate 거부 시에도
  *                   원본 Signal의 strategyId를 그대로 싣는다)
- * @param symbol     종목코드
+ * @param symbol     종목코드. JSON에서는 기존과 같은 문자열이다(JacksonConfig)
  * @param conclusion 최종 결론: BUY(매수 시그널 발행) / SELL(매도 시그널 발행) /
  *                   HOLD(보유 유지, 신규 행동 없음) / SKIP(신규 진입 보류, 미보유 유지) /
  *                   REJECTED(RiskGate 게이트에서 거부됨 — Signal은 발행됐으나 주문으로
@@ -32,7 +34,7 @@ import java.util.Map;
 public record SignalDecision(
         String horizon,
         String strategyId,
-        String symbol,
+        StockCode symbol,
         String conclusion,
         String reason,
         Map<String, String> metrics,
