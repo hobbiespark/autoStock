@@ -15,6 +15,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -105,6 +106,17 @@ class DisclosureBlacklistTest {
 
         assertFalse(blacklist.isBlacklisted("000660"));
         verify(repository).deleteBySymbol("000660");
+    }
+
+    @Test
+    void remove의_DB_삭제가_실패하면_예외가_나고_차단은_유지된다() {
+        // Phase 0.3: DB 삭제(커밋)를 먼저 하고 메모리는 그 뒤에 비운다 — 실패해도 안전 방향(차단 유지)
+        blacklist.onDisclosureRisk(riskEvent("005930", "r1", LocalDate.of(2027, 3, 9)));
+        when(repository.deleteBySymbol("005930")).thenThrow(new RuntimeException("DB 연결 끊김"));
+
+        assertThrows(RuntimeException.class, () -> blacklist.remove("005930"));
+
+        assertTrue(blacklist.isBlacklisted("005930"));
     }
 
     @Test

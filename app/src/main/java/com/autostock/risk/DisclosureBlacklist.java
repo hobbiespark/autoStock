@@ -85,11 +85,15 @@ public class DisclosureBlacklist {
         manualBlacklist.add(symbol);
     }
 
-    /** 배제 목록에서 종목을 제거한다(운영자 수동 해제 — 공시 자동 등록 이력도 함께 지운다). */
+    /**
+     * 배제 목록에서 종목을 제거한다(운영자 수동 해제 — 공시 자동 등록 이력도 함께 지운다).
+     * DB 삭제(저장소 메서드가 자기 트랜잭션에서 커밋)를 먼저 하고 메모리는 그 뒤에 비운다 — 삭제가 실패하면 예외가 나고
+     * 차단은 유지된다(안전 방향, Phase 0.3). 예전 순서(메모리 먼저)는 DB 삭제 실패 시 재기동하면 차단이 되살아났다.
+     */
     public void remove(String symbol) {
+        repository.deleteBySymbol(symbol);
         manualBlacklist.remove(symbol);
         disclosureExpiryBySymbol.remove(symbol);
-        repository.deleteBySymbol(symbol);
     }
 
     /** 지금 공시 사유로 등록돼 있는 종목 수(수동 등록 포함) — 대시보드 카운트용(DashboardFacade). */
@@ -121,7 +125,10 @@ public class DisclosureBlacklist {
                 event.rceptNo(), event.expiresOn(), clock.instant()));
     }
 
-    /** 만료된 공시 자동 등록을 DB·메모리에서 정리한다 — {@link DisclosureBlacklistExpiryScheduler}가 매일 호출. */
+    /**
+     * 만료된 공시 자동 등록을 DB·메모리에서 정리한다 — {@link DisclosureBlacklistExpiryScheduler}가 매일 호출.
+     * 삭제가 커밋된 뒤에 메모리 캐시를 다시 읽는다(저장소 메서드 트랜잭션, Phase 0.3).
+     */
     void releaseExpired() {
         LocalDate today = today();
         long deleted = repository.deleteByExpiresOnBefore(today);
