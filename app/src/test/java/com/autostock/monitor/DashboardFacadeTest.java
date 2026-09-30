@@ -2,17 +2,18 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
-import com.autostock.trading.TradingProperties;
+import com.autostock.common.util.StockCode;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
 import com.autostock.monitor.view.SystemStatusView;
 import com.autostock.monitor.view.TradingStatusView;
+import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.DisclosureBlacklist;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.MacroGuard;
-import com.autostock.portfolio.PositionBook;
+import com.autostock.trading.TradingProperties;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -54,7 +55,7 @@ class DashboardFacadeTest {
     @Test
     void positions는_PositionBook_스냅샷을_View로_옮겨담는다() {
         PositionBook positionBook = new PositionBook();
-        positionBook.onFill(new Fill("k1", "b1", "005930", Side.BUY, 10, new BigDecimal("70000"), Instant.now()));
+        positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 10, new BigDecimal("70000"), Instant.now()));
 
         DashboardFacade facade = facade(positionBook, mock(EventFeed.class), mock(KillSwitch.class),
                 mock(DailyLimitTracker.class), mock(DailyPnlTracker.class), mock(TradingSystemManager.class),

@@ -95,7 +95,7 @@ public class DailyPnlTracker {
 
     /** 매수 체결 반영 — PositionBook.onFill의 매수 가지와 동일한 가중평균 로직. */
     private void recordBuy(Fill fill) {
-        lots.compute(fill.symbol(), (symbol, current) -> {
+        lots.compute(fill.symbol().value(), (symbol, current) -> {
             if (current == null) {
                 return new Lot(fill.filledQuantity(), fill.fillPrice());
             }
@@ -113,10 +113,12 @@ public class DailyPnlTracker {
      * 손익 계산을 스킵하고 경고만 남긴다 — 잘못된 평단으로 왜곡된 값을 누적시키는 것보다 낫다.
      */
     private void recordSell(Fill fill) {
-        Lot current = lots.get(fill.symbol());
+        // 장부 키는 문자열 — Map.get/remove는 Object를 받아 StockCode를 넘겨도 컴파일되지만 항상 못 찾는다
+        String symbol = fill.symbol().value();
+        Lot current = lots.get(symbol);
         if (current == null) {
             log.warn("DailyPnlTracker: 자체 장부에 없는 종목의 매도 체결 — 실현손익 계산 스킵(재시작 등으로 장부 유실 가능): {}",
-                    fill.symbol());
+                    symbol);
             return;
         }
 
@@ -125,9 +127,9 @@ public class DailyPnlTracker {
 
         long remaining = current.quantity() - soldQty;
         if (remaining <= 0) {
-            lots.remove(fill.symbol());
+            lots.remove(symbol);
         } else {
-            lots.put(fill.symbol(), new Lot(remaining, avgPriceBeforeThisFill));
+            lots.put(symbol, new Lot(remaining, avgPriceBeforeThisFill));
         }
 
         BigDecimal qty = BigDecimal.valueOf(soldQty);

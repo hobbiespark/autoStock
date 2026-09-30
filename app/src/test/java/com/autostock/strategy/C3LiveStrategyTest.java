@@ -5,6 +5,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
+import com.autostock.common.util.StockCode;
 import com.autostock.market.KiwoomDailyChartService;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketHolidayRepository;
@@ -187,7 +188,7 @@ class C3LiveStrategyTest {
         chart.put("005930", uptrendSymbolCandles("005930"));
 
         PositionBook positionBook = new PositionBook();
-        positionBook.onFill(new Fill("k1", "b1", "000660", Side.BUY, 10, new BigDecimal("50000"), Instant.now()));
+        positionBook.onFill(new Fill("k1", "b1", new StockCode("000660"), Side.BUY, 10, new BigDecimal("50000"), Instant.now()));
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
@@ -234,7 +235,7 @@ class C3LiveStrategyTest {
         chart.put("005930", downtrendSymbolCandles("005930"));
 
         PositionBook positionBook = new PositionBook();
-        positionBook.onFill(new Fill("k1", "b1", "005930", Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
+        positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
@@ -257,7 +258,7 @@ class C3LiveStrategyTest {
         chart.put("005930", uptrendSymbolCandles("005930"));
 
         PositionBook positionBook = new PositionBook();
-        positionBook.onFill(new Fill("k1", "b1", "005930", Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
+        positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
@@ -379,7 +380,7 @@ class C3LiveStrategyTest {
         chart.put("005930", uptrendSymbolCandles("005930"));
 
         PositionBook positionBook = new PositionBook();
-        positionBook.onFill(new Fill("k1", "b1", "005930", Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
+        positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 10, new BigDecimal("10000"), Instant.now()));
 
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(

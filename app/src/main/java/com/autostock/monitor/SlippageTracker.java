@@ -122,7 +122,7 @@ public class SlippageTracker {
             quantityWeightedBpsSum += bps * fill.filledQuantity();
             if (bps > maxBps) {
                 maxBps = bps;
-                maxBpsSymbol = fill.symbol();
+                maxBpsSymbol = fill.symbol().value();
             }
         }
         log.info("슬리피지: {} {} {}주 결정가 {} → 체결가 {} = {}bps",

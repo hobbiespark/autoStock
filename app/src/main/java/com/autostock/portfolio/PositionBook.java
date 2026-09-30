@@ -54,7 +54,8 @@ public class PositionBook {
      */
     @EventListener
     public void onFill(Fill fill) {
-        positions.compute(fill.symbol(), (symbol, current) -> {
+        // 맵 키는 아직 문자열이다 — Signal·PositionRestored 조회도 문자열로 들어오므로 전부 바뀔 때까지 값으로 꺼낸다
+        positions.compute(fill.symbol().value(), (symbol, current) -> {
             // 매수는 +수량, 매도는 -수량으로 부호를 통일해 한 곳에서 처리
             long signed = fill.side() == Side.BUY ? fill.filledQuantity() : -fill.filledQuantity();
 
