@@ -10,6 +10,7 @@ import com.autostock.macrointel.MacroIntelProperties;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketHolidayRepository;
 import com.autostock.portfolio.PositionBook;
+import com.autostock.common.util.BrokerOrderId;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -112,7 +113,7 @@ class RiskGateTest {
 
     @Test
     void 보유_종목_추가_매수_차단() {
-        positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 10,
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 10,
                 new BigDecimal("70000"), Instant.now()));
         gate.onSignal(buySignal("005930", "70000"));
         assertTrue(onlyOrders(published).isEmpty());
@@ -127,7 +128,7 @@ class RiskGateTest {
 
     @Test
     void 보유_종목_매도는_전량_청산() {
-        positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 14,
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, 14,
                 new BigDecimal("70000"), Instant.now()));
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
                 new BigDecimal("71000"), 1.0, Instant.now()));
@@ -166,7 +167,7 @@ class RiskGateTest {
     void 동시_보유_한도_도달시_신규_매수_차단() {
         String[] symbols = {"000001", "000002", "000003", "000004", "000005"};
         for (String s : symbols) {
-            positionBook.onFill(new Fill("k" + s, "b" + s, new StockCode(s), Side.BUY, 1,
+            positionBook.onFill(new Fill("k" + s, new BrokerOrderId("b" + s), new StockCode(s), Side.BUY, 1,
                     new BigDecimal("1000"), Instant.now()));
         }
         gate.onSignal(buySignal("005930", "70000"));

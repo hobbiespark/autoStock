@@ -2,6 +2,7 @@ package com.autostock.backtest;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
+import com.autostock.common.util.BrokerOrderId;
 
 import java.math.BigDecimal;
 
@@ -42,7 +43,7 @@ public final class BacktestExecutionHandler {
         };
         return new Fill(
                 order.idempotencyKey(),
-                "BACKTEST",   // 브로커 주문번호가 없으므로 고정 표식 사용
+                new BrokerOrderId("BACKTEST"),   // 브로커 주문번호가 없으므로 고정 표식 사용
                 order.symbol(),
                 order.side(),
                 order.quantity(),
