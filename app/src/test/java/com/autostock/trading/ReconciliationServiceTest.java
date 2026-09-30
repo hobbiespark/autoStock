@@ -2,6 +2,7 @@ package com.autostock.trading;
 
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerOutstandingOrder;
@@ -48,7 +49,7 @@ class ReconciliationServiceTest {
 
     private OrderEntity submittedEntity(String clientOrderId, String brokerOrderId) {
         OrderEntity entity = new OrderEntity(clientOrderId, new StockCode("005930"), Side.BUY, new Quantity(10),
-                new BigDecimal("70000"), "BREAKOUT");
+                new Price(new BigDecimal("70000")), "BREAKOUT");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId(brokerOrderId));
@@ -108,7 +109,7 @@ class ReconciliationServiceTest {
     @Test
     void brokerOrderId_없는_UNKNOWN_주문은_스킵된다() {
         OrderEntity order = new OrderEntity("key-4", new StockCode("005930"), Side.BUY, new Quantity(10),
-                new BigDecimal("70000"), "BREAKOUT");
+                new Price(new BigDecimal("70000")), "BREAKOUT");
         order.transitionTo(OrderStatus.VALIDATED);
         order.transitionTo(OrderStatus.SUBMITTING);
         order.transitionTo(OrderStatus.UNKNOWN); // SUBMITTING 단계에서 타임아웃 — brokerOrderId 없음

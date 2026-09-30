@@ -1,9 +1,9 @@
 package com.autostock.common.event;
 
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
@@ -14,6 +14,8 @@ import java.time.Instant;
  * 바뀌지 않았으므로 이벤트 계약 버전은 그대로 v1이다.
  * symbol은 {@link StockCode}다(ARCHITECTURE.md 3절) — JSON에서는 여전히 문자열("005930")로 직렬화되어
  * 저장 형식이 같으므로 역시 v1이다(app config.JacksonConfig).
+ * limitPrice는 {@link Price}다 — 모든 주문이 지정가(키움 trde_tp=0)라 항상 있다. 가격이 없거나 0이면
+ * risk가 주문 요청을 만들지 않는다. JSON은 같은 숫자 그대로라 역시 v1이다.
  */
 public record OrderRequest(
         String idempotencyKey,
@@ -21,7 +23,7 @@ public record OrderRequest(
         StockCode symbol,
         Side side,
         Quantity quantity,
-        BigDecimal limitPrice,
+        Price limitPrice,
         Instant timestamp
 ) {
 }

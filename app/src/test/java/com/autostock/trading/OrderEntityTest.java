@@ -2,6 +2,7 @@ package com.autostock.trading;
 
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,7 +20,7 @@ class OrderEntityTest {
     @BeforeEach
     void setUp() {
         order = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", new StockCode("005930"), Side.BUY,
-                new Quantity(10), new BigDecimal("70000"), "BREAKOUT");
+                new Quantity(10), new Price(new BigDecimal("70000")), "BREAKOUT");
     }
 
     @Test

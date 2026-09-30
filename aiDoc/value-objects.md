@@ -539,13 +539,56 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 
 | 이벤트 필드 | 0·null 가능성 | 비고 |
 |---|---|---|
-| `OrderRequest.limitPrice` | null 가능(`KrxTickSize.align`이 null·0 이하를 그대로 반환) | `SlippageTracker`가 null·0 이하를 거른다. `KiwoomBrokerAdapter`는 null 검사 없이 `toPlainString()` |
+| `OrderRequest.limitPrice` | null 가능(`KrxTickSize.align`이 null·0 이하를 그대로 반환) | **조각 16에서 처리** — `RiskGate`가 거부 |
 | `Signal.refPrice` | 생성처(C3, StrategyEngine, 대시보드 테스트 신호)별 확인 필요 | `RiskGate`가 `limitPrice`로 넘긴다 |
 | `OrderNotice.fillPrice` | 빈 값이면 null(`RealMessageParser`). 접수 통보의 `"0"` 여부는 **미실측** | 0이면 파서에서 null로 번역해야 한다 |
 | `Fill.fillPrice` | 체결에서만 발행 — 양수로 **추론** | SIM은 `limitPrice`를 그대로 쓴다 |
 | `PositionRestored.avgPrice` | 잔고 필드가 없으면 null 가능(`PositionRestorer.firstPrice`) | |
 | `MarketTick.price` | 빈 값은 파서가 버림. 0은 **미확인** | |
 | `Candle` OHLC | — | 종목코드와 함께 **보류**(조각 13 사용자 결정) |
+
+## 조각 16 — `Price`: `OrderRequest.limitPrice` (2026-09-30)
+
+### 1. 사전 조사 — 0·null 경로
+
+- 모든 주문은 지정가다(`KiwoomBrokerAdapter`의 `trde_tp=0`). 가격 없는 주문은 낼 수 없다.
+- 운영에서 `OrderRequest`를 만드는 곳은 `RiskGate` 하나다. 지정가는 `KrxTickSize.align(signal.refPrice())`이고, null·0 이하는 그대로 돌려준다.
+- 매수는 `PositionSizer.sizeBuy`가 가격 null·0 이하면 0주를 돌려줘 이미 걸러진다.
+- **매도는 가격 검사가 없었다.** C3 국면 OFF 강제 청산(`liquidateAll`)은 평균단가를 기준가로 쓰고, 잔고 복원(`PositionRestorer.firstPrice`)은 매입가를 못 찾으면 **0**을 넣는다. 이 경우 지금까지는 0원 지정가 주문이 브로커까지 나가 거부됐다(일 주문 슬롯 1개 소비, 주문 REJECTED).
+- 백테스트 두 러너(`BacktestRunner`, `InverseSwitchWalkForwardRunner`)도 `candle.open()`으로 만든다. 기록용이고 체결가는 `referencePrice`로 따로 정한다. 레포 `data/` 단일 종목 CSV 9개와 `aiDoc/market-data` 사본 5개에 시가 0 이하 행은 없다(실측).
+
+### 2. 결정
+
+- `OrderRequest.limitPrice`를 `Price`로 바꿨다. JSON은 숫자 그대로다(`ValueObjectJsonTest`에 `"limitPrice":258000` 단언 추가).
+- **`RiskGate`: 지정가를 정할 수 없으면 거부한다.** 호가단위 정렬 결과가 null·0 이하면 WARN과 REJECTED 판단 기록(`기준가 없음 — 지정가를 정할 수 없어 거부`)을 남기고 끝낸다.
+  - 위치는 사이징 뒤, **일 주문 슬롯 앞**이다. 브로커가 거부할 주문에 슬롯을 쓰지 않는다.
+  - 그대로 `new Price(0)`을 부르면 이벤트 리스너 안에서 예외가 나 C3 청산 루프의 다른 종목까지 멈출 수 있어서, 예외 대신 거부로 처리했다.
+- 엔티티는 조각 1과 같이 **생성자만 값 객체**다. `OrderEntity(…, Price limitPrice, …)`, 컬럼과 `getLimitPrice()`는 `BigDecimal` 그대로다(조회 화면 파급 없음, 스키마 변경 없음).
+- 나가는 곳에서 푼다: `KiwoomBrokerAdapter` `ord_uv`(`.value().toPlainString()`), SIM 체결가(`Fill.fillPrice`는 아직 `BigDecimal`), `SlippageTracker` 결정가.
+- `SlippageTracker`의 null·0 이하 검사는 지웠다. `Price`가 양수를 보장한다.
+- 백테스트는 `new Price(candle.open())`. 시가 0인 데이터가 들어오면 이제 조용히 0원 주문을 기록하지 않고 예외로 드러난다.
+
+### 3. 함정 점검
+
+- `limitPrice()`를 `Object`로 받는 호출(`equals`, `Map.get`, `assertEquals`, `%d`)을 grep으로 전수 확인했다. 로그 `{}`와 `%s`(EventFeed, 텔레그램 문구)는 `toString()`이 평문 숫자라 결과가 같다. 테스트 쪽 `limitPrice()` 단언은 조회 뷰(`OrderHistoryItemView`, BigDecimal)뿐이다.
+
+### 4. 동작 변화
+
+- 기준가 0·null인 매도 신호: 이전에는 0원 주문 → 브로커 거부(슬롯 소비). 이제 `RiskGate`에서 거부(슬롯 미소비, 판단 기록 REJECTED).
+
+### 5. 발견했지만 바꾸지 않은 것 (사용자 판단 필요)
+
+- **C3 국면 OFF 강제 청산의 지정가가 평균매입가다**(`C3LiveStrategy.liquidateAll` → `publishSell(symbol, position.avgPrice())`). 현재가가 매입가보다 낮으면 매도 지정가가 시장가보다 높아 체결되지 않을 수 있고, 미체결 주문은 `StaleOrderCanceller`가 취소한다. 즉 손실 구간의 강제 청산이 실제로는 안 될 수 있다(**추론**, 실측 없음). 판단일 매도(`decideOne`)는 최근 종가를 쓴다. 전략 동작 변경이라 이번 조각에서 건드리지 않았다.
+
+### 6. 변경 파일
+
+- 수정(main 8): `common/event/OrderRequest`, `risk/RiskGate`, `trading/OrderEntity`, `TradingService`, `execution/KiwoomBrokerAdapter`, `monitor/SlippageTracker`, `backtest/BacktestRunner`, `InverseSwitchWalkForwardRunner`
+- 테스트: 생성자 인자 23곳(컴파일 오류 줄만 스크립트 변환), `RiskGateTest` 신규 2(0·null 매도 거부와 슬롯 미소비, 호가 보정 지정가), `ValueObjectJsonTest` 단언 1
+
+### 7. 검증 상태
+
+- `.\gradlew.bat test` 전체 통과(2026-09-30, 550건, 건너뜀 16). `RiskGateTest` 13.
+- **미검증:** 실제 주문 전문의 `ord_uv`, event_store의 OrderRequest JSON, 기준가 0 거부 경로의 운영 발생 여부.
 
 ### 10. 변경 이력
 
@@ -564,3 +607,4 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - 2026-09-30: 조각 13(MarketTick 이벤트, Candle 보류)
 - 2026-09-30: 조각 14(Quantity 이벤트 적용)
 - 2026-09-30: 조각 15(Price 1단계: 타입과 JSON)
+- 2026-09-30: 조각 16(Price: OrderRequest.limitPrice)

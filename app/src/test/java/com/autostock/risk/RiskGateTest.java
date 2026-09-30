@@ -11,6 +11,7 @@ import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketHolidayRepository;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -136,6 +137,35 @@ class RiskGateTest {
 
         assertEquals(1, published.size());
         assertEquals(new Quantity(14), ((OrderRequest) published.get(0)).quantity());
+    }
+
+    // ── 지정가(조각 16, 2026-09-30): OrderRequest.limitPrice는 Price — 0·null이면 주문을 만들지 않는다 ──
+
+    @Test
+    void 기준가가_0이거나_없는_매도는_거부하고_주문_슬롯을_쓰지_않는다() {
+        // 잔고 복원에서 매입가를 못 찾으면 평균단가가 0이 되고, C3 국면 OFF 청산은 그 값을 기준가로 쓴다.
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(14),
+                new BigDecimal("70000"), Instant.now()));
+
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL, BigDecimal.ZERO, 1.0, Instant.now()));
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL, null, 1.0, Instant.now()));
+
+        assertTrue(onlyOrders(published).isEmpty());
+        SignalDecision decision = (SignalDecision) published.get(published.size() - 1);
+        assertEquals("REJECTED", decision.conclusion());
+        assertEquals("기준가 없음 — 지정가를 정할 수 없어 거부", decision.reason());
+
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
+                new BigDecimal("71000"), 1.0, Instant.now()));
+        OrderRequest order = onlyOrders(published).get(0);
+        assertTrue(order.idempotencyKey().endsWith("-001"), "거부된 두 신호는 일 주문 슬롯을 쓰지 않는다: " + order.idempotencyKey());
+    }
+
+    @Test
+    void 지정가는_호가단위로_보정한_Price로_실린다() {
+        gate.onSignal(buySignal("005930", "259300"));   // 20만~50만원 구간 눈금 500원 → 259,500
+
+        assertEquals(new Price(new BigDecimal("259500")), onlyOrders(published).get(0).limitPrice());
     }
 
     @Test

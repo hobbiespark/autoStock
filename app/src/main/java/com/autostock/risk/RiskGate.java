@@ -6,6 +6,7 @@ import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.portfolio.PositionBook;
@@ -152,6 +153,25 @@ public class RiskGate {
             return; // 거부 사유는 sizeBuy/sizeSell 안에서 이미 로그로 남겼다
         }
 
+        // ── 2-1단계: 지정가 (호가단위 정규화) ───────────────────────────
+        // 실측 2026-09-18: 259,250원 지정가 → RC4003 거부. 전략 계산값·수동 입력값 모두 여기서 눈금에 맞춘다
+        // — 브로커 거부 후 재시도보다 주문 전 보정이 슬롯·대사 부담이 없다.
+        // 기준가가 없거나 0이면 지정가 주문을 낼 수 없다(매수는 사이징에서 이미 걸러지고, 매도만 여기 온다 —
+        // 예: 잔고 복원에서 매입가를 못 찾아 평균단가가 0인 포지션의 강제 청산). 슬롯을 쓰기 전에 거부한다.
+        BigDecimal aligned = KrxTickSize.align(signal.refPrice());
+        if (aligned == null || aligned.signum() <= 0) {
+            log.warn("기준가 없음 — 지정가를 정할 수 없어 거부: {} {} refPrice={}",
+                    signal.symbol(), signal.side(), signal.refPrice());
+            publishRejected(signal, "기준가 없음 — 지정가를 정할 수 없어 거부",
+                    Map.of("refPrice", String.valueOf(signal.refPrice())));
+            return;
+        }
+        Price limitPrice = new Price(aligned);
+        if (aligned.compareTo(signal.refPrice()) != 0) {
+            log.info("호가단위 보정: {} {} 기준가 {} → 지정가 {}", signal.symbol(), signal.side(),
+                    signal.refPrice().toPlainString(), limitPrice);
+        }
+
         // ── 3단계: 일 주문 한도 ─────────────────────────────────────────
         // 사이징까지 통과한 "진짜 주문 후보"만 슬롯을 소비한다.
         if (!dailyLimits.tryAcquireOrderSlot()) {
@@ -176,14 +196,6 @@ public class RiskGate {
                 signal.side(),
                 dailyLimits.todayOrderCount()
         ).value();
-
-        // 호가단위 정규화(실측 2026-09-18: 259,250원 지정가 → RC4003 거부). 전략 계산값·수동 입력값
-        // 모두 여기서 눈금에 맞춘다 — 브로커 거부 후 재시도보다 주문 전 보정이 슬롯·대사 부담이 없다.
-        BigDecimal limitPrice = KrxTickSize.align(signal.refPrice());
-        if (limitPrice != null && signal.refPrice() != null && limitPrice.compareTo(signal.refPrice()) != 0) {
-            log.info("호가단위 보정: {} {} 기준가 {} → 지정가 {}", signal.symbol(), signal.side(),
-                    signal.refPrice().toPlainString(), limitPrice.toPlainString());
-        }
 
         publisher.publishEvent(new OrderRequest(
                 clientOrderId,

@@ -5,6 +5,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerOrderResult;
@@ -64,7 +65,7 @@ class TradingServiceTest {
 
     private OrderRequest order(String idempotencyKey) {
         return new OrderRequest(idempotencyKey, "test-strategy", new StockCode("005930"), Side.BUY,
-                new Quantity(10), new BigDecimal("70000"), Instant.now());
+                new Quantity(10), new Price(new BigDecimal("70000")), Instant.now());
     }
 
     @Test
@@ -134,7 +135,7 @@ class TradingServiceTest {
 
     private static OrderEntity submitted(String clientOrderId, long quantity) {
         OrderEntity entity = new OrderEntity(clientOrderId, new StockCode("005930"), Side.BUY, new Quantity(quantity),
-                new BigDecimal("70000"), "test-strategy");
+                new Price(new BigDecimal("70000")), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId("BROKER-1"));
@@ -216,7 +217,7 @@ class TradingServiceTest {
     /** 저장 반환본 흉내 — 같은 값·상태를 가진 다른 인스턴스. */
     private static OrderEntity copyOf(OrderEntity source) {
         OrderEntity copy = new OrderEntity(source.getClientOrderId(), source.getSymbol(), source.getSide(),
-                new Quantity(source.getQuantity()), source.getLimitPrice(), source.getStrategyId());
+                new Quantity(source.getQuantity()), new Price(source.getLimitPrice()), source.getStrategyId());
         OrderStatus status = source.getStatus();
         if (status == OrderStatus.CREATED) {
             return copy;

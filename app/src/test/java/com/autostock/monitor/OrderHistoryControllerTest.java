@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import com.autostock.trading.OrderEntity;
@@ -67,7 +68,7 @@ class OrderHistoryControllerTest {
     @Test
     void OrderEntity를_View_DTO로_변환해서_반환한다() {
         OrderEntity order = new OrderEntity("20260911-C3-005930-BUY-001", new StockCode("005930"), Side.BUY, new Quantity(10),
-                new BigDecimal("70000"), "C3");
+                new Price(new BigDecimal("70000")), "C3");
         order.transitionTo(OrderStatus.VALIDATED);
         order.transitionTo(OrderStatus.SUBMITTING);
         order.markSubmitted(new BrokerOrderId("broker-1"));
