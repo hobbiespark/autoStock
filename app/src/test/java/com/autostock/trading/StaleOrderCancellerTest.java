@@ -2,6 +2,7 @@ package com.autostock.trading;
 
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerPort;
@@ -54,7 +55,7 @@ class StaleOrderCancellerTest {
 
     private OrderEntity submittedOrderUpdatedAt(Instant updatedAt) {
         OrderEntity order = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", new StockCode("005930"), Side.BUY, new Quantity(10),
-                new BigDecimal("70000"), "BREAKOUT");
+                new Price(new BigDecimal("70000")), "BREAKOUT");
         order.transitionTo(OrderStatus.VALIDATED);
         order.transitionTo(OrderStatus.SUBMITTING);
         order.markSubmitted(new BrokerOrderId("BROKER-1")); // updatedAt = Instant.now() (실제 시각)

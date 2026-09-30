@@ -4,6 +4,7 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 
@@ -383,7 +384,7 @@ public final class InverseSwitchWalkForwardRunner {
                 new StockCode(candle.symbol()),
                 side,
                 new Quantity(qty),
-                candle.open(),
+                new Price(candle.open()),   // 기록용 — 체결가는 executionHandler가 referencePrice로 정한다
                 candle.date().atStartOfDay().toInstant(ZoneOffset.UTC)
         );
     }

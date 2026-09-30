@@ -5,6 +5,7 @@ import com.autostock.common.event.OrderNotice;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerOrderResult;
@@ -94,7 +95,7 @@ class OrderNoticeHandlerTest {
 
     private OrderRequest order(String idempotencyKey) {
         return new OrderRequest(idempotencyKey, "test-strategy", new StockCode("005930"), Side.BUY,
-                new Quantity(10), new BigDecimal("70000"), Instant.now());
+                new Quantity(10), new Price(new BigDecimal("70000")), Instant.now());
     }
 
     private OrderNotice notice(String status, long filledQuantity, BigDecimal fillPrice) {
@@ -111,7 +112,7 @@ class OrderNoticeHandlerTest {
     /** 표준 SUBMITTED 엔티티를 만들어 DB 폴백(findByBrokerOrderId)에 스텁한다. */
     private OrderEntity stubEntity(String clientOrderId, Side side, long quantity) {
         OrderEntity entity = new OrderEntity(clientOrderId, new StockCode("005930"), side,
-                new Quantity(quantity), new BigDecimal("70000"), "test-strategy");
+                new Quantity(quantity), new Price(new BigDecimal("70000")), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
@@ -226,7 +227,7 @@ class OrderNoticeHandlerTest {
         // 재시작 시나리오 시뮬레이션: tradingService.onOrderRequest를 호출하지 않아
         // 인메모리 맵은 비어있지만, DB에는 SUBMITTED 상태 주문이 남아있다고 가정한다.
         OrderEntity entity = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", new StockCode("005930"), Side.SELL,
-                new Quantity(10), new BigDecimal("70000"), "BREAKOUT");
+                new Quantity(10), new Price(new BigDecimal("70000")), "BREAKOUT");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
@@ -246,7 +247,7 @@ class OrderNoticeHandlerTest {
         // 실측 확정 2026-09-11(FID 913="접수"): 체결이 아니므로 Fill은 발행되지 않고
         // OrderEntity 상태만 ACCEPTED로 바뀐다.
         OrderEntity entity = new OrderEntity("key-accept", new StockCode("005930"), Side.BUY,
-                new Quantity(1), new BigDecimal("258000"), "test-strategy");
+                new Quantity(1), new Price(new BigDecimal("258000")), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
@@ -263,7 +264,7 @@ class OrderNoticeHandlerTest {
         // "취소"/"거부"는 이번 실측(2026-09-11)에서 관측되지 않은 상태 문자열이다(TODO 실측).
         // 상태기계를 오염시키지 않도록 아무 전이도 없이 무시해야 한다.
         OrderEntity entity = new OrderEntity("key-unknown", new StockCode("005930"), Side.BUY,
-                new Quantity(1), new BigDecimal("258000"), "test-strategy");
+                new Quantity(1), new Price(new BigDecimal("258000")), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
@@ -282,7 +283,7 @@ class OrderNoticeHandlerTest {
         // 확정한다. quantity=10인데 이번 통보 filledQuantity=3만 반영해 로컬 계산상으로는
         // PARTIALLY_FILLED가 나오는 상황을 의도적으로 만든다.
         OrderEntity entity = new OrderEntity("key-mismatch", new StockCode("005930"), Side.BUY,
-                new Quantity(10), new BigDecimal("70000"), "test-strategy");
+                new Quantity(10), new Price(new BigDecimal("70000")), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
@@ -298,12 +299,12 @@ class OrderNoticeHandlerTest {
     void 체결_저장이_동시_갱신과_충돌하면_최신_누적치로_증분을_다시_계산한다() {
         // 통보 처리 중 다른 경로가 먼저 4주를 반영해 저장했다 — 옛 사본(누적 0)으로 저장하면 충돌(R2).
         OrderEntity stale = new OrderEntity("key-conflict", new StockCode("005930"), Side.BUY,
-                new Quantity(10), new BigDecimal("70000"), "test-strategy");
+                new Quantity(10), new Price(new BigDecimal("70000")), "test-strategy");
         stale.transitionTo(OrderStatus.VALIDATED);
         stale.transitionTo(OrderStatus.SUBMITTING);
         stale.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
         OrderEntity latest = new OrderEntity("key-conflict", new StockCode("005930"), Side.BUY,
-                new Quantity(10), new BigDecimal("70000"), "test-strategy");
+                new Quantity(10), new Price(new BigDecimal("70000")), "test-strategy");
         latest.transitionTo(OrderStatus.VALIDATED);
         latest.transitionTo(OrderStatus.SUBMITTING);
         latest.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
@@ -328,7 +329,7 @@ class OrderNoticeHandlerTest {
     @Test
     void 실측_전문_재생_매수_접수_후_체결() {
         OrderEntity entity = new OrderEntity("key-buy-replay", new StockCode("005930"), Side.BUY,
-                new Quantity(1), new BigDecimal("258000"), "test-strategy");
+                new Quantity(1), new Price(new BigDecimal("258000")), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId("0119433")); // 실측 브로커 주문번호(FID 9203)
@@ -353,7 +354,7 @@ class OrderNoticeHandlerTest {
     @Test
     void 실측_전문_재생_매도_접수_후_체결() {
         OrderEntity entity = new OrderEntity("key-sell-replay", new StockCode("005930"), Side.SELL,
-                new Quantity(1), new BigDecimal("258000"), "test-strategy");
+                new Quantity(1), new Price(new BigDecimal("258000")), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(new BrokerOrderId("0119574")); // 실측 브로커 주문번호(FID 9203)

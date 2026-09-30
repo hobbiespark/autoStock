@@ -7,6 +7,7 @@ import com.autostock.common.util.StockCode;
 import com.autostock.kiwoom.KiwoomApiException;
 import com.autostock.kiwoom.KiwoomRestClient;
 import com.autostock.kiwoom.TrId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import org.junit.jupiter.api.Test;
 
@@ -36,7 +37,7 @@ class KiwoomBrokerAdapterTest {
 
     private static OrderRequest buy() {
         return new OrderRequest("20260930-C3-005930-BUY-001", "C3", new StockCode("005930"), Side.BUY,
-                new Quantity(1), new BigDecimal("258000"), Instant.parse("2026-09-30T01:00:00Z"));
+                new Quantity(1), new Price(new BigDecimal("258000")), Instant.parse("2026-09-30T01:00:00Z"));
     }
 
     @Test

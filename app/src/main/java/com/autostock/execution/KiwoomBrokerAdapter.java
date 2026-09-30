@@ -74,7 +74,7 @@ public class KiwoomBrokerAdapter implements BrokerPort {
                     "dmst_stex_tp", "KRX",
                     "stk_cd", request.symbol().value(),
                     "ord_qty", String.valueOf(request.quantity().value()),
-                    "ord_uv", request.limitPrice().toPlainString(),
+                    "ord_uv", request.limitPrice().value().toPlainString(),
                     "trde_tp", "0"          // 보통(지정가) — 문서 실측 후 확정
             ));
         } catch (KiwoomApiException e) {

@@ -5,6 +5,7 @@ import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
@@ -62,7 +63,7 @@ class SlippageTrackerTest {
 
     private OrderRequest order(String key, Side side, String decisionPrice) {
         return new OrderRequest(key, "C3", new StockCode("005930"), side, new Quantity(10),
-                new BigDecimal(decisionPrice), DAY1);
+                new Price(new BigDecimal(decisionPrice)), DAY1);
     }
 
     private Fill fill(String key, Side side, long qty, String price) {

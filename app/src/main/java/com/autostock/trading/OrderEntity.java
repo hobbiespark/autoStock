@@ -2,6 +2,7 @@ package com.autostock.trading;
 
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
 import jakarta.persistence.Column;
@@ -91,13 +92,13 @@ public class OrderEntity {
 
     /** 새 주문 생성 — 초기 상태는 항상 {@link OrderStatus#CREATED}. */
     public OrderEntity(String clientOrderId, StockCode symbol, Side side, Quantity quantity,
-                       BigDecimal limitPrice, String strategyId) {
+                       Price limitPrice, String strategyId) {
         this.clientOrderId = clientOrderId;
         this.symbol = symbol;
         this.side = side;
         this.quantity = quantity.value();
         this.filledQuantity = 0L;
-        this.limitPrice = limitPrice;
+        this.limitPrice = limitPrice.value();
         this.strategyId = strategyId;
         this.status = OrderStatus.CREATED;
         Instant now = Instant.now();

@@ -81,16 +81,13 @@ public class SlippageTracker {
 
     @EventListener
     public void onOrderRequest(OrderRequest order) {
-        if (order.limitPrice() == null || order.limitPrice().signum() <= 0) {
-            return; // 결정가 없는 주문은 계측 불가
-        }
         if (pending.size() >= MAX_PENDING) {
             // 비정상 상황(체결/취소 유실 누적) 방어 — 가장 오래된 것부터 지우는 대신
             // 전체를 비운다: 계측은 보조 기능이므로 단순함을 우선한다.
             log.warn("슬리피지 결정가 캐시 상한({}) 도달 — 캐시를 비움", MAX_PENDING);
             pending.clear();
         }
-        pending.put(order.idempotencyKey(), new PendingOrder(order.limitPrice(), order.side()));
+        pending.put(order.idempotencyKey(), new PendingOrder(order.limitPrice().value(), order.side()));
     }
 
     @EventListener

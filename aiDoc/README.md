@@ -17,9 +17,9 @@
 
 ## 인계 메모 (2026-09-30, PC 교체)
 
-- 진행 상태의 기준은 `refactoring-plan.md` 상단 상태 목록이다. A1 값 객체는 조각 15까지 완료(`value-objects.md`).
-- 다음 후보: `Price` 이벤트 적용(조각 15의 0·null 경로 표부터), A5 시간대 명시(DB 확인 필요), B3 큰 클래스 조사. `Candle` 종목코드는 사용자 결정으로 보류.
-- 사용자 결정 대기: B4 감사 실패 알림, 엔티티 시각의 Clock 주입, P3 항목(특히 Testcontainers).
+- 진행 상태의 기준은 `refactoring-plan.md` 상단 상태 목록이다. A1 값 객체는 조각 16까지 완료(`value-objects.md`).
+- 다음 후보: `Price` 나머지 이벤트(Signal·Fill·OrderNotice·PositionRestored·MarketTick — 조각 15의 0·null 경로 표), A5 시간대 명시(DB 확인 필요), B3 큰 클래스 조사. `Candle` 종목코드는 사용자 결정으로 보류.
+- 사용자 결정 대기: C3 강제 청산 지정가=평균매입가(`value-objects.md` 조각 16 5절), B4 감사 실패 알림, 엔티티 시각의 Clock 주입, P3 항목(특히 Testcontainers).
 - 재기동 후 확인할 미검증 항목은 각 문서의 "검증 상태" 절에 있다(V8 마이그레이션, 루프백 바인딩, 타임아웃, event_store JSON, 체결·포지션 반영 등).
 - 리포 밖 파일의 사본(2026-09-30 복사). 새 PC에서는 원래 위치로 복사해 쓴다.
   - `claude-rules/` → `C:\claude\` — `CLAUDE.md`(최상위 규칙, `@C:/claude/coding-rules.md`로 코딩 규칙을 불러온다), `coding-rules.md`
