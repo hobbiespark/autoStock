@@ -126,7 +126,7 @@ public class OrderNoticeHandler {
         }
 
         // 1차: 인메모리(빠름). 2차: DB 폴백(재시작으로 인메모리 맵이 유실된 경우).
-        BrokerOrderId brokerOrderId = idOf(notice);
+        BrokerOrderId brokerOrderId = notice.brokerOrderId();
         OrderRequest original = tradingService.findByBrokerOrderId(brokerOrderId);
         Optional<OrderEntity> entity = orderRepository.findByBrokerOrderId(brokerOrderId);
 
@@ -171,7 +171,7 @@ public class OrderNoticeHandler {
         Side side = original != null ? original.side() : order.getSide();
         publisher.publishEvent(new Fill(
                 clientOrderId,
-                notice.brokerOrderId(),
+                notice.brokerOrderId().value(),
                 order.getSymbol(),        // DB 주문의 종목코드 — WS 통보 필드(9001)는 비어 올 수 있다
                 side,
                 applied.delta(),          // 증분 수량 — PositionBook은 증분 합산 전제(이중계상 수정)
@@ -216,11 +216,6 @@ public class OrderNoticeHandler {
         return new AppliedFill(saved, delta, deltaPrice, cumNotional);
     }
 
-    /** 통보의 주문번호를 값 객체로 — 파서(market.RealMessageParser)가 빈 주문번호 통보는 이미 버린다. */
-    private static BrokerOrderId idOf(OrderNotice notice) {
-        return new BrokerOrderId(notice.brokerOrderId());
-    }
-
     /** 체결 반영 결과 — 저장된 주문, 증분 수량·단가, 이번 누적금액(평균가 없으면 null). */
     private record AppliedFill(OrderEntity order, long delta, BigDecimal deltaPrice,
                                BigDecimal cumulativeNotional) {
@@ -241,7 +236,7 @@ public class OrderNoticeHandler {
             cumulativeNotional.clear();
         }
         BigDecimal cumNotional = avgPrice.multiply(BigDecimal.valueOf(cumulativeQty));
-        BigDecimal prevNotional = cumulativeNotional.get(idOf(notice));
+        BigDecimal prevNotional = cumulativeNotional.get(notice.brokerOrderId());
         if (prevNotional == null) {
             if (previousQty > 0) {
                 // 재시작 등으로 직전 누적금액 유실 — 이번 평균가로 근사(오차 미미, 로그로 명시)
@@ -267,7 +262,7 @@ public class OrderNoticeHandler {
      */
     private void handleAccepted(OrderNotice notice) {
         OrderEntity found = OptimisticRetry.run("접수통보 " + notice.brokerOrderId(), null,
-                () -> orderRepository.findByBrokerOrderId(idOf(notice)),
+                () -> orderRepository.findByBrokerOrderId(notice.brokerOrderId()),
                 order -> {
                     try {
                         order.transitionTo(OrderStatus.ACCEPTED);

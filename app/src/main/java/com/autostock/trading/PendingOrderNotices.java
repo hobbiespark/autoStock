@@ -30,7 +30,7 @@ final class PendingOrderNotices {
         if (size() >= MAX_PENDING) {
             return false;
         }
-        byBrokerOrderId.compute(new BrokerOrderId(notice.brokerOrderId()), (id, list) -> {
+        byBrokerOrderId.compute(notice.brokerOrderId(), (id, list) -> {
             List<Pending> next = list == null ? new ArrayList<>() : new ArrayList<>(list);
             next.add(new Pending(notice, now));
             return next;

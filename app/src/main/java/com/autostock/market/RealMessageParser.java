@@ -2,9 +2,13 @@ package com.autostock.market;
 
 import com.autostock.common.event.MarketTick;
 import com.autostock.common.event.OrderNotice;
+import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.KiwoomNumbers;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockCode;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -30,6 +34,8 @@ import java.time.LocalDate;
  * 필드 매핑을 검증했다. 이전 "문서 기반 추정" 단계는 해소됐다(TODO Phase 2 해소).
  */
 final class RealMessageParser {
+
+    private static final Logger log = LoggerFactory.getLogger(RealMessageParser.class);
 
     /** 주식체결(시세) type 코드. */
     static final String TYPE_TICK = "0B";
@@ -108,12 +114,19 @@ final class RealMessageParser {
      */
     private static OrderNotice parseOrderNotice(JsonNode data, Clock clock) {
         JsonNode values = data.path("values");
-        String brokerOrderId = values.path("9203").asText("");
-        if (brokerOrderId.isEmpty()) {
+        String rawBrokerOrderId = values.path("9203").asText("").trim();
+        if (rawBrokerOrderId.isEmpty()) {
             // 주문번호가 없으면 어떤 주문의 통보인지 알 수 없어 매핑 불가능 — 버린다
             return null;
         }
-        String symbol = values.path("9001").asText("");
+        if (rawBrokerOrderId.chars().anyMatch(Character::isWhitespace)) {
+            log.warn("주문체결통보 주문번호 형식 오류 — 버림: '{}'", rawBrokerOrderId);
+            return null;
+        }
+        BrokerOrderId brokerOrderId = new BrokerOrderId(rawBrokerOrderId);
+        // 종목코드는 비거나 형식이 틀려도 통보를 버리지 않는다 — 체결 유실이 더 위험하다(소비자는 DB 주문 종목을 쓴다)
+        String rawSymbol = values.path("9001").asText("").trim();
+        StockCode symbol = rawSymbol.matches(StockCode.PATTERN) ? new StockCode(rawSymbol) : null;
         String status = values.path("913").asText("");
         long filledQuantity = KiwoomNumbers.toLongOrZero(values.path("911").asText(""));
         String fillPriceRaw = values.path("910").asText("");

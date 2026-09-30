@@ -2,7 +2,9 @@ package com.autostock.market;
 
 import com.autostock.common.event.MarketTick;
 import com.autostock.common.event.OrderNotice;
+import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -79,8 +81,8 @@ class RealMessageParserTest {
         Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
-        assertEquals("0000123", notice.brokerOrderId());
-        assertEquals("005930", notice.symbol());
+        assertEquals(new BrokerOrderId("0000123"), notice.brokerOrderId());
+        assertEquals(new StockCode("005930"), notice.symbol());
         assertEquals("체결", notice.status());
         assertEquals(10L, notice.filledQuantity());
         assertEquals(new BigDecimal("70100"), notice.fillPrice());
@@ -94,6 +96,39 @@ class RealMessageParserTest {
                 """);
 
         assertNull(RealMessageParser.parse(data, Clock.systemUTC()));
+    }
+
+    @Test
+    void 주문번호_형식이_틀린_통보는_null() throws Exception {
+        JsonNode data = mapper.readTree("""
+                {"type":"00","item":"","values":{"9203":"01 19","9001":"005930","913":"체결"}}
+                """);
+
+        assertNull(RealMessageParser.parse(data, Clock.systemUTC()));
+    }
+
+    @Test
+    void 주문번호_앞뒤_공백은_벗긴다() throws Exception {
+        JsonNode data = mapper.readTree("""
+                {"type":"00","item":"","values":{"9203":" 0119433 ","9001":"005930","913":"접수"}}
+                """);
+
+        OrderNotice notice = assertInstanceOf(OrderNotice.class, RealMessageParser.parse(data, Clock.systemUTC()));
+        assertEquals(new BrokerOrderId("0119433"), notice.brokerOrderId());
+    }
+
+    @Test
+    void 종목코드가_비거나_형식이_틀려도_통보는_살리고_종목만_null() throws Exception {
+        // 체결 통보를 잃으면 포지션이 틀어진다 — 소비자(OrderNoticeHandler)는 DB 주문의 종목코드를 쓴다
+        for (String symbol : new String[]{"", "A5930"}) {
+            JsonNode data = mapper.readTree("""
+                    {"type":"00","item":"","values":{"9203":"0119433","9001":"%s","913":"체결","911":"1","910":"258000"}}
+                    """.formatted(symbol));
+
+            OrderNotice notice = assertInstanceOf(OrderNotice.class, RealMessageParser.parse(data, Clock.systemUTC()));
+            assertNull(notice.symbol(), symbol);
+            assertEquals(1L, notice.filledQuantity());
+        }
     }
 
     @Test
@@ -135,8 +170,8 @@ class RealMessageParserTest {
         Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
-        assertEquals("0119433", notice.brokerOrderId());
-        assertEquals("005930", notice.symbol());
+        assertEquals(new BrokerOrderId("0119433"), notice.brokerOrderId());
+        assertEquals(new StockCode("005930"), notice.symbol());
         assertEquals("접수", notice.status());
         assertEquals(0L, notice.filledQuantity()); // FID 911 빈 문자열 → 0
         assertNull(notice.fillPrice()); // FID 910 빈 문자열 → null
@@ -153,7 +188,7 @@ class RealMessageParserTest {
         Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
-        assertEquals("0119433", notice.brokerOrderId());
+        assertEquals(new BrokerOrderId("0119433"), notice.brokerOrderId());
         assertEquals("체결", notice.status());
         assertEquals(1L, notice.filledQuantity());
         assertEquals(new BigDecimal("258000"), notice.fillPrice());
@@ -170,7 +205,7 @@ class RealMessageParserTest {
         Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
-        assertEquals("0119574", notice.brokerOrderId());
+        assertEquals(new BrokerOrderId("0119574"), notice.brokerOrderId());
         assertEquals("접수", notice.status());
         assertEquals(1L, notice.remainingQuantity());
     }
@@ -185,7 +220,7 @@ class RealMessageParserTest {
         Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
-        assertEquals("0119574", notice.brokerOrderId());
+        assertEquals(new BrokerOrderId("0119574"), notice.brokerOrderId());
         assertEquals("체결", notice.status());
         assertEquals(1L, notice.filledQuantity());
         assertEquals(new BigDecimal("258000"), notice.fillPrice());

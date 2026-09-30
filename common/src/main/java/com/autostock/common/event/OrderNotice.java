@@ -1,5 +1,8 @@
 package com.autostock.common.event;
 
+import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.StockCode;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -20,8 +23,11 @@ import java.time.Instant;
  *
  * @param brokerOrderId    브로커 주문번호 (FID 9203, 실측 확정 — REST ord_no와 동일 포맷
  *                         "0119433"류) — execution의 brokerOrderId → OrderRequest 맵을
- *                         조회하는 키로 쓰인다.
- * @param symbol           종목코드 (FID 9001, 실측 확정 — "A" 접두 없이 "005930" 그대로)
+ *                         조회하는 키로 쓰인다. 형식 번역은 파서(ACL)가 하며, 형식이 틀린
+ *                         통보는 파서가 버린다.
+ * @param symbol           종목코드 (FID 9001, 실측 확정 — "A" 접두 없이 "005930" 그대로).
+ *                         <b>null일 수 있다</b> — 비어 오거나 형식이 틀려도 체결 통보 자체는
+ *                         살려야 하므로 파서가 null로 둔다. 소비자는 DB 주문의 종목코드를 쓴다.
  * @param status           주문상태 원문 (FID 913, 실측 확정 — 관측된 값은 정확히
  *                         "접수"/"체결" 두 가지뿐이다. "취소"/"거부" 등은 미관측이라
  *                         원문 그대로 보관하고 의미 해석은 소비자(OrderNoticeHandler)가
@@ -39,8 +45,8 @@ import java.time.Instant;
  * @param timestamp        이벤트 수신 시각 (수신 측 로컬 시각, 서버 타임스탬프 아님)
  */
 public record OrderNotice(
-        String brokerOrderId,
-        String symbol,
+        BrokerOrderId brokerOrderId,
+        StockCode symbol,
         String status,
         long filledQuantity,
         BigDecimal fillPrice,
