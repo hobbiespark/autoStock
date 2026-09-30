@@ -5,6 +5,7 @@ import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
+import com.autostock.common.util.StockCode;
 import com.autostock.macrointel.MacroIntelProperties;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketHolidayRepository;
@@ -111,7 +112,7 @@ class RiskGateTest {
 
     @Test
     void 보유_종목_추가_매수_차단() {
-        positionBook.onFill(new Fill("k1", "b1", "005930", Side.BUY, 10,
+        positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 10,
                 new BigDecimal("70000"), Instant.now()));
         gate.onSignal(buySignal("005930", "70000"));
         assertTrue(onlyOrders(published).isEmpty());
@@ -126,7 +127,7 @@ class RiskGateTest {
 
     @Test
     void 보유_종목_매도는_전량_청산() {
-        positionBook.onFill(new Fill("k1", "b1", "005930", Side.BUY, 14,
+        positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 14,
                 new BigDecimal("70000"), Instant.now()));
         gate.onSignal(new Signal("test-strategy", "005930", Side.SELL,
                 new BigDecimal("71000"), 1.0, Instant.now()));
@@ -163,9 +164,9 @@ class RiskGateTest {
 
     @Test
     void 동시_보유_한도_도달시_신규_매수_차단() {
-        String[] symbols = {"A", "B", "C", "D", "E"};
+        String[] symbols = {"000001", "000002", "000003", "000004", "000005"};
         for (String s : symbols) {
-            positionBook.onFill(new Fill("k" + s, "b" + s, s, Side.BUY, 1,
+            positionBook.onFill(new Fill("k" + s, "b" + s, new StockCode(s), Side.BUY, 1,
                     new BigDecimal("1000"), Instant.now()));
         }
         gate.onSignal(buySignal("005930", "70000"));

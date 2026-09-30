@@ -86,7 +86,7 @@ class DailyReportSchedulerTest {
 
     @Test
     void 리포트는_INFO_한_건으로_발송되고_포지션과_킬스위치_상태를_포함한다() {
-        positionBook.onFill(new Fill("k1", "b1", "005930", Side.BUY, 10,
+        positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 10,
                 new BigDecimal("70000"), Instant.now()));
 
         scheduler.sendDailyReport();

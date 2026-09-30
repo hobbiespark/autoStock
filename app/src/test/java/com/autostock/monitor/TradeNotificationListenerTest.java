@@ -35,7 +35,7 @@ class TradeNotificationListenerTest {
 
     @Test
     void Fill은_INFO로_발송된다() {
-        listener.onFill(new Fill("k1", "b1", "005930", Side.BUY, 10,
+        listener.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 10,
                 new BigDecimal("70000"), Instant.now()));
 
         assertEquals(1, notices.size());

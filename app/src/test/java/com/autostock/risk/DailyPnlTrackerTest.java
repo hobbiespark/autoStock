@@ -3,6 +3,7 @@ package com.autostock.risk;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.KillSwitchChanged;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.StockCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -38,7 +39,7 @@ class DailyPnlTrackerTest {
     private static final Instant DAY1 = Instant.parse("2026-08-13T01:00:00Z");
 
     private Fill fill(Side side, long qty, String price, Instant at) {
-        return new Fill("k", "b", "005930", side, qty, new BigDecimal(price), at);
+        return new Fill("k", "b", new StockCode("005930"), side, qty, new BigDecimal(price), at);
     }
 
     @BeforeEach
