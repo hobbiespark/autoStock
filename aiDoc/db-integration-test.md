@@ -34,7 +34,7 @@
 ## 3. 실행 결과
 
 - Claude 작업 환경(Docker 없음): 내장 16.15로 4건 통과. 전체 `test` 561건 통과(건너뜀 16).
-- **Docker 경로는 미실행:** 운영 PC에서 `.\gradlew.bat test` 실행 시 로그에 `docker postgres:16-alpine`이 찍히는지 확인한다. 처음에는 이미지 내려받기로 시간이 더 걸린다. CI(ubuntu-latest)도 Docker 경로를 탄다.
+- 운영 PC(2026-09-30 23:12, `.\gradlew.bat test` 4분 20초): **Docker 경로 확인** — 로그 `DB 통합 테스트 PostgreSQL: docker postgres:16-alpine`, DB 테스트 4건 통과. 전체 561건(app 507, common 54) 통과, 건너뜀 0(PC에는 키움 키·시세 데이터가 있어 스모크·실데이터 실험까지 실행). CI(ubuntu-latest)도 Docker 경로를 탄다.
 
 ## 4. 앞으로
 
