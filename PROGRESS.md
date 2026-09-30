@@ -194,6 +194,17 @@ C2-5. **장중 절전·토큰 거부 대응(2026-09-30 로그)** — 10:08 WS �
 C2-6. **C3 국면 OFF 강제 청산 기준가 변경(2026-09-30, 사용자 결정)** — 평균매입가 → 주문 시점 최우선 매수호가(ka10004), 없으면 현재가, 둘 다 없으면 RiskGate 거부. 손실 구간 청산 미체결 방지. 근거 `aiDoc/value-objects.md` 조각 20
    - ✅ 판단일 매수·매도도 주문 시점 최유리 호가(매수=최우선 매도호가, 매도=최우선 매수호가)로(사용자 결정, 조각 22). 판단식은 전일 종가 그대로
    - [ ] 다음 장중: 09:05 C3 로그의 기준가·체결·슬리피지 확인
+C2-7. **Phase 0 안전 기반(2026-10-01 코드 반영, 커밋 전)** — 고도화 계획 `aiDoc/upgrade-2026-10/11-execution-plan.md` 3절, 사용자 결정 D-02·D-05·D-06·D-09(12-decisions). 컨테이너 전체 테스트 **643건 통과**(skip 16, 기준선 573 + 신규 70), 파일별 근거는 aiDoc 문서:
+   - ✅ 0.1 미체결 타임아웃 취소 정상화 — 대상 SUBMITTED→+ACCEPTED·부분체결, 취소 경로 `TradingService.requestCancel` 일원화, CANCELLED 확정, 대사에 CANCEL_REQUESTED(`aiDoc/stale-cancel.md`)
+   - ✅ 0.2 킬스위치·일 손실 영속화·재기동 복원(V9 `risk_state`·`risk_daily_pnl`), 원가 장부 시드(PositionRestored), 켜진 채 시작하면 DEGRADED(`aiDoc/risk-state-persistence.md`)
+   - ✅ 0.3 공시 블랙리스트 삭제 트랜잭션 — 실패 테스트로 확인: 트랜잭션 밖 파생 삭제는 예외로 0건 삭제(잠복, 만료 행 첫 발생일부터 08:00 배치 실패)(`aiDoc/disclosure-blacklist-tx.md`)
+   - ✅ 0.4+0.5 수동 주문 가드 — 수량 필수, 수동 매수 1건 100만 원 상한(RiskGate, 매도 미적용), 발행 전 확인 창·LIVE 종목코드 재입력, 킬스위치 해제·시작 확인, ProblemDetail 오류 표시, LIVE 띠(`aiDoc/manual-order-guard.md`)
+   - ✅ 0.6 키움 오류코드 분류 — 1701·1702 재시도, 8010 재발급 1회, 인증 실패 텔레그램 긴급 알림. **주문 타임아웃이 "거부"로 분류돼 REJECTED 종결·대사 누락되던 잠복 결함 수정(→ UNKNOWN)**(`aiDoc/kiwoom-error-codes.md`)
+   - ✅ 0.7 외부 heartbeat(Healthchecks)·텔레그램 조건부 가동·`/resume` 2단계, 0.8 백업·복원 스크립트, 0.10 RUNBOOK 5·6·8절(`aiDoc/heartbeat-telegram.md`, `aiDoc/backup.md`)
+   - **운영 변경 이벤트(2026-10-01, 11-execution-plan 규약)**: ① 미체결 타임아웃 취소가 실제로 동작 — C3 지정가가 5분 안에 안 잡히면 취소(D-05: 5분 유지, 1~2주 관찰) ② 킬스위치가 재기동해도 유지 ③ 수동 주문 수량 필수. 게이트 ② 연속 무인 운영 카운트 리셋 여부는 **D-03(10/16)**
+   - 📋 사용자 작업: 텔레그램 봇 토큰·chat id, Healthchecks 체크·`MONITOR_HEARTBEAT_URL`(RUNBOOK 5절), 백업 작업 스케줄러 등록·복원 리허설 1회(8절), powercfg(0.9), 키움 포털 허용 IP·서비스 상태 확인과 고객센터 문의(D-02), 4분기 휴장일 SQL `scripts/sql/20261001_holidays_2026q4.sql` 실행(앱 기동 전)
+   - [ ] 다음 거래일 실측: V9 적용 로그, 09:05 C3 주문 상태 전이·타임아웃 취소 로그, 장외 킬스위치 ON→재기동→유지→해제, 대시보드 확인 창(Ctrl+F5)
+   - 정정: C2-3 ⑫(TokenManager가 return_code보다 token 부재를 먼저 봐 원인이 "응답 없음"으로 가려짐)는 완료로 적혀 있었으나 리포에 반영돼 있지 않았다(TokenManager 커밋 이력에 해당 변경 없음, 2026-10-01 확인) → 0.6에서 반영
 C3. 복구 훈련(재시작·Reconciliation·킬스위치 발동/해제), 21일 vs 5일 판단주기 paper A/B
 C4. 게이트 ② 판정 → 실계좌 소액. **실전 전환 전 키 전량 재발급(5절)**
 
@@ -365,6 +376,8 @@ SPA_c p=**1.000**. 기준선 KODEX200 B&H +451.1%/MDD 40.8%. **연구 누적 21�
 - GitHub 시크릿: `KIWOOM_MOCK_G_*`(모의 일반, CI 사용 → 테스트 JVM env `KIWOOM_MOCK_G_APP_KEY/SECRET`으로 매핑) / `KIWOOM_MOCK_P_*`(모의 선물, 예비) / `KIWOOM_LIVE_*`(실전, **CI 사용 금지**)
 - 기본 프로필 `paper` 고정, `live` 프로필은 게이트 ② 통과 전 사용 금지
 - 전 로그 계층 시크릿 마스킹(Logback 컨버터) 적용, 로그 외부 공유 시에도 키 비노출. 단 마스킹은 최후 방어선 — 키를 로그 문자열에 넣지 않는 것이 원칙
+- **실전 키 사용 예외(D-02, 2026-10-01 사용자 확정)**: 키움 "3개월 실서버 미접속 자동 해지" 대응으로 **월 1회 실서버 토큰 발급→즉시 폐기(au10001→au10002)만** 허용한다 — 주문 TR 호출 금지, 실전 키는 `.env`에 넣지 않고 키 파일 경로로만 읽는다(RUNBOOK 8절 스니펫). 키움 고객센터에 "토큰 발급만으로 접속 인정되는지" 확인한 뒤 시작한다
+- 외부 heartbeat URL(`MONITOR_HEARTBEAT_URL`, Healthchecks 체크 UUID 포함)과 텔레그램 토큰은 `.env`에만 둔다 — 앱은 heartbeat URL을 로그에 남기지 않는다
 
 ## 6. 주요 커밋 이력
 
