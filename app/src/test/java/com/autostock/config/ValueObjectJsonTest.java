@@ -53,6 +53,25 @@ class ValueObjectJsonTest {
     }
 
     @Test
+    void Signal_이벤트_JSON의_종목코드는_예전처럼_문자열이고_과거_JSON도_읽힌다() {
+        runner.run(context -> {
+            ObjectMapper mapper = context.getBean(ObjectMapper.class);
+
+            String json = mapper.writeValueAsString(new com.autostock.common.event.Signal(
+                    "C3", new StockCode("005930"), com.autostock.common.event.Side.BUY,
+                    new java.math.BigDecimal("258000"), 1.0, java.time.Instant.parse("2026-09-30T01:00:00Z")));
+            org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"symbol\":\"005930\""), json);
+
+            // StockCode 도입 전(v1, fixedQuantity 없음)에 쌓인 형식
+            com.autostock.common.event.Signal old = mapper.readValue(
+                    "{\"strategyId\":\"C3\",\"symbol\":\"005930\",\"side\":\"BUY\",\"refPrice\":258000,"
+                            + "\"confidence\":1.0,\"timestamp\":\"2026-09-30T01:00:00Z\"}",
+                    com.autostock.common.event.Signal.class);
+            assertEquals(new StockCode("005930"), old.symbol());
+        });
+    }
+
+    @Test
     void 스칼라_JSON을_값_객체로_읽는다() {
         runner.run(context -> {
             ObjectMapper mapper = context.getBean(ObjectMapper.class);

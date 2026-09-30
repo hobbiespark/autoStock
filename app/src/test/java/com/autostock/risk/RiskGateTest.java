@@ -74,7 +74,7 @@ class RiskGateTest {
     }
 
     private Signal buySignal(String symbol, String price) {
-        return new Signal("test-strategy", symbol, Side.BUY, new BigDecimal(price), 1.0, Instant.now());
+        return new Signal("test-strategy", new StockCode(symbol), Side.BUY, new BigDecimal(price), 1.0, Instant.now());
     }
 
     /**
@@ -120,7 +120,7 @@ class RiskGateTest {
 
     @Test
     void 미보유_종목_매도_시그널_무시() {
-        gate.onSignal(new Signal("test-strategy", "005930", Side.SELL,
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
                 new BigDecimal("70000"), 1.0, Instant.now()));
         assertTrue(onlyOrders(published).isEmpty());
     }
@@ -129,7 +129,7 @@ class RiskGateTest {
     void 보유_종목_매도는_전량_청산() {
         positionBook.onFill(new Fill("k1", "b1", new StockCode("005930"), Side.BUY, 14,
                 new BigDecimal("70000"), Instant.now()));
-        gate.onSignal(new Signal("test-strategy", "005930", Side.SELL,
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
                 new BigDecimal("71000"), 1.0, Instant.now()));
 
         assertEquals(1, published.size());
@@ -138,7 +138,7 @@ class RiskGateTest {
 
     @Test
     void confidence가_0_5면_매수_수량이_절반이다() {
-        gate.onSignal(new Signal("test-strategy", "005930", Side.BUY, new BigDecimal("70000"), 0.5, Instant.now()));
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new BigDecimal("70000"), 0.5, Instant.now()));
 
         assertEquals(1, published.size());
         OrderRequest order = (OrderRequest) published.get(0);
@@ -148,7 +148,7 @@ class RiskGateTest {
 
     @Test
     void confidence가_1_초과면_1_0으로_클램프돼_원래_수량과_같다() {
-        gate.onSignal(new Signal("test-strategy", "005930", Side.BUY, new BigDecimal("70000"), 1.5, Instant.now()));
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new BigDecimal("70000"), 1.5, Instant.now()));
 
         assertEquals(1, published.size());
         assertEquals(14, ((OrderRequest) published.get(0)).quantity());
@@ -156,7 +156,7 @@ class RiskGateTest {
 
     @Test
     void confidence가_0이하면_1_0으로_클램프돼_원래_수량과_같다() {
-        gate.onSignal(new Signal("test-strategy", "005930", Side.BUY, new BigDecimal("70000"), 0.0, Instant.now()));
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new BigDecimal("70000"), 0.0, Instant.now()));
 
         assertEquals(1, published.size());
         assertEquals(14, ((OrderRequest) published.get(0)).quantity());

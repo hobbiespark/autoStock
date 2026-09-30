@@ -200,7 +200,7 @@ class C3LiveStrategyTest {
         List<Signal> signals = onlySignals(published);
         assertEquals(1, signals.size(), "보유 중인 000660만 SELL 시그널 1건이어야 함(005930 진입 없음)");
         Signal signal = signals.get(0);
-        assertEquals("000660", signal.symbol());
+        assertEquals(new StockCode("000660"), signal.symbol());
         assertEquals(Side.SELL, signal.side());
         assertEquals("C3-MOMENTUM", signal.strategyId());
     }
@@ -222,7 +222,7 @@ class C3LiveStrategyTest {
         List<Signal> signals = onlySignals(published);
         assertEquals(1, signals.size());
         Signal signal = signals.get(0);
-        assertEquals("005930", signal.symbol());
+        assertEquals(new StockCode("005930"), signal.symbol());
         assertEquals(Side.BUY, signal.side());
         assertTrue(signal.confidence() > 0.0 && signal.confidence() <= 1.0,
                 "confidence(fraction)는 (0,1] 구간이어야 함: " + signal.confidence());
@@ -247,7 +247,7 @@ class C3LiveStrategyTest {
         List<Signal> signals = onlySignals(published);
         assertEquals(1, signals.size());
         Signal signal = signals.get(0);
-        assertEquals("005930", signal.symbol());
+        assertEquals(new StockCode("005930"), signal.symbol());
         assertEquals(Side.SELL, signal.side());
     }
 
@@ -288,7 +288,7 @@ class C3LiveStrategyTest {
         List<Signal> signals = onlySignals(published);
         assertEquals(1, signals.size(), "실패한 005930은 스킵되고 000660만 판단돼야 함");
         Signal signal = signals.get(0);
-        assertEquals("000660", signal.symbol());
+        assertEquals(new StockCode("000660"), signal.symbol());
     }
 
     // ── FE-6: SignalDecision 발행 검증 — 순수 함수(MomentumMath/RegimeMath/VolTargetMath)의
