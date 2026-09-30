@@ -4,6 +4,8 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderNotice;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -71,7 +73,7 @@ public class OrderNoticeHandler {
      * brokerOrderId → 직전 누적 체결금액(수량×평균가). 증분 단가 역산용.
      * 주문 종결(902 잔량 0 또는 FILLED) 시 제거. 재시작 시 유실 — 위 Javadoc의 근사로 폴백.
      */
-    private final Map<String, BigDecimal> cumulativeNotional = new ConcurrentHashMap<>();
+    private final Map<BrokerOrderId, BigDecimal> cumulativeNotional = new ConcurrentHashMap<>();
 
     /** 주문번호 등록 전에 도착한 체결 통보 보류함(R4). */
     private final PendingOrderNotices pending = new PendingOrderNotices();
@@ -95,7 +97,7 @@ public class OrderNoticeHandler {
             log.warn("brokerOrderId 매핑 없는 체결통보 무시 (보류 {}초 경과, 수동 주문 등으로 추정): {}",
                     PendingOrderNotices.HOLD.toSeconds(), expired.brokerOrderId());
         }
-        for (String brokerOrderId : pending.brokerOrderIds()) {
+        for (BrokerOrderId brokerOrderId : pending.brokerOrderIds()) {
             if (tradingService.findByBrokerOrderId(brokerOrderId) != null
                     || orderRepository.findByBrokerOrderId(brokerOrderId).isPresent()) {
                 for (OrderNotice notice : pending.drain(brokerOrderId)) {
@@ -124,8 +126,9 @@ public class OrderNoticeHandler {
         }
 
         // 1차: 인메모리(빠름). 2차: DB 폴백(재시작으로 인메모리 맵이 유실된 경우).
-        OrderRequest original = tradingService.findByBrokerOrderId(notice.brokerOrderId());
-        Optional<OrderEntity> entity = orderRepository.findByBrokerOrderId(notice.brokerOrderId());
+        BrokerOrderId brokerOrderId = idOf(notice);
+        OrderRequest original = tradingService.findByBrokerOrderId(brokerOrderId);
+        Optional<OrderEntity> entity = orderRepository.findByBrokerOrderId(brokerOrderId);
 
         if (original == null && entity.isEmpty()) {
             // 주문 응답(주문번호 저장)보다 WS 통보가 먼저 온 경우일 수 있다 — 버리지 않고 보류했다가
@@ -150,17 +153,17 @@ public class OrderNoticeHandler {
         // 증분은 DB 영속 누적치 기준이라, 다른 경로(취소·대사)와 저장이 충돌하면 최신 주문을 다시 읽어
         // 처음부터 다시 계산한다 — 옛 누적치로 저장하면 체결이 덮이거나 이중계상된다(R2).
         AppliedFill applied = OptimisticRetry.run("체결통보 " + notice.brokerOrderId(), entity.get(),
-                () -> orderRepository.findByBrokerOrderId(notice.brokerOrderId()),
+                () -> orderRepository.findByBrokerOrderId(brokerOrderId),
                 order -> applyFillNotice(order, notice));
         if (applied == null) {
             return;
         }
         OrderEntity order = applied.order();
         if (applied.cumulativeNotional() != null) {
-            cumulativeNotional.put(notice.brokerOrderId(), applied.cumulativeNotional());
+            cumulativeNotional.put(brokerOrderId, applied.cumulativeNotional());
         }
         if (notice.remainingQuantity() == 0 || order.getStatus() == OrderStatus.FILLED) {
-            cumulativeNotional.remove(notice.brokerOrderId());
+            cumulativeNotional.remove(brokerOrderId);
         }
 
         String clientOrderId = original != null ? original.idempotencyKey() : order.getClientOrderId();
@@ -197,7 +200,7 @@ public class OrderNoticeHandler {
 
         OrderEntity saved = order;
         try {
-            order.applyFill(delta);
+            order.applyFill(new Quantity(delta));
             // 실측 확정 2026-09-11(FID 902): 미체결 잔량 0 = 브로커 기준 완전 소진 확정.
             // remainingQuantity == -1은 "필드 자체가 없던 통보"(과거 픽스처 등)이므로 무시.
             if (notice.remainingQuantity() == 0 && order.getStatus() != OrderStatus.FILLED) {
@@ -211,6 +214,11 @@ public class OrderNoticeHandler {
             log.error("체결통보 반영 중 주문 상태 갱신 실패(Fill은 계속 발행): {}", e.getMessage());
         }
         return new AppliedFill(saved, delta, deltaPrice, cumNotional);
+    }
+
+    /** 통보의 주문번호를 값 객체로 — 파서(market.RealMessageParser)가 빈 주문번호 통보는 이미 버린다. */
+    private static BrokerOrderId idOf(OrderNotice notice) {
+        return new BrokerOrderId(notice.brokerOrderId());
     }
 
     /** 체결 반영 결과 — 저장된 주문, 증분 수량·단가, 이번 누적금액(평균가 없으면 null). */
@@ -233,7 +241,7 @@ public class OrderNoticeHandler {
             cumulativeNotional.clear();
         }
         BigDecimal cumNotional = avgPrice.multiply(BigDecimal.valueOf(cumulativeQty));
-        BigDecimal prevNotional = cumulativeNotional.get(notice.brokerOrderId());
+        BigDecimal prevNotional = cumulativeNotional.get(idOf(notice));
         if (prevNotional == null) {
             if (previousQty > 0) {
                 // 재시작 등으로 직전 누적금액 유실 — 이번 평균가로 근사(오차 미미, 로그로 명시)
@@ -259,7 +267,7 @@ public class OrderNoticeHandler {
      */
     private void handleAccepted(OrderNotice notice) {
         OrderEntity found = OptimisticRetry.run("접수통보 " + notice.brokerOrderId(), null,
-                () -> orderRepository.findByBrokerOrderId(notice.brokerOrderId()),
+                () -> orderRepository.findByBrokerOrderId(idOf(notice)),
                 order -> {
                     try {
                         order.transitionTo(OrderStatus.ACCEPTED);

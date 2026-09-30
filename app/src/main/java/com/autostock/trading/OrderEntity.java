@@ -1,7 +1,10 @@
 package com.autostock.trading;
 
 import com.autostock.common.event.Side;
+import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import jakarta.persistence.Column;
+import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
 import jakarta.persistence.Enumerated;
@@ -39,7 +42,8 @@ public class OrderEntity {
 
     /** 브로커 주문번호 — LIVE 접수 완료 전까지는 null(SIM은 즉시 채워짐). */
     @Column(name = "broker_order_id")
-    private String brokerOrderId;
+    @Convert(converter = BrokerOrderIdConverter.class)
+    private BrokerOrderId brokerOrderId;
 
     @Column(nullable = false)
     private String symbol;
@@ -84,12 +88,12 @@ public class OrderEntity {
     }
 
     /** 새 주문 생성 — 초기 상태는 항상 {@link OrderStatus#CREATED}. */
-    public OrderEntity(String clientOrderId, String symbol, Side side, long quantity,
+    public OrderEntity(String clientOrderId, String symbol, Side side, Quantity quantity,
                        BigDecimal limitPrice, String strategyId) {
         this.clientOrderId = clientOrderId;
         this.symbol = symbol;
         this.side = side;
-        this.quantity = quantity;
+        this.quantity = quantity.value();
         this.filledQuantity = 0L;
         this.limitPrice = limitPrice;
         this.strategyId = strategyId;
@@ -114,7 +118,7 @@ public class OrderEntity {
     }
 
     /** 브로커 접수 성공 처리 — brokerOrderId를 채우고 SUBMITTED로 전이한다. */
-    public void markSubmitted(String brokerOrderId) {
+    public void markSubmitted(BrokerOrderId brokerOrderId) {
         this.brokerOrderId = brokerOrderId;
         transitionTo(OrderStatus.SUBMITTED);
     }
@@ -127,20 +131,17 @@ public class OrderEntity {
      * 그래서 OrderStatus.PARTIALLY_FILLED→PARTIALLY_FILLED 자기 자신 전이도
      * 합법으로 등록돼 있다.
      *
-     * @param qty 이번에 새로 체결된 수량(누적치 아님)
+     * @param qty 이번에 새로 체결된 수량(누적치 아님, 양수는 Quantity가 보장)
      */
-    public void applyFill(long qty) {
-        if (qty <= 0) {
-            throw new IllegalArgumentException("체결 수량은 0보다 커야 한다: " + qty);
-        }
-        this.filledQuantity += qty;
+    public void applyFill(Quantity qty) {
+        this.filledQuantity += qty.value();
         OrderStatus target = filledQuantity >= quantity ? OrderStatus.FILLED : OrderStatus.PARTIALLY_FILLED;
         transitionTo(target);
     }
 
     public Long getId() { return id; }
     public String getClientOrderId() { return clientOrderId; }
-    public String getBrokerOrderId() { return brokerOrderId; }
+    public BrokerOrderId getBrokerOrderId() { return brokerOrderId; }
     public String getSymbol() { return symbol; }
     public Side getSide() { return side; }
     public long getQuantity() { return quantity; }

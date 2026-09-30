@@ -1,6 +1,8 @@
 package com.autostock.trading;
 
 import com.autostock.common.event.Side;
+import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import com.autostock.execution.BrokerPort;
 import com.autostock.market.MarketSessionService;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,11 +52,11 @@ class StaleOrderCancellerTest {
     }
 
     private OrderEntity submittedOrderUpdatedAt(Instant updatedAt) {
-        OrderEntity order = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", "005930", Side.BUY, 10,
+        OrderEntity order = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", "005930", Side.BUY, new Quantity(10),
                 new BigDecimal("70000"), "BREAKOUT");
         order.transitionTo(OrderStatus.VALIDATED);
         order.transitionTo(OrderStatus.SUBMITTING);
-        order.markSubmitted("BROKER-1"); // updatedAt = Instant.now() (실제 시각)
+        order.markSubmitted(new BrokerOrderId("BROKER-1")); // updatedAt = Instant.now() (실제 시각)
         setUpdatedAtViaFill(order, updatedAt);
         return order;
     }
@@ -106,7 +108,7 @@ class StaleOrderCancellerTest {
         StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock, marketSession);
         OrderEntity stale = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(6)));
         OrderEntity latest = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(6)));
-        latest.applyFill(4); // 목록 조회 뒤 체결 통보가 먼저 저장됐다(R2)
+        latest.applyFill(new Quantity(4)); // 목록 조회 뒤 체결 통보가 먼저 저장됐다(R2)
         when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(stale));
         doThrow(new ObjectOptimisticLockingFailureException(OrderEntity.class, 1L))
                 .when(orderRepository).save(stale);

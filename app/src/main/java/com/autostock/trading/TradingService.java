@@ -3,6 +3,8 @@ package com.autostock.trading;
 import com.autostock.common.event.CancelRequest;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
+import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import com.autostock.execution.BrokerOrderResult;
 import com.autostock.execution.BrokerPort;
 import com.autostock.execution.BrokerRejectedException;
@@ -77,7 +79,7 @@ public class TradingService {
      * Fill을 만들 수 있다. {@link OrderNoticeHandler}가 이 맵을 조회하고, 여기 없으면
      * OrderRepository(DB)로 폴백한다 — 재시작으로 이 맵이 유실됐을 때의 방어선.
      */
-    private final Map<String, OrderRequest> brokerOrderIdToRequest = new ConcurrentHashMap<>();
+    private final Map<BrokerOrderId, OrderRequest> brokerOrderIdToRequest = new ConcurrentHashMap<>();
 
     private final TradingProperties properties;
     private final BrokerPort brokerPort;
@@ -139,21 +141,21 @@ public class TradingService {
      * SUBMITTED→FILLED로 기록한다(스펙 4절) — 다른 실행 경로와 같은 감사 흔적을 남긴다.
      */
     private void executeSim(OrderRequest request) {
-        String brokerOrderId = "SIM-" + simOrderSeq.incrementAndGet();
+        BrokerOrderId brokerOrderId = new BrokerOrderId("SIM-" + simOrderSeq.incrementAndGet());
         log.info("[SIM] 즉시 체결: {} {} {}주 @ {}",
                 request.symbol(), request.side(), request.quantity(), request.limitPrice());
 
         OrderEntity entity = new OrderEntity(request.idempotencyKey(), request.symbol(), request.side(),
-                request.quantity(), request.limitPrice(), request.strategyId());
+                new Quantity(request.quantity()), request.limitPrice(), request.strategyId());
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
         entity.markSubmitted(brokerOrderId);
-        entity.applyFill(request.quantity()); // SIM은 항상 전량 즉시 체결 가정 → FILLED
+        entity.applyFill(new Quantity(request.quantity())); // SIM은 항상 전량 즉시 체결 가정 → FILLED
         orderRepository.save(entity);
 
         publisher.publishEvent(new Fill(
                 request.idempotencyKey(),   // Fill을 원래 주문과 연결하는 열쇠
-                brokerOrderId,
+                brokerOrderId.value(),
                 request.symbol(),
                 request.side(),
                 request.quantity(),
@@ -167,7 +169,7 @@ public class TradingService {
      */
     private void executeLive(OrderRequest request) {
         OrderEntity entity = new OrderEntity(request.idempotencyKey(), request.symbol(), request.side(),
-                request.quantity(), request.limitPrice(), request.strategyId());
+                new Quantity(request.quantity()), request.limitPrice(), request.strategyId());
         entity.transitionTo(OrderStatus.VALIDATED);
 
         try {
@@ -183,9 +185,10 @@ public class TradingService {
 
         try {
             BrokerOrderResult result = brokerPort.placeOrder(request);
-            entity.markSubmitted(result.brokerOrderId());
+            BrokerOrderId brokerOrderId = new BrokerOrderId(result.brokerOrderId());
+            entity.markSubmitted(brokerOrderId);
             entity = save(entity);
-            brokerOrderIdToRequest.put(result.brokerOrderId(), request);
+            brokerOrderIdToRequest.put(brokerOrderId, request);
             log.info("[LIVE] 주문 접수: {} → 주문번호 {}", request.symbol(), result.brokerOrderId());
         } catch (BrokerRejectedException e) {
             // 운영 1일차 ② (2026-09-11 실측: RC4027·800033): 브로커가 응답을 주고 거부한
@@ -243,7 +246,7 @@ public class TradingService {
 
         boolean cancelled;
         try {
-            brokerPort.cancelOrder(requested.getBrokerOrderId(), requested.getSymbol(), 0L); // 0 = 잔량 전량
+            brokerPort.cancelOrder(requested.getBrokerOrderId().value(), requested.getSymbol(), 0L); // 0 = 잔량 전량
             cancelled = true;
         } catch (Exception e) {
             log.error("[LIVE] 취소 실패 — UNKNOWN 처리 후 대사 요청: {} ({})", clientOrderId, e.getMessage());
@@ -302,7 +305,7 @@ public class TradingService {
      * @return 매핑이 있으면 원 주문요청, 없으면 null (수동 주문 등 이 서비스가
      *         모르는 주문이거나, 재시작으로 맵이 유실된 경우 — 호출자가 DB 폴백해야 한다)
      */
-    OrderRequest findByBrokerOrderId(String brokerOrderId) {
+    OrderRequest findByBrokerOrderId(BrokerOrderId brokerOrderId) {
         return brokerOrderIdToRequest.get(brokerOrderId);
     }
 }

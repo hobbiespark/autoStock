@@ -89,7 +89,7 @@ public class StaleOrderCanceller {
                 return;
             }
             long remaining = requested.getQuantity() - requested.getFilledQuantity();
-            brokerPort.cancelOrder(requested.getBrokerOrderId(), requested.getSymbol(), remaining);
+            brokerPort.cancelOrder(requested.getBrokerOrderId().value(), requested.getSymbol(), remaining);
             log.info("미체결 타임아웃 취소 요청: clientOrderId={} brokerOrderId={} 경과 상태 갱신 시각={}",
                     order.getClientOrderId(), order.getBrokerOrderId(), order.getUpdatedAt());
         } catch (Exception e) {

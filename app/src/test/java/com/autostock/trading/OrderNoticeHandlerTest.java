@@ -4,6 +4,8 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderNotice;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import com.autostock.execution.BrokerOrderResult;
 import com.autostock.execution.BrokerPort;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -108,11 +110,11 @@ class OrderNoticeHandlerTest {
     /** 표준 SUBMITTED 엔티티를 만들어 DB 폴백(findByBrokerOrderId)에 스텁한다. */
     private OrderEntity stubEntity(String clientOrderId, Side side, long quantity) {
         OrderEntity entity = new OrderEntity(clientOrderId, "005930", side,
-                quantity, new BigDecimal("70000"), "test-strategy");
+                new Quantity(quantity), new BigDecimal("70000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted(BROKER_ORDER_ID);
-        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+        entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
+        when(orderRepository.findByBrokerOrderId(new BrokerOrderId(BROKER_ORDER_ID))).thenReturn(Optional.of(entity));
         return entity;
     }
 
@@ -223,11 +225,11 @@ class OrderNoticeHandlerTest {
         // 재시작 시나리오 시뮬레이션: tradingService.onOrderRequest를 호출하지 않아
         // 인메모리 맵은 비어있지만, DB에는 SUBMITTED 상태 주문이 남아있다고 가정한다.
         OrderEntity entity = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", "005930", Side.SELL,
-                10, new BigDecimal("70000"), "BREAKOUT");
+                new Quantity(10), new BigDecimal("70000"), "BREAKOUT");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted(BROKER_ORDER_ID);
-        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+        entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
+        when(orderRepository.findByBrokerOrderId(new BrokerOrderId(BROKER_ORDER_ID))).thenReturn(Optional.of(entity));
 
         handler.onOrderNotice(notice("체결", 10, new BigDecimal("70100")));
 
@@ -243,11 +245,11 @@ class OrderNoticeHandlerTest {
         // 실측 확정 2026-09-11(FID 913="접수"): 체결이 아니므로 Fill은 발행되지 않고
         // OrderEntity 상태만 ACCEPTED로 바뀐다.
         OrderEntity entity = new OrderEntity("key-accept", "005930", Side.BUY,
-                1, new BigDecimal("258000"), "test-strategy");
+                new Quantity(1), new BigDecimal("258000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted(BROKER_ORDER_ID);
-        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+        entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
+        when(orderRepository.findByBrokerOrderId(new BrokerOrderId(BROKER_ORDER_ID))).thenReturn(Optional.of(entity));
 
         handler.onOrderNotice(notice("접수", 0, null, 1));
 
@@ -260,11 +262,11 @@ class OrderNoticeHandlerTest {
         // "취소"/"거부"는 이번 실측(2026-09-11)에서 관측되지 않은 상태 문자열이다(TODO 실측).
         // 상태기계를 오염시키지 않도록 아무 전이도 없이 무시해야 한다.
         OrderEntity entity = new OrderEntity("key-unknown", "005930", Side.BUY,
-                1, new BigDecimal("258000"), "test-strategy");
+                new Quantity(1), new BigDecimal("258000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted(BROKER_ORDER_ID);
-        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+        entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
+        when(orderRepository.findByBrokerOrderId(new BrokerOrderId(BROKER_ORDER_ID))).thenReturn(Optional.of(entity));
 
         handler.onOrderNotice(notice("취소", 0, null));
 
@@ -279,11 +281,11 @@ class OrderNoticeHandlerTest {
         // 확정한다. quantity=10인데 이번 통보 filledQuantity=3만 반영해 로컬 계산상으로는
         // PARTIALLY_FILLED가 나오는 상황을 의도적으로 만든다.
         OrderEntity entity = new OrderEntity("key-mismatch", "005930", Side.BUY,
-                10, new BigDecimal("70000"), "test-strategy");
+                new Quantity(10), new BigDecimal("70000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted(BROKER_ORDER_ID);
-        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID)).thenReturn(Optional.of(entity));
+        entity.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
+        when(orderRepository.findByBrokerOrderId(new BrokerOrderId(BROKER_ORDER_ID))).thenReturn(Optional.of(entity));
 
         handler.onOrderNotice(notice("체결", 3, new BigDecimal("70000"), 0));
 
@@ -295,17 +297,17 @@ class OrderNoticeHandlerTest {
     void 체결_저장이_동시_갱신과_충돌하면_최신_누적치로_증분을_다시_계산한다() {
         // 통보 처리 중 다른 경로가 먼저 4주를 반영해 저장했다 — 옛 사본(누적 0)으로 저장하면 충돌(R2).
         OrderEntity stale = new OrderEntity("key-conflict", "005930", Side.BUY,
-                10, new BigDecimal("70000"), "test-strategy");
+                new Quantity(10), new BigDecimal("70000"), "test-strategy");
         stale.transitionTo(OrderStatus.VALIDATED);
         stale.transitionTo(OrderStatus.SUBMITTING);
-        stale.markSubmitted(BROKER_ORDER_ID);
+        stale.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
         OrderEntity latest = new OrderEntity("key-conflict", "005930", Side.BUY,
-                10, new BigDecimal("70000"), "test-strategy");
+                new Quantity(10), new BigDecimal("70000"), "test-strategy");
         latest.transitionTo(OrderStatus.VALIDATED);
         latest.transitionTo(OrderStatus.SUBMITTING);
-        latest.markSubmitted(BROKER_ORDER_ID);
-        latest.applyFill(4);
-        when(orderRepository.findByBrokerOrderId(BROKER_ORDER_ID))
+        latest.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
+        latest.applyFill(new Quantity(4));
+        when(orderRepository.findByBrokerOrderId(new BrokerOrderId(BROKER_ORDER_ID)))
                 .thenReturn(Optional.of(stale), Optional.of(latest));
         doThrow(new ObjectOptimisticLockingFailureException(OrderEntity.class, 1L))
                 .when(orderRepository).save(stale);
@@ -325,11 +327,11 @@ class OrderNoticeHandlerTest {
     @Test
     void 실측_전문_재생_매수_접수_후_체결() {
         OrderEntity entity = new OrderEntity("key-buy-replay", "005930", Side.BUY,
-                1, new BigDecimal("258000"), "test-strategy");
+                new Quantity(1), new BigDecimal("258000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted("0119433"); // 실측 브로커 주문번호(FID 9203)
-        when(orderRepository.findByBrokerOrderId("0119433")).thenReturn(Optional.of(entity));
+        entity.markSubmitted(new BrokerOrderId("0119433")); // 실측 브로커 주문번호(FID 9203)
+        when(orderRepository.findByBrokerOrderId(new BrokerOrderId("0119433"))).thenReturn(Optional.of(entity));
         OrderNotice accepted = new OrderNotice("0119433", "005930", "접수", 0, null,
                 1, "00", Instant.now());
         OrderNotice filled = new OrderNotice("0119433", "005930", "체결", 1,
@@ -350,11 +352,11 @@ class OrderNoticeHandlerTest {
     @Test
     void 실측_전문_재생_매도_접수_후_체결() {
         OrderEntity entity = new OrderEntity("key-sell-replay", "005930", Side.SELL,
-                1, new BigDecimal("258000"), "test-strategy");
+                new Quantity(1), new BigDecimal("258000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted("0119574"); // 실측 브로커 주문번호(FID 9203)
-        when(orderRepository.findByBrokerOrderId("0119574")).thenReturn(Optional.of(entity));
+        entity.markSubmitted(new BrokerOrderId("0119574")); // 실측 브로커 주문번호(FID 9203)
+        when(orderRepository.findByBrokerOrderId(new BrokerOrderId("0119574"))).thenReturn(Optional.of(entity));
         OrderNotice accepted = new OrderNotice("0119574", "005930", "접수", 0, null,
                 1, "00", Instant.now());
         OrderNotice filled = new OrderNotice("0119574", "005930", "체결", 1,

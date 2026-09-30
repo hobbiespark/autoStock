@@ -1,5 +1,6 @@
 package com.autostock.trading;
 
+import com.autostock.common.util.BrokerOrderId;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
@@ -17,7 +18,7 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     Optional<OrderEntity> findByClientOrderId(String clientOrderId);
 
     /** 브로커 주문번호로 조회 — 체결통보(brokerOrderId만 옴) 처리 시 원 주문을 찾는다. */
-    Optional<OrderEntity> findByBrokerOrderId(String brokerOrderId);
+    Optional<OrderEntity> findByBrokerOrderId(BrokerOrderId brokerOrderId);
 
     /** 특정 상태 집합에 속한 주문 전체 — Reconciliation·StaleOrderCanceller가 대상 선별에 사용. */
     List<OrderEntity> findByStatusIn(Collection<OrderStatus> statuses);
