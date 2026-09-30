@@ -1,5 +1,9 @@
 package com.autostock.monitor;
 
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.PositiveOrZero;
+import jakarta.validation.constraints.Size;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
@@ -8,11 +12,11 @@ import java.time.LocalDate;
  * 선택값이다 — null이면 기존 값을 유지한다(부분 갱신, {@code ipo.IpoDealEntity.applyRecord}).
  */
 public record IpoRecordRequest(
-        Integer appliedQty,
-        BigDecimal deposit,
-        Integer allocatedQty,
-        BigDecimal sellPrice,
+        @PositiveOrZero Integer appliedQty,
+        @PositiveOrZero @Digits(integer = 14, fraction = 2) BigDecimal deposit,       // NUMERIC(16,2)
+        @PositiveOrZero Integer allocatedQty,
+        @PositiveOrZero @Digits(integer = 12, fraction = 2) BigDecimal sellPrice,     // NUMERIC(14,2)
         LocalDate sellDate,
-        String memo
+        @Size(max = 2000) String memo
 ) {
 }
