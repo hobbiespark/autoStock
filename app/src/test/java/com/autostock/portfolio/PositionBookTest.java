@@ -1,6 +1,7 @@
 package com.autostock.portfolio;
 
 import com.autostock.common.event.Fill;
+import com.autostock.common.event.PositionRestored;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
 import org.junit.jupiter.api.Test;
@@ -45,5 +46,16 @@ class PositionBookTest {
 
         assertFalse(book.holds("005930"));
         assertEquals(0, book.openPositionCount());
+    }
+
+    @Test
+    void 잔고_복원_이벤트로_포지션을_시드하고_체결_포지션은_덮어쓰지_않는다() {
+        book.onPositionRestored(new PositionRestored(new StockCode("000660"), 3, new BigDecimal("200000")));
+        book.onFill(fill(Side.BUY, 10, "70000"));
+        book.onPositionRestored(new PositionRestored(new StockCode("005930"), 19, new BigDecimal("259974")));
+
+        assertEquals(3, book.get("000660").quantity());
+        assertEquals(10, book.get("005930").quantity());
+        assertEquals(2, book.openPositionCount());
     }
 }
