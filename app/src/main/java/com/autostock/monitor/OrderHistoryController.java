@@ -63,7 +63,7 @@ public class OrderHistoryController {
     private static OrderHistoryItemView toView(OrderEntity order) {
         return new OrderHistoryItemView(
                 order.getClientOrderId(),
-                order.getSymbol(),
+                order.getSymbol().value(),
                 order.getSide().name(),
                 order.getQuantity(),
                 order.getFilledQuantity(),

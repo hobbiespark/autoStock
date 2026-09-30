@@ -4,6 +4,7 @@ import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.KiwoomNumbers;
+import com.autostock.common.util.StockCode;
 import com.autostock.kiwoom.KiwoomApiException;
 import com.autostock.kiwoom.KiwoomRestClient;
 import com.autostock.kiwoom.TrId;
@@ -100,13 +101,13 @@ public class KiwoomBrokerAdapter implements BrokerPort {
      * base_orig_ord_no(원주문번호), cncl_qty, return_code:0, return_msg:"모의투자 취소주문완료"}}.
      */
     @Override
-    public void cancelOrder(BrokerOrderId brokerOrderId, String symbol, long quantity) {
+    public void cancelOrder(BrokerOrderId brokerOrderId, StockCode symbol, long quantity) {
         Map<String, Object> response;
         try {
             response = client.call(TrId.ORDER_CANCEL, ORDER_PATH, Map.of(
                     "dmst_stex_tp", "KRX",
                     "orig_ord_no", brokerOrderId.value(),      // 실측 확정: 원주문번호
-                    "stk_cd", symbol,
+                    "stk_cd", symbol.value(),
                     "cncl_qty", String.valueOf(quantity)        // 실측 확정: "0"이면 잔량 전량 취소
             ));
         } catch (KiwoomApiException e) {
@@ -140,7 +141,10 @@ public class KiwoomBrokerAdapter implements BrokerPort {
                     log.warn("미체결 목록에 주문번호 없는 행 — 건너뜀: 키={}", raw.keySet());
                     continue;
                 }
-                result.add(toOutstandingOrder((Map<String, Object>) raw));
+                BrokerOutstandingOrder order = toOutstandingOrder((Map<String, Object>) raw);
+                if (order != null) {
+                    result.add(order);
+                }
             }
         }
         return result;
@@ -152,10 +156,17 @@ public class KiwoomBrokerAdapter implements BrokerPort {
      * <p><b>TODO 실측</b>: 필드명({@code ord_no}/{@code stk_cd}/{@code ord_qty} 정도만
      * 주문 TR과의 일관성으로 신뢰도 있게 추정되고, 매매방향·미체결잔량 필드명은 문서 기반
      * 추정이다. mockapi 미체결 주문 응답을 직접 받아본 뒤 확정해야 한다.
+     *
+     * @return 종목코드가 형식에 맞지 않으면 null(행 하나 때문에 대사 전체를 실패시키지 않는다)
      */
     private BrokerOutstandingOrder toOutstandingOrder(Map<String, Object> raw) {
         BrokerOrderId brokerOrderId = new BrokerOrderId(String.valueOf(raw.get("ord_no")).trim());
-        String symbol = normalizeSymbol(String.valueOf(raw.getOrDefault("stk_cd", "")));
+        String rawSymbol = normalizeSymbol(String.valueOf(raw.getOrDefault("stk_cd", "")).trim());
+        if (!rawSymbol.matches(StockCode.PATTERN)) {
+            log.warn("미체결 목록에 종목코드 형식이 맞지 않는 행 — 건너뜀: brokerOrderId={} stk_cd={}", brokerOrderId, rawSymbol);
+            return null;
+        }
+        StockCode symbol = new StockCode(rawSymbol);
         Side side = parseSide(raw.get("trde_tp")); // TODO 실측: "1"=매도/"2"=매수 등 코드 체계 추정
         long quantity = KiwoomNumbers.toLongOrZero(raw.get("ord_qty"));
         // TODO 실측: 미체결잔량 필드명 추정("un_qty" 등 실제 값 미확인) — 없으면 주문수량 전량 미체결로 간주

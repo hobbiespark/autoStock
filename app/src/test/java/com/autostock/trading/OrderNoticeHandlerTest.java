@@ -6,6 +6,7 @@ import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerOrderResult;
 import com.autostock.execution.BrokerPort;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -109,7 +110,7 @@ class OrderNoticeHandlerTest {
 
     /** 표준 SUBMITTED 엔티티를 만들어 DB 폴백(findByBrokerOrderId)에 스텁한다. */
     private OrderEntity stubEntity(String clientOrderId, Side side, long quantity) {
-        OrderEntity entity = new OrderEntity(clientOrderId, "005930", side,
+        OrderEntity entity = new OrderEntity(clientOrderId, new StockCode("005930"), side,
                 new Quantity(quantity), new BigDecimal("70000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
@@ -224,7 +225,7 @@ class OrderNoticeHandlerTest {
     void 인메모리_매핑_유실시_DB_폴백으로_체결통보_처리() {
         // 재시작 시나리오 시뮬레이션: tradingService.onOrderRequest를 호출하지 않아
         // 인메모리 맵은 비어있지만, DB에는 SUBMITTED 상태 주문이 남아있다고 가정한다.
-        OrderEntity entity = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", "005930", Side.SELL,
+        OrderEntity entity = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", new StockCode("005930"), Side.SELL,
                 new Quantity(10), new BigDecimal("70000"), "BREAKOUT");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
@@ -244,7 +245,7 @@ class OrderNoticeHandlerTest {
     void 접수_통보_수신시_ACCEPTED로_전이하고_Fill은_발행안함() {
         // 실측 확정 2026-09-11(FID 913="접수"): 체결이 아니므로 Fill은 발행되지 않고
         // OrderEntity 상태만 ACCEPTED로 바뀐다.
-        OrderEntity entity = new OrderEntity("key-accept", "005930", Side.BUY,
+        OrderEntity entity = new OrderEntity("key-accept", new StockCode("005930"), Side.BUY,
                 new Quantity(1), new BigDecimal("258000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
@@ -261,7 +262,7 @@ class OrderNoticeHandlerTest {
     void 미실측_상태_통보는_상태기계를_건드리지_않고_무시() {
         // "취소"/"거부"는 이번 실측(2026-09-11)에서 관측되지 않은 상태 문자열이다(TODO 실측).
         // 상태기계를 오염시키지 않도록 아무 전이도 없이 무시해야 한다.
-        OrderEntity entity = new OrderEntity("key-unknown", "005930", Side.BUY,
+        OrderEntity entity = new OrderEntity("key-unknown", new StockCode("005930"), Side.BUY,
                 new Quantity(1), new BigDecimal("258000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
@@ -280,7 +281,7 @@ class OrderNoticeHandlerTest {
         // 기준 계산(applyFill)이 아직 PARTIALLY_FILLED라고 판단하더라도 902를 우선해 FILLED로
         // 확정한다. quantity=10인데 이번 통보 filledQuantity=3만 반영해 로컬 계산상으로는
         // PARTIALLY_FILLED가 나오는 상황을 의도적으로 만든다.
-        OrderEntity entity = new OrderEntity("key-mismatch", "005930", Side.BUY,
+        OrderEntity entity = new OrderEntity("key-mismatch", new StockCode("005930"), Side.BUY,
                 new Quantity(10), new BigDecimal("70000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
@@ -296,12 +297,12 @@ class OrderNoticeHandlerTest {
     @Test
     void 체결_저장이_동시_갱신과_충돌하면_최신_누적치로_증분을_다시_계산한다() {
         // 통보 처리 중 다른 경로가 먼저 4주를 반영해 저장했다 — 옛 사본(누적 0)으로 저장하면 충돌(R2).
-        OrderEntity stale = new OrderEntity("key-conflict", "005930", Side.BUY,
+        OrderEntity stale = new OrderEntity("key-conflict", new StockCode("005930"), Side.BUY,
                 new Quantity(10), new BigDecimal("70000"), "test-strategy");
         stale.transitionTo(OrderStatus.VALIDATED);
         stale.transitionTo(OrderStatus.SUBMITTING);
         stale.markSubmitted(new BrokerOrderId(BROKER_ORDER_ID));
-        OrderEntity latest = new OrderEntity("key-conflict", "005930", Side.BUY,
+        OrderEntity latest = new OrderEntity("key-conflict", new StockCode("005930"), Side.BUY,
                 new Quantity(10), new BigDecimal("70000"), "test-strategy");
         latest.transitionTo(OrderStatus.VALIDATED);
         latest.transitionTo(OrderStatus.SUBMITTING);
@@ -326,7 +327,7 @@ class OrderNoticeHandlerTest {
 
     @Test
     void 실측_전문_재생_매수_접수_후_체결() {
-        OrderEntity entity = new OrderEntity("key-buy-replay", "005930", Side.BUY,
+        OrderEntity entity = new OrderEntity("key-buy-replay", new StockCode("005930"), Side.BUY,
                 new Quantity(1), new BigDecimal("258000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
@@ -351,7 +352,7 @@ class OrderNoticeHandlerTest {
 
     @Test
     void 실측_전문_재생_매도_접수_후_체결() {
-        OrderEntity entity = new OrderEntity("key-sell-replay", "005930", Side.SELL,
+        OrderEntity entity = new OrderEntity("key-sell-replay", new StockCode("005930"), Side.SELL,
                 new Quantity(1), new BigDecimal("258000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);

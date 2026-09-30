@@ -6,6 +6,7 @@ import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerOrderResult;
 import com.autostock.execution.BrokerPort;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -132,7 +133,7 @@ class TradingServiceTest {
     }
 
     private static OrderEntity submitted(String clientOrderId, long quantity) {
-        OrderEntity entity = new OrderEntity(clientOrderId, "005930", Side.BUY, new Quantity(quantity),
+        OrderEntity entity = new OrderEntity(clientOrderId, new StockCode("005930"), Side.BUY, new Quantity(quantity),
                 new BigDecimal("70000"), "test-strategy");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);

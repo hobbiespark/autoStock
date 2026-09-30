@@ -3,6 +3,7 @@ package com.autostock.trading;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockCode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Convert;
 import jakarta.persistence.Entity;
@@ -46,7 +47,8 @@ public class OrderEntity {
     private BrokerOrderId brokerOrderId;
 
     @Column(nullable = false)
-    private String symbol;
+    @Convert(converter = StockCodeConverter.class)
+    private StockCode symbol;
 
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
@@ -88,7 +90,7 @@ public class OrderEntity {
     }
 
     /** 새 주문 생성 — 초기 상태는 항상 {@link OrderStatus#CREATED}. */
-    public OrderEntity(String clientOrderId, String symbol, Side side, Quantity quantity,
+    public OrderEntity(String clientOrderId, StockCode symbol, Side side, Quantity quantity,
                        BigDecimal limitPrice, String strategyId) {
         this.clientOrderId = clientOrderId;
         this.symbol = symbol;
@@ -142,7 +144,7 @@ public class OrderEntity {
     public Long getId() { return id; }
     public String getClientOrderId() { return clientOrderId; }
     public BrokerOrderId getBrokerOrderId() { return brokerOrderId; }
-    public String getSymbol() { return symbol; }
+    public StockCode getSymbol() { return symbol; }
     public Side getSide() { return side; }
     public long getQuantity() { return quantity; }
     public long getFilledQuantity() { return filledQuantity; }

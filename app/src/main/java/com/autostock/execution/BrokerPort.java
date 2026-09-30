@@ -2,6 +2,7 @@ package com.autostock.execution;
 
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.StockCode;
 
 import java.util.List;
 
@@ -29,7 +30,7 @@ public interface BrokerPort {
      * @param symbol        종목코드(취소 TR 파라미터로 필요)
      * @param quantity      취소 수량(전량 취소 정책이면 원 주문 잔량)
      */
-    void cancelOrder(BrokerOrderId brokerOrderId, String symbol, long quantity);
+    void cancelOrder(BrokerOrderId brokerOrderId, StockCode symbol, long quantity);
 
     /** 현재 미체결 주문 목록을 조회한다(ka10075) — Reconciliation의 대사 대상. */
     List<BrokerOutstandingOrder> outstandingOrders();

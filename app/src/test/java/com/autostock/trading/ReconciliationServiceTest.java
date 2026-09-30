@@ -3,6 +3,7 @@ package com.autostock.trading;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerOutstandingOrder;
 import com.autostock.execution.BrokerPort;
 import com.autostock.market.MarketSessionService;
@@ -46,7 +47,7 @@ class ReconciliationServiceTest {
     }
 
     private OrderEntity submittedEntity(String clientOrderId, String brokerOrderId) {
-        OrderEntity entity = new OrderEntity(clientOrderId, "005930", Side.BUY, new Quantity(10),
+        OrderEntity entity = new OrderEntity(clientOrderId, new StockCode("005930"), Side.BUY, new Quantity(10),
                 new BigDecimal("70000"), "BREAKOUT");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
@@ -69,7 +70,7 @@ class ReconciliationServiceTest {
         order.transitionTo(OrderStatus.UNKNOWN); // 타임아웃으로 UNKNOWN이 됐다고 가정
         when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(order));
         when(brokerPort.outstandingOrders()).thenReturn(
-                List.of(new BrokerOutstandingOrder(new BrokerOrderId("BROKER-1"), "005930", Side.BUY, 10, 10)));
+                List.of(new BrokerOutstandingOrder(new BrokerOrderId("BROKER-1"), new StockCode("005930"), Side.BUY, 10, 10)));
 
         service.reconcile();
 
@@ -82,7 +83,7 @@ class ReconciliationServiceTest {
         OrderEntity order = submittedEntity("key-2", "BROKER-2");
         when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(order));
         when(brokerPort.outstandingOrders()).thenReturn(
-                List.of(new BrokerOutstandingOrder(new BrokerOrderId("BROKER-2"), "005930", Side.BUY, 10, 10)));
+                List.of(new BrokerOutstandingOrder(new BrokerOrderId("BROKER-2"), new StockCode("005930"), Side.BUY, 10, 10)));
 
         service.reconcile();
 
@@ -106,7 +107,7 @@ class ReconciliationServiceTest {
 
     @Test
     void brokerOrderId_없는_UNKNOWN_주문은_스킵된다() {
-        OrderEntity order = new OrderEntity("key-4", "005930", Side.BUY, new Quantity(10),
+        OrderEntity order = new OrderEntity("key-4", new StockCode("005930"), Side.BUY, new Quantity(10),
                 new BigDecimal("70000"), "BREAKOUT");
         order.transitionTo(OrderStatus.VALIDATED);
         order.transitionTo(OrderStatus.SUBMITTING);
@@ -126,7 +127,7 @@ class ReconciliationServiceTest {
         order.transitionTo(OrderStatus.UNKNOWN);
         when(orderRepository.findByClientOrderId("key-5")).thenReturn(Optional.of(order));
         when(brokerPort.outstandingOrders()).thenReturn(
-                List.of(new BrokerOutstandingOrder(new BrokerOrderId("BROKER-5"), "005930", Side.BUY, 10, 10)));
+                List.of(new BrokerOutstandingOrder(new BrokerOrderId("BROKER-5"), new StockCode("005930"), Side.BUY, 10, 10)));
 
         service.requestReconcile("key-5");
 
