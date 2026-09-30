@@ -67,11 +67,11 @@ class RiskGateMacroTest {
     }
 
     private Signal buySignal(String symbol, String price) {
-        return new Signal("test-strategy", new StockCode(symbol), Side.BUY, new BigDecimal(price), 1.0, Instant.now());
+        return new Signal("test-strategy", new StockCode(symbol), Side.BUY, new Price(new BigDecimal(price)), 1.0, Instant.now());
     }
 
     private Signal sellSignal(String symbol, String price) {
-        return new Signal("test-strategy", new StockCode(symbol), Side.SELL, new BigDecimal(price), 1.0, Instant.now());
+        return new Signal("test-strategy", new StockCode(symbol), Side.SELL, new Price(new BigDecimal(price)), 1.0, Instant.now());
     }
 
     private static List<OrderRequest> onlyOrders(List<Object> published) {

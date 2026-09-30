@@ -540,7 +540,7 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 | 이벤트 필드 | 0·null 가능성 | 비고 |
 |---|---|---|
 | `OrderRequest.limitPrice` | null 가능(`KrxTickSize.align`이 null·0 이하를 그대로 반환) | **조각 16에서 처리** — `RiskGate`가 거부 |
-| `Signal.refPrice` | 생성처(C3, StrategyEngine, 대시보드 테스트 신호)별 확인 필요 | `RiskGate`가 `limitPrice`로 넘긴다 |
+| `Signal.refPrice` | C3 강제 청산이 평단 0을 실을 수 있었다 | **조각 21에서 처리** — null(기준가 없음) |
 | `OrderNotice.fillPrice` | 빈 값이면 null(`RealMessageParser`). 실측(조각 17): 접수 통보는 빈 값, 체결은 양수 | **조각 18에서 처리** — 파서가 빈 값·0·형식 오류를 null로 |
 | `Fill.fillPrice` | LIVE는 910이 비면 null·0이 나갈 수 있었다 | **조각 17에서 처리** — 지정가 근사 |
 | `PositionRestored.avgPrice` | 매입가가 없으면 0을 지어냈다(`PositionRestorer.firstPrice`) | **조각 19에서 처리** — null(평단 미상) |
@@ -720,6 +720,36 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - `.\gradlew.bat test` 전체 통과(2026-09-30, 556건, 건너뜀 16).
 - **미검증:** 실제 국면 OFF 발생 시 호가 조회와 체결. 모의 서버 장중 ka10004 응답은 2026-09-18 실측과 같다고 **가정**한다.
 
+## 조각 21 — `Price`: `Signal.refPrice`, 기준가 없음은 null (2026-09-30)
+
+### 1. 결정
+
+- `Signal.refPrice`를 `Price`로 바꾸고 **null을 허용**한다("기준가 없음"). 평단 미상 포지션(조각 19)이나 호가·현재가 조회 실패(조각 20)에서 생긴다. JSON은 숫자 그대로, 없으면 `null`이다(과거 JSON 읽기 포함 `ValueObjectJsonTest` 단언 추가).
+- 생산자가 번역한다
+  - C3: `priceOrNull(BigDecimal)` — 양수면 `Price`, 없거나 0 이하면 null. 판단일(전일 종가)·강제 청산(호가) 공통.
+  - 대시보드 수동 신호: `new Price(...)` — 요청 DTO의 `POSITIVE_PRICE`가 1 이상을 보장한다.
+- `RiskGate`는 `refPriceOf(signal)`로 `BigDecimal`을 꺼내 기존 경로(사이징, 호가단위 정렬)를 그대로 쓴다. 매수는 사이징이 0주로(기존), 매도는 지정가 산출에서 "기준가 없음"으로(조각 16) 거부한다.
+- 이제 기준가 0은 Signal에 실을 수 없다. `RiskGateTest`의 "0이거나 없는 매도" 테스트는 "없는 매도"로 바꿨다(0은 생산자 번역 대상).
+
+### 2. 함정 점검
+
+- 테스트의 `compareTo(signal.refPrice())` 2곳은 컴파일 오류로 드러나 `Price` 비교로 고쳤다. `refPrice()`를 `Object`로 받는 단언은 남지 않았다(grep).
+- `EventFeed`의 `%s`와 RiskGate 로그 `{}`는 `toString()`이 평문 숫자라 문구가 같다(null은 예전처럼 `null`).
+
+### 3. 변경 파일
+
+- 수정(main 4): `common/event/Signal`, `risk/RiskGate`, `strategy/C3LiveStrategy`, `monitor/DashboardController`
+- 테스트: 생성부 10곳(컴파일 오류 줄만 스크립트 변환), `RiskGateTest` 1 수정, `C3LiveStrategyTest` 단언 2, `ValueObjectJsonTest` 단언 추가
+
+### 4. 검증 상태
+
+- `.\gradlew.bat test` 전체 통과(2026-09-30, 556건, 건너뜀 16).
+- **미검증:** event_store의 Signal JSON(실운영).
+
+### 5. `Price` 도입 정리
+
+이벤트의 가격 필드는 `Candle`(사용자 결정으로 보류)과 `MacroIndicator.value`(가격 아님)를 빼고 모두 `Price`다. 엔티티·조회 뷰·원장(`PositionBook`, `DailyPnlTracker`)은 조각 1의 원칙대로 `BigDecimal`을 유지한다.
+
 ### 10. 변경 이력
 
 - 2026-09-30: 조각 1
@@ -742,3 +772,4 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - 2026-09-30: 조각 18(Price: MarketTick·OrderNotice)
 - 2026-09-30: 조각 19(Price: PositionRestored, 평단 미상 null)
 - 2026-09-30: 조각 20(C3 강제 청산 기준가 = 최우선 매수호가)
+- 2026-09-30: 조각 21(Price: Signal.refPrice, 기준가 없음 null)

@@ -78,7 +78,7 @@ class ValueObjectJsonTest {
 
             String json = mapper.writeValueAsString(new com.autostock.common.event.Signal(
                     "C3", new StockCode("005930"), com.autostock.common.event.Side.BUY,
-                    new java.math.BigDecimal("258000"), 1.0, java.time.Instant.parse("2026-09-30T01:00:00Z")));
+                    new Price(new java.math.BigDecimal("258000")), 1.0, java.time.Instant.parse("2026-09-30T01:00:00Z")));
             org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"symbol\":\"005930\""), json);
 
             // StockCode 도입 전(v1, fixedQuantity 없음)에 쌓인 형식
@@ -87,6 +87,16 @@ class ValueObjectJsonTest {
                             + "\"confidence\":1.0,\"timestamp\":\"2026-09-30T01:00:00Z\"}",
                     com.autostock.common.event.Signal.class);
             assertEquals(new StockCode("005930"), old.symbol());
+            assertEquals(new Price(new java.math.BigDecimal("258000")), old.refPrice());   // 조각 21
+            org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"refPrice\":258000,"), json);
+
+            // 기준가 없음(null)도 예전처럼 null로 쓰고 읽는다
+            String noPrice = mapper.writeValueAsString(new com.autostock.common.event.Signal(
+                    "C3", new StockCode("005930"), com.autostock.common.event.Side.SELL,
+                    null, 1.0, java.time.Instant.parse("2026-09-30T01:00:00Z")));
+            org.junit.jupiter.api.Assertions.assertTrue(noPrice.contains("\"refPrice\":null"), noPrice);
+            org.junit.jupiter.api.Assertions.assertNull(
+                    mapper.readValue(noPrice, com.autostock.common.event.Signal.class).refPrice());
         });
     }
 
