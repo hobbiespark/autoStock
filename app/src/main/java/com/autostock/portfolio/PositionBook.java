@@ -42,9 +42,15 @@ public class PositionBook {
      * 한 종목의 보유 상태.
      *
      * @param quantity 보유 수량 (항상 양수 — 0이 되면 맵에서 제거된다)
-     * @param avgPrice 평균 매수 단가
+     * @param avgPrice 평균 매수 단가. <b>null이면 평단 모름</b> — 잔고 복원에서 매입가를 찾지 못한 경우다.
+     *                 모르는 평단에 추가 매수를 섞어도 여전히 모른다.
      */
     public record Position(long quantity, BigDecimal avgPrice) {
+
+        /** 알림·리포트용 평단 문구 — 모르면 "평단 미상". */
+        public String avgPriceText() {
+            return avgPrice == null ? "평단 미상" : avgPrice.toPlainString();
+        }
     }
 
     /** key: 종목코드(예: "005930"), value: 보유 상태. 미보유 종목은 키 자체가 없다. */
@@ -69,6 +75,9 @@ public class PositionBook {
                 return null; // 전량 청산 → 맵에서 키 제거 (compute가 null 반환 시 삭제)
             }
 
+            if (signed > 0 && current.avgPrice() == null) {
+                return new Position(newQty, null); // 모르는 평단에 섞으면 여전히 모른다
+            }
             if (signed > 0) {
                 // 추가 매수 → 가중평균으로 평단 재계산:
                 //   새 평단 = (기존수량×기존평단 + 체결수량×체결가) / 새 수량
@@ -92,10 +101,10 @@ public class PositionBook {
             return;
         }
         Position previous = positions.putIfAbsent(restored.symbol(),
-                new Position(restored.quantity(), restored.avgPrice()));
+                new Position(restored.quantity(), restored.avgPrice() == null ? null : restored.avgPrice().value()));
         if (previous == null) {
             log.info("포지션 복원(브로커 잔고): {} {}주 @ {}", restored.symbol(),
-                    restored.quantity(), restored.avgPrice());
+                    restored.quantity(), restored.avgPrice() == null ? "평단 미상" : restored.avgPrice());
         }
     }
 

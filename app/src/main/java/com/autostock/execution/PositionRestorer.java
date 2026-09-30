@@ -2,6 +2,7 @@ package com.autostock.execution;
 
 import com.autostock.common.event.PositionRestored;
 import com.autostock.common.util.KiwoomNumbers;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -99,11 +100,14 @@ public class PositionRestorer {
             }
             String symbol = normalizeSymbol(firstText(holding, "stk_cd", "stock_cd"));
             long quantity = firstLong(holding, "rmnd_qty", "evlt_rmnd_qty", "hldg_qty", "qty");
-            BigDecimal avgPrice = firstPrice(holding, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric");
+            Price avgPrice = firstPrice(holding, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric");
             if (!symbol.matches(StockCode.PATTERN) || quantity <= 0) {
                 log.warn("포지션 복원 원소 해석 실패(TODO 실측 — 위 키 로그 참고): symbol={}, qty={}",
                         symbol, quantity);
                 continue;
+            }
+            if (avgPrice == null) {
+                log.warn("포지션 복원: {} 매입가를 찾지 못해 평단 미상으로 복원(강제 청산 등 평단 기반 주문은 RiskGate가 거부)", symbol);
             }
             publisher.publishEvent(new PositionRestored(new StockCode(symbol), quantity, avgPrice));
         }
@@ -132,17 +136,18 @@ public class PositionRestorer {
         return 0L;
     }
 
-    private static BigDecimal firstPrice(Map<String, Object> map, String... keys) {
+    /** 첫 번째 양수 가격. 없으면 null(평단 모름) — 0을 지어내지 않는다. */
+    private static Price firstPrice(Map<String, Object> map, String... keys) {
         for (String key : keys) {
             Object raw = map.get(key);
             if (raw != null && !String.valueOf(raw).isBlank()) {
                 BigDecimal value = KiwoomNumbers.toBigDecimal(raw).abs();
                 if (value.signum() > 0) {
-                    return value;
+                    return new Price(value);
                 }
             }
         }
-        return BigDecimal.ZERO;
+        return null;
     }
 
     private static String normalizeSymbol(String symbol) {

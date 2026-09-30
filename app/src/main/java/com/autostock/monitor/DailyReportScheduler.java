@@ -107,7 +107,7 @@ public class DailyReportScheduler {
         sb.append("보유 종목 수: ").append(positions.size());
         positions.forEach((symbol, position) ->
                 sb.append("\n- ").append(symbol).append(' ')
-                        .append(position.quantity()).append("주 @ ").append(position.avgPrice()));
+                        .append(position.quantity()).append("주 @ ").append(position.avgPriceText()));
         sb.append('\n').append(balanceLine());
         return sb.toString();
     }

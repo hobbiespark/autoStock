@@ -543,7 +543,7 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 | `Signal.refPrice` | 생성처(C3, StrategyEngine, 대시보드 테스트 신호)별 확인 필요 | `RiskGate`가 `limitPrice`로 넘긴다 |
 | `OrderNotice.fillPrice` | 빈 값이면 null(`RealMessageParser`). 실측(조각 17): 접수 통보는 빈 값, 체결은 양수 | **조각 18에서 처리** — 파서가 빈 값·0·형식 오류를 null로 |
 | `Fill.fillPrice` | LIVE는 910이 비면 null·0이 나갈 수 있었다 | **조각 17에서 처리** — 지정가 근사 |
-| `PositionRestored.avgPrice` | 잔고 필드가 없으면 null 가능(`PositionRestorer.firstPrice`) | |
+| `PositionRestored.avgPrice` | 매입가가 없으면 0을 지어냈다(`PositionRestorer.firstPrice`) | **조각 19에서 처리** — null(평단 미상) |
 | `MarketTick.price` | 빈 값은 파서가 버림 | **조각 18에서 처리** — 0도 버림 |
 | `Candle` OHLC | — | 종목코드와 함께 **보류**(조각 13 사용자 결정) |
 
@@ -666,6 +666,29 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - `.\gradlew.bat test` 전체 통과(2026-09-30, 553건, 건너뜀 16). `RealMessageParserTest` 17.
 - **미검증:** 장중 WS 시세·체결 통보의 실제 수신과 event_store의 MarketTick JSON.
 
+## 조각 19 — `Price`: `PositionRestored.avgPrice`, 평단 미상은 null (2026-09-30)
+
+### 1. 결정 (사용자 확정 2026-09-30: 권장안)
+
+- `PositionRestored.avgPrice`를 `Price`로 바꾸고 **null을 허용**한다. 잔고 응답에서 매입가를 못 찾으면 "평단 모름"이다.
+  - 이전: `PositionRestorer.firstPrice`가 `BigDecimal.ZERO`를 지어냈다(규칙 §2.1 "파서·어댑터가 값을 지어내지 않는다" 위반). 이 0이 C3 국면 OFF 강제 청산의 기준가로 쓰이면 0원 지정가 주문이 나갔다.
+  - 이제: null + WARN. 이 포지션의 평단 기반 주문은 `RiskGate`가 거부한다(조각 16).
+- `PositionBook.Position.avgPrice`(`BigDecimal`)도 null을 허용한다. 모르는 평단에 추가 매수를 섞어도 여전히 모른다. 부분 매도는 수량만 줄인다(기존과 같음).
+- 문구는 `Position.avgPriceText()` 한 곳에서 만든다("평단 미상"). 일일 리포트(`DailyReportScheduler`)와 텔레그램 상태(`TelegramCommandPoller`)가 쓴다 — 이전에는 `null`이 그대로 찍힐 뻔했다.
+- 대시보드 FE: `PositionsCard`가 `Number(null)`로 **0**을 보여 줄 것이라 `—`로 표시하게 고쳤다(`types.ts`의 `avgPrice`에 `null` 추가). `tsc --noEmit` 통과.
+  - **빌드 산출물(`app/src/main/resources/static`)은 다시 만들지 않았다.** Windows용 esbuild 바이너리라 작업 환경에서 `vite build`가 돌지 않는다. `frontend`에서 `npm run build` 후 커밋해야 화면에 반영된다.
+- `DailyPnlTracker`는 `PositionRestored`를 받지 않는다(자체 장부는 체결로만 만든다). 영향 없음.
+
+### 2. 변경 파일
+
+- 수정: `common/event/PositionRestored`, `execution/PositionRestorer`, `portfolio/PositionBook`, `monitor/DailyReportScheduler`, `TelegramCommandPoller`, `frontend/src/types.ts`, `frontend/src/components/PositionsCard.tsx`
+- 테스트: 생성부 3, 신규 2(`PositionRestorerTest` 매입가 0·누락 → null, `PositionBookTest` 평단 미상 포지션의 추가 매수·부분 매도)
+
+### 3. 검증 상태
+
+- `.\gradlew.bat test` 전체 통과(2026-09-30, 555건, 건너뜀 16). FE `tsc --noEmit` 통과.
+- **미검증:** 대시보드 화면(빌드 전), 실제 잔고 복원 로그.
+
 ### 10. 변경 이력
 
 - 2026-09-30: 조각 1
@@ -686,3 +709,4 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - 2026-09-30: 조각 16(Price: OrderRequest.limitPrice)
 - 2026-09-30: 조각 17(Price: Fill.fillPrice)
 - 2026-09-30: 조각 18(Price: MarketTick·OrderNotice)
+- 2026-09-30: 조각 19(Price: PositionRestored, 평단 미상 null)

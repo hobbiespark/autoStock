@@ -1,6 +1,7 @@
 package com.autostock.execution;
 
 import com.autostock.common.event.PositionRestored;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
 import org.junit.jupiter.api.Test;
 
@@ -30,7 +31,7 @@ class PositionRestorerTest {
 
         new PositionRestorer(brokerPort, published::add, "LIVE").restore();
 
-        assertEquals(List.of(new PositionRestored(new StockCode("005930"), 19, new BigDecimal("259974"))),
+        assertEquals(List.of(new PositionRestored(new StockCode("005930"), 19, new Price(new BigDecimal("259974")))),
                 published);
     }
 
@@ -44,6 +45,19 @@ class PositionRestorerTest {
 
         assertEquals(1, published.size());
         assertEquals(new StockCode("000660"), ((PositionRestored) published.get(0)).symbol());
+    }
+
+    @Test
+    void 매입가가_없거나_0이면_평단_미상_null로_복원한다() {
+        // 예전에는 0을 넣었고, 그 값이 C3 강제 청산 지정가로 쓰이면 0원 주문이 나갔다(조각 16·19)
+        when(brokerPort.balance()).thenReturn(balanceWith(List.of(
+                Map.of("stk_cd", "A005930", "rmnd_qty", "19", "pur_pric", "000000000000"),
+                Map.of("stk_cd", "A000660", "rmnd_qty", "3"))));
+
+        new PositionRestorer(brokerPort, published::add, "LIVE").restore();
+
+        assertEquals(List.of(new PositionRestored(new StockCode("005930"), 19, null),
+                new PositionRestored(new StockCode("000660"), 3, null)), published);
     }
 
     @Test

@@ -14,7 +14,7 @@ export type EventType = 'SIGNAL' | 'ORDER' | 'FILL' | string;
 export interface Position {
   symbol: string;
   quantity: number;
-  avgPrice: string | number;
+  avgPrice: string | number | null; // null = 평단 미상(잔고 복원에서 매입가를 못 찾음)
 }
 
 export interface DashboardEvent {

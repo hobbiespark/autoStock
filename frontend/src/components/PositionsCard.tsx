@@ -30,7 +30,7 @@ export default function PositionsCard({ positions }: Props) {
               <tr key={p.symbol}>
                 <td>{p.symbol}</td>
                 <td>{p.quantity}</td>
-                <td>{Number(p.avgPrice).toLocaleString()}</td>
+                <td>{p.avgPrice == null ? '—' : Number(p.avgPrice).toLocaleString()}</td>
               </tr>
             ))
           )}
