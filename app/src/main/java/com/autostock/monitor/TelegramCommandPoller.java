@@ -10,10 +10,17 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.security.SecureRandom;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 텔레그램 원격 명령 — 폴링(long polling, {@code getUpdates}) 방식.
@@ -31,8 +38,10 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * <p>명령:
  * <ul>
- *   <li>{@code /stop} — killSwitch.engage("텔레그램 원격 명령")</li>
- *   <li>{@code /resume} — killSwitch.release("telegram")</li>
+ *   <li>{@code /stop} — killSwitch.engage("텔레그램 원격 명령") — 1단계(안전 방향이라 즉시)</li>
+ *   <li>{@code /resume} — <b>2단계 확인</b>(Phase 0.7, D-09, aiDoc/heartbeat-telegram.md): 무작위 4자리 코드를 답장으로
+ *       보내고, {@link #RESUME_CONFIRM_WINDOW}(60초) 안에 {@code /resume 1234}가 오면 killSwitch.release("telegram").
+ *       코드는 한 번 쓰면 끝(맞든 틀리든) — 잘못 누른 /resume 한 번으로 비상 정지가 풀리지 않게 한다(PLAN A3 "위험 명령 2단계 확인").</li>
  *   <li>{@code /status} — 포지션·킬스위치 상태 요약을 다시 알림으로 보냄</li>
  * </ul>
  *
@@ -48,9 +57,23 @@ public class TelegramCommandPoller {
 
     /** parseCommand의 판정 결과. */
     public enum Command {
-        STOP, RESUME, STATUS,
+        STOP,
+        /** 해제 요청 — 확인 코드를 발급한다(아직 해제하지 않는다). */
+        RESUME,
+        /** {@code /resume 1234} — 확인 코드로 해제를 확정한다. */
+        RESUME_CONFIRM,
+        STATUS,
         /** chat_id 불일치, 미지원 텍스트, 빈 메시지 등 — 아무 동작도 하지 않는다. */
         IGNORED
+    }
+
+    /** /resume 확인 코드 유효 시간. */
+    static final Duration RESUME_CONFIRM_WINDOW = Duration.ofSeconds(60);
+
+    private static final Pattern RESUME_CONFIRM_PATTERN = Pattern.compile("/resume\\s+(\\d{4})");
+
+    /** 발급한 해제 확인 코드와 만료 시각. */
+    private record PendingResume(String code, Instant expiresAt) {
     }
 
     private final WebClient webClient;
@@ -58,6 +81,9 @@ public class TelegramCommandPoller {
     private final KillSwitch killSwitch;
     private final PositionBook positionBook;
     private final Notifier notifier;
+    private final Clock clock;
+    private final SecureRandom random = new SecureRandom();
+    private final AtomicReference<PendingResume> pendingResume = new AtomicReference<>();
 
     /** 다음 getUpdates 호출에 쓸 offset — 이 값 미만의 update는 이미 처리했다고 텔레그램에 알리는 것. */
     private final AtomicLong nextOffset = new AtomicLong(0);
@@ -66,16 +92,23 @@ public class TelegramCommandPoller {
                                  TelegramProperties properties,
                                  KillSwitch killSwitch,
                                  PositionBook positionBook,
-                                 Notifier notifier) {
+                                 Notifier notifier,
+                                 Clock clock) {
         this.webClient = builder.baseUrl("https://api.telegram.org").build();
         this.properties = properties;
         this.killSwitch = killSwitch;
         this.positionBook = positionBook;
         this.notifier = notifier;
+        this.clock = clock;
     }
 
-    /** 5초 주기 폴링. enabled=false면 빈 자체가 등록되지 않지만, 방어적으로 한 번 더 확인한다. */
-    @Scheduled(fixedRate = 5_000)
+    /**
+     * 5초 주기 폴링. enabled=false면 빈 자체가 등록되지 않지만, 방어적으로 한 번 더 확인한다.
+     * {@code fixedDelay}(직전 실행 종료 기준, Phase 0.7) — fixedRate는 PC 절전 복귀 때 밀린 회차를 가상 스레드로
+     * 동시에 몰아 실행한다(StaleOrderCanceller 설명, 2026-09-22 풀 고갈 실측과 같은 이유). 같은 update를 동시에
+     * 처리해 /stop·/resume이 두 번 실행될 여지도 없앤다.
+     */
+    @Scheduled(fixedDelay = 5_000)
     public void poll() {
         if (!properties.enabled()) {
             return;
@@ -110,8 +143,9 @@ public class TelegramCommandPoller {
         return result instanceof List<?> list ? (List<Map<String, Object>>) list : List.of();
     }
 
+    /** update 1건 처리 — 패키지 공개는 테스트가 응답 없이 update를 바로 흘려 넣기 위해서다(2단계 확인 검증). */
     @SuppressWarnings("unchecked")
-    private void handleUpdate(Map<String, Object> update) {
+    void handleUpdate(Map<String, Object> update) {
         // update_id를 확인했으면 다음 폴링부터는 이 이하 offset은 다시 받지 않는다
         // (텔레그램 Bot API 표준 패턴 — getUpdates(offset=마지막 update_id+1)).
         if (update.get("update_id") instanceof Number updateId) {
@@ -132,7 +166,8 @@ public class TelegramCommandPoller {
         Command command = parseCommand(chatId, text, properties.chatId());
         switch (command) {
             case STOP -> killSwitch.engage("텔레그램 원격 명령");
-            case RESUME -> killSwitch.release("telegram");
+            case RESUME -> requestResumeConfirmation();
+            case RESUME_CONFIRM -> confirmResume(confirmCodeOf(text));
             case STATUS -> notifier.notify(NoticeLevel.INFO, buildStatusSummary());
             case IGNORED -> {
                 if (chatId != null && !chatId.equals(properties.chatId())) {
@@ -158,12 +193,54 @@ public class TelegramCommandPoller {
         if (text == null) {
             return Command.IGNORED;
         }
-        return switch (text.strip()) {
+        String stripped = text.strip();
+        if (RESUME_CONFIRM_PATTERN.matcher(stripped).matches()) {
+            return Command.RESUME_CONFIRM;
+        }
+        return switch (stripped) {
             case "/stop" -> Command.STOP;
             case "/resume" -> Command.RESUME;
             case "/status" -> Command.STATUS;
             default -> Command.IGNORED;
         };
+    }
+
+    /** {@code /resume 1234}의 코드 부분. 형식이 아니면 null. */
+    static String confirmCodeOf(String text) {
+        if (text == null) {
+            return null;
+        }
+        Matcher matcher = RESUME_CONFIRM_PATTERN.matcher(text.strip());
+        return matcher.matches() ? matcher.group(1) : null;
+    }
+
+    /** 1단계: 해제 확인 코드를 발급해 답장한다(해제는 아직 안 한다). */
+    private void requestResumeConfirmation() {
+        if (!killSwitch.isEngaged()) {
+            pendingResume.set(null);
+            notifier.notify(NoticeLevel.INFO, "킬스위치는 이미 해제 상태입니다(주문 허용).");
+            return;
+        }
+        String code = "%04d".formatted(random.nextInt(10_000));
+        pendingResume.set(new PendingResume(code, clock.instant().plus(RESUME_CONFIRM_WINDOW)));
+        notifier.notify(NoticeLevel.WARN, ("킬스위치 해제 확인 — %d초 안에 /resume %s 를 보내면 해제합니다. "
+                + "해제하면 신규 주문이 다시 허용됩니다. 작동 원인을 확인했나요?")
+                .formatted(RESUME_CONFIRM_WINDOW.toSeconds(), code));
+    }
+
+    /** 2단계: 코드가 맞고 만료 전이면 해제한다. 코드는 한 번 쓰면 버린다(맞든 틀리든 — 추측 반복 차단). */
+    private void confirmResume(String code) {
+        PendingResume pending = pendingResume.getAndSet(null);
+        if (pending == null || clock.instant().isAfter(pending.expiresAt())) {
+            notifier.notify(NoticeLevel.WARN, "해제 확인 코드가 없거나 만료됐습니다 — /resume 부터 다시 보내세요. (해제하지 않았음)");
+            return;
+        }
+        if (!pending.code().equals(code)) {
+            log.warn("텔레그램 /resume 확인 코드 불일치 — 해제하지 않음");
+            notifier.notify(NoticeLevel.WARN, "확인 코드가 맞지 않습니다 — 해제하지 않았습니다. /resume 부터 다시 보내세요.");
+            return;
+        }
+        killSwitch.release("telegram");
     }
 
     /** /status 응답 본문 — 포지션 개수/목록 + 킬스위치 상태. */

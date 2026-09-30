@@ -40,3 +40,4 @@
 - [disclosure-blacklist-tx.md](disclosure-blacklist-tx.md) — Phase 0.3: 공시 블랙리스트 파생 삭제에 트랜잭션(트랜잭션 밖 호출 시 예외로 한 건도 안 지워지던 결함 — 실패 테스트로 확인 후 수정), remove는 DB 먼저
 - [manual-order-guard.md](manual-order-guard.md) — Phase 0.4+0.5: 수동 주문 수량 필수·매수 1건 100만 원 상한(RiskGate), 발행 전 확인 창(LIVE면 종목코드 재입력), 킬스위치 해제·매매 시작 확인, 서버 오류 표시, LIVE 띠
 - [kiwoom-error-codes.md](kiwoom-error-codes.md) — Phase 0.6: 키움 오류코드 분류(유량 1700·1701·1702 재시도, 8005·8010 재발급 1회, 인증 실패 8001·8002·8010·8030·8031·8040·8050·8103 텔레그램 긴급 알림), 주문 타임아웃을 거부가 아닌 결과 불명(UNKNOWN)으로
+- [heartbeat-telegram.md](heartbeat-telegram.md) — Phase 0.7: 외부 heartbeat(Healthchecks.io, 장중 1분 핑), 텔레그램 가동(bat 조건부), /resume 2단계 확인(4자리·60초), 폴러 fixedDelay, RUNBOOK 5·6·8절

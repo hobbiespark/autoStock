@@ -64,4 +64,25 @@ class TelegramCommandPollerTest {
     void 앞뒤_공백은_trim되어_인식된다() {
         assertEquals(Command.STOP, TelegramCommandPoller.parseCommand(ALLOWED, "  /stop  ", ALLOWED));
     }
+
+    // ---- Phase 0.7: /resume 2단계 확인 ----
+
+    @Test
+    void resume_뒤에_4자리_코드면_RESUME_CONFIRM() {
+        assertEquals(Command.RESUME_CONFIRM, TelegramCommandPoller.parseCommand(ALLOWED, "/resume 0427", ALLOWED));
+        assertEquals(Command.RESUME_CONFIRM, TelegramCommandPoller.parseCommand(ALLOWED, "  /resume   0427 ", ALLOWED));
+        assertEquals("0427", TelegramCommandPoller.confirmCodeOf(" /resume 0427 "));
+    }
+
+    @Test
+    void 코드_형식이_아니면_IGNORED() {
+        assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand(ALLOWED, "/resume 12", ALLOWED));
+        assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand(ALLOWED, "/resume abcd", ALLOWED));
+        assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand(ALLOWED, "/resume 12345", ALLOWED));
+    }
+
+    @Test
+    void 타_chatId의_확인_코드도_차단된다() {
+        assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand("999999", "/resume 0427", ALLOWED));
+    }
 }

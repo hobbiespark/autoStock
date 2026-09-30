@@ -138,9 +138,11 @@ autostock:
 
 monitor:
   telegram:
-    enabled: false                          # 자택망 검증 전 비활성 — Bot API 실측(sendMessage/getUpdates 응답 포맷) 전까지 켜지 말 것
+    enabled: false                          # 기본 꺼짐 — start_autostock.bat가 .env에 TELEGRAM_BOT_TOKEN·CHAT_ID가 있을 때만 켠다(Phase 0.7)
     bot-token: ${TELEGRAM_BOT_TOKEN:}       # BotFather 발급 토큰 — 커밋 금지, 환경변수로만 주입
     chat-id: ${TELEGRAM_CHAT_ID:}           # 알림 수신 + 원격 명령 허용 chat_id (타인 명령 차단의 기준값)
+  heartbeat:
+    url: ${MONITOR_HEARTBEAT_URL:}          # Healthchecks.io ping URL — 비면 꺼짐. 장중(ACTIVE) 1분마다 GET(monitor.HeartbeatPinger, Phase 0.7)
 
 ---
 # 모의투자(paper, 기본 프로필) — KIWOOM_MOCK_G_*(모의 일반계좌) 사용.
