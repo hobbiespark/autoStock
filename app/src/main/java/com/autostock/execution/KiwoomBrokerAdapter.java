@@ -72,7 +72,7 @@ public class KiwoomBrokerAdapter implements BrokerPort {
         try {
             response = client.call(trId, ORDER_PATH, Map.of(
                     "dmst_stex_tp", "KRX",
-                    "stk_cd", request.symbol(),
+                    "stk_cd", request.symbol().value(),
                     "ord_qty", String.valueOf(request.quantity()),
                     "ord_uv", request.limitPrice().toPlainString(),
                     "trde_tp", "0"          // 보통(지정가) — 문서 실측 후 확정

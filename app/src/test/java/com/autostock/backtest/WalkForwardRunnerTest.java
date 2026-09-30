@@ -40,7 +40,7 @@ class WalkForwardRunnerTest {
                     .setScale(2, RoundingMode.HALF_UP);
             BigDecimal high = open.max(close).add(new BigDecimal("50"));
             BigDecimal low = open.min(close).subtract(new BigDecimal("50"));
-            candles.add(new Candle("TEST", date, open, high, low, close, 1000L));
+            candles.add(new Candle("TEST01", date, open, high, low, close, 1000L));
             price = close;
             date = date.plusDays(1);
         }

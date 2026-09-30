@@ -93,7 +93,7 @@ class OrderNoticeHandlerTest {
     }
 
     private OrderRequest order(String idempotencyKey) {
-        return new OrderRequest(idempotencyKey, "test-strategy", "005930", Side.BUY,
+        return new OrderRequest(idempotencyKey, "test-strategy", new StockCode("005930"), Side.BUY,
                 10, new BigDecimal("70000"), Instant.now());
     }
 

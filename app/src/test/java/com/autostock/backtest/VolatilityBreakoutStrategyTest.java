@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class VolatilityBreakoutStrategyTest {
 
     private Candle candle(String date, String open, String high, String low, String close) {
-        return new Candle("TEST", LocalDate.parse(date), new BigDecimal(open), new BigDecimal(high),
+        return new Candle("TEST01", LocalDate.parse(date), new BigDecimal(open), new BigDecimal(high),
                 new BigDecimal(low), new BigDecimal(close), 1000L);
     }
 

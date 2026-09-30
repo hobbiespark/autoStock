@@ -4,6 +4,7 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.StockCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -281,7 +282,7 @@ public final class BacktestRunner {
         return new OrderRequest(
                 UUID.randomUUID().toString(),
                 "backtest",
-                candle.symbol(),
+                new StockCode(candle.symbol()),
                 side,
                 qty,
                 candle.open(),

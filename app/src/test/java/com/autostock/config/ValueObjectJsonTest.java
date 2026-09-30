@@ -38,6 +38,21 @@ class ValueObjectJsonTest {
     }
 
     @Test
+    void OrderRequest_이벤트_JSON의_종목코드는_예전처럼_문자열이다() {
+        // event_store(EventAuditListener)에 쌓이는 형식 — StockCode 도입 전과 같아야 스키마 v1을 유지한다
+        runner.run(context -> {
+            ObjectMapper mapper = context.getBean(ObjectMapper.class);
+
+            String json = mapper.writeValueAsString(new com.autostock.common.event.OrderRequest(
+                    "20260930-C3-005930-BUY-001", "C3", new StockCode("005930"),
+                    com.autostock.common.event.Side.BUY, 1, new java.math.BigDecimal("258000"),
+                    java.time.Instant.parse("2026-09-30T01:00:00Z")));
+
+            org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"symbol\":\"005930\""), json);
+        });
+    }
+
+    @Test
     void 스칼라_JSON을_값_객체로_읽는다() {
         runner.run(context -> {
             ObjectMapper mapper = context.getBean(ObjectMapper.class);
