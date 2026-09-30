@@ -255,6 +255,9 @@ class C3LiveStrategyTest {
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
+        when(marketData.bestQuote("005930")).thenReturn(new MarketDataPort.BestQuote(
+                new BigDecimal("10100"), new BigDecimal("10050")));
+
         strategy.run();
 
         List<Signal> signals = onlySignals(published);
@@ -264,6 +267,8 @@ class C3LiveStrategyTest {
         assertEquals(Side.BUY, signal.side());
         assertTrue(signal.confidence() > 0.0 && signal.confidence() <= 1.0,
                 "confidence(fraction)는 (0,1] 구간이어야 함: " + signal.confidence());
+        // 기준가는 전일 종가가 아니라 주문 시점 최유리 호가 — 매수는 최우선 매도호가(사용자 결정 2026-09-30, 조각 22)
+        assertEquals(new Price(new BigDecimal("10100")), signal.refPrice());
     }
 
     @Test
@@ -280,6 +285,9 @@ class C3LiveStrategyTest {
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
                 runningManager(), Clock.systemUTC());
 
+        when(marketData.bestQuote("005930")).thenReturn(new MarketDataPort.BestQuote(
+                new BigDecimal("9100"), new BigDecimal("9050")));
+
         strategy.run();
 
         List<Signal> signals = onlySignals(published);
@@ -287,6 +295,7 @@ class C3LiveStrategyTest {
         Signal signal = signals.get(0);
         assertEquals(new StockCode("005930"), signal.symbol());
         assertEquals(Side.SELL, signal.side());
+        assertEquals(new Price(new BigDecimal("9050")), signal.refPrice(), "매도는 최우선 매수호가");
     }
 
     @Test

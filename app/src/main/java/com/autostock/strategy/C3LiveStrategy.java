@@ -232,7 +232,7 @@ public class C3LiveStrategy {
                 continue;
             }
             try {
-                BigDecimal price = liquidationPrice(symbol);
+                BigDecimal price = bestOrderPrice(symbol, Side.SELL);
                 log.info("C3: 국면 OFF — 강제 청산: {} 기준가 {}", symbol, price);
                 publishSell(symbol, price);
             } catch (RuntimeException e) {
@@ -242,21 +242,30 @@ public class C3LiveStrategy {
     }
 
     /**
-     * 강제 청산 기준가 — 주문 시점의 최우선 매수호가(바로 체결되는 매도 지정가). 사용자 결정(2026-09-30): 예전에는
-     * 평균매입가를 썼는데, 손실 구간에서는 매도 지정가가 시장가보다 높아 체결되지 않고 미체결 취소로 끝날 수 있었다.
-     * 호가가 없으면 현재가, 둘 다 없으면 null — RiskGate가 "기준가 없음"으로 거부하고 판단 기록을 남긴다.
+     * 주문 기준가 — 주문 시점의 <b>최유리 호가</b>: 매수는 최우선 매도호가, 매도는 최우선 매수호가. 이 값을 지정가로
+     * 내면 바로 체결된다(키움 '최유리지정가'와 같은 효과 — 그 주문 구분 코드는 실측 전이라 가격으로 구현한다).
+     *
+     * <p>사용자 결정(2026-09-30): 예전에는 강제 청산이 평균매입가, 판단일 매수·매도가 전일 종가를 썼다. 09:05 개장 뒤
+     * 가격이 그 값에서 멀어지면 지정가가 시장과 어긋나 체결되지 않고 미체결 취소로 끝날 수 있었다.
+     * 호가가 없으면 현재가(체결 보장 없음, WARN), 둘 다 없으면 null — 매수는 사이징에서, 매도는 지정가 산출에서
+     * RiskGate가 거부한다.
      */
-    private BigDecimal liquidationPrice(String symbol) {
-        BigDecimal bestBid = positiveOrNull(() -> marketData.bestQuote(symbol).bestBid(), symbol, "최우선 매수호가(ka10004)");
-        if (bestBid != null) {
-            return bestBid;
+    private BigDecimal bestOrderPrice(String symbol, Side side) {
+        String quoteName = side == Side.BUY ? "최우선 매도호가(ka10004)" : "최우선 매수호가(ka10004)";
+        BigDecimal best = positiveOrNull(() -> {
+            MarketDataPort.BestQuote quote = marketData.bestQuote(symbol);
+            return side == Side.BUY ? quote.bestAsk() : quote.bestBid();
+        }, symbol, quoteName);
+        if (best != null) {
+            return best;
         }
         BigDecimal current = positiveOrNull(() -> marketData.stockQuote(symbol).current(), symbol, "현재가(ka10001)");
         if (current != null) {
-            log.warn("C3: {} 최우선 매수호가 없음 — 현재가 {}로 청산 신호(체결되지 않으면 미체결 취소로 끝날 수 있다)", symbol, current);
+            log.warn("C3: {} {} 없음 — 현재가 {}로 {} 신호(체결되지 않으면 미체결 취소로 끝날 수 있다)",
+                    symbol, quoteName, current, side);
             return current;
         }
-        log.error("C3: {} 호가·현재가 모두 없음 — 기준가 없이 청산 신호(RiskGate가 거부하고 판단 기록을 남긴다)", symbol);
+        log.error("C3: {} 호가·현재가 모두 없음 — 기준가 없이 {} 신호(RiskGate가 거부한다)", symbol, side);
         return null;
     }
 
@@ -307,15 +316,20 @@ public class C3LiveStrategy {
         Map<String, String> metrics = new LinkedHashMap<>(regimeMetrics(regime));
         metrics.put("momentumLookbackN", String.valueOf(properties.lookbackN()));
         metrics.put("momentumReturnPct", momentumReturnPct(closes, properties.lookbackN()));
+        metrics.put("latestClose", latestClose.toPlainString());   // 판단 기준(전일 종가) — 주문 기준가는 orderRefPrice
 
         if (uptrend && !holding) {
             double fraction = VolTargetMath.fraction(closes, properties.targetVolAnnual());
             metrics.put("volTargetFraction", String.valueOf(fraction));
             metrics.put("targetVolAnnual", String.valueOf(properties.targetVolAnnual()));
-            publishBuy(symbol, latestClose, fraction);
+            BigDecimal price = bestOrderPrice(symbol, Side.BUY);
+            metrics.put("orderRefPrice", price == null ? "N/A" : price.toPlainString());
+            publishBuy(symbol, price, fraction);
             publishDecision(symbol, "BUY", "모멘텀 상승 전환 + 국면 ON + 미보유 — 매수 시그널 발행", metrics);
         } else if (!uptrend && holding) {
-            publishSell(symbol, latestClose);
+            BigDecimal price = bestOrderPrice(symbol, Side.SELL);
+            metrics.put("orderRefPrice", price == null ? "N/A" : price.toPlainString());
+            publishSell(symbol, price);
             publishDecision(symbol, "SELL", "모멘텀 하락 전환 — 보유분 매도 시그널 발행", metrics);
         } else if (uptrend && holding) {
             publishDecision(symbol, "HOLD", "모멘텀 상승 유지 + 이미 보유 중 — 재진입 불필요, 그대로 유지", metrics);
