@@ -8,7 +8,52 @@ import type {
   OrderHistoryView,
   QuoteView,
   Side,
+  TestSignalResponse,
 } from './types';
+
+// 서버 오류(RFC 9457 ProblemDetail, application/problem+json)를 화면에 보여줄 수 있게 옮겨 담는다(Phase 0.5).
+// 예전에는 "요청 실패: HTTP 400"만 던져 무엇이 틀렸는지 알 수 없었다.
+export class ApiError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly fieldErrors: { field: string; message: string }[];
+  readonly currentStatus?: string;
+
+  constructor(status: number, message: string, code?: string,
+              fieldErrors: { field: string; message: string }[] = [], currentStatus?: string) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+    this.code = code;
+    this.fieldErrors = fieldErrors;
+    this.currentStatus = currentStatus;
+  }
+}
+
+async function toApiError(res: Response): Promise<ApiError> {
+  const type = res.headers.get('Content-Type') ?? '';
+  if (type.includes('json')) {
+    try {
+      const body = await res.json();
+      const errors = Array.isArray(body.errors) ? body.errors : [];
+      return new ApiError(res.status, body.detail ?? body.title ?? `HTTP ${res.status}`, body.code, errors,
+        body.currentStatus);
+    } catch {
+      // 본문이 JSON이 아니면 상태 코드만으로 만든다
+    }
+  }
+  return new ApiError(res.status, `요청 실패: HTTP ${res.status}`);
+}
+
+// 명령 카드의 오류 문구 — 서버가 준 설명 + 필드 오류 + 현재 상태(409).
+export function describeError(error: unknown): string {
+  if (error instanceof ApiError) {
+    const fields = error.fieldErrors.map((f) => `${f.field}: ${f.message}`).join(', ');
+    const state = error.currentStatus ? ` (현재 상태: ${error.currentStatus})` : '';
+    return `${error.message}${fields ? ` — ${fields}` : ''}${state} [HTTP ${error.status}]`;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
 
 // 대시보드는 /api/dashboard 하나만 폴링한다(ARCHITECTURE.md 10절 CQRS Lite —
 // 여러 GET을 각자 부르지 않고 서버가 조합한 DashboardView 하나를 받는다).
@@ -76,8 +121,8 @@ async function postJson(path: string, body?: unknown): Promise<Response> {
     body: JSON.stringify(body ?? {}),
   });
   if (!res.ok) {
-    // 409 등 상태 부적합 오류도 여기서 던진다 — 호출부에서 무시하거나 표시.
-    throw new Error(`요청 실패: HTTP ${res.status}`);
+    // 400(형식)·409(상태 부적합) 등 — 호출부가 describeError로 화면에 표시한다(role="alert").
+    throw await toApiError(res);
   }
   return res;
 }
@@ -95,9 +140,11 @@ export const startTrading = () => postJson('/api/trading/start');
 export const stopTrading = () => postJson('/api/trading/stop');
 export const setKillSwitch = (engage: boolean) =>
   postJson('/api/dashboard/killswitch', { engage });
-// quantity(운영 1일차 ⑦): 빈 문자열이면 자동 사이징(매수: 예산 비율, 매도: 전량 청산).
-export const sendTestSignal = (symbol: string, side: Side, price: string, quantity: string) =>
-  postJson('/api/dashboard/test-signal', { symbol, side, price, quantity });
+// quantity는 필수(Phase 0.4 — 빈 값 자동 사이징 폐지, 2026-09-18 193주 사고). 응답에 실행 모드가 온다.
+export async function sendTestSignal(symbol: string, side: Side, price: string, quantity: string): Promise<TestSignalResponse> {
+  const res = await postJson('/api/dashboard/test-signal', { symbol, side, price, quantity });
+  return res.json();
+}
 // 주문 취소(운영 1일차 ⑤, kt10003 실측 확정) — 비동기 처리라 잠시 후 이력 재조회 필요.
 export const cancelOrder = (clientOrderId: string) =>
   postJson(`/api/dashboard/orders/${clientOrderId}/cancel`);
