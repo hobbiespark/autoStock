@@ -1,5 +1,6 @@
 package com.autostock.ipo;
 
+import java.time.Instant;
 import com.autostock.common.event.IpoAlert;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
@@ -51,8 +52,8 @@ class IpoSyncSchedulerTest {
 
     @Test
     void 두_지표_모두_임계치_충족시_RECOMMEND() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
-        entity.applyMetrics(new BigDecimal("600"), new BigDecimal("0.25"));
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
+        entity.applyMetrics(new BigDecimal("600"), new BigDecimal("0.25"), Instant.now());
 
         scheduler.evaluateFilter(entity);
 
@@ -61,8 +62,8 @@ class IpoSyncSchedulerTest {
 
     @Test
     void 임계치_미충족이면_SKIP() {
-        IpoDealEntity entity = new IpoDealEntity("01158632", "진코스텍", "20260910000579", "DART");
-        entity.applyMetrics(new BigDecimal("300"), new BigDecimal("0.25"));
+        IpoDealEntity entity = new IpoDealEntity("01158632", "진코스텍", "20260910000579", "DART", Instant.now());
+        entity.applyMetrics(new BigDecimal("300"), new BigDecimal("0.25"), Instant.now());
 
         scheduler.evaluateFilter(entity);
 
@@ -71,7 +72,7 @@ class IpoSyncSchedulerTest {
 
     @Test
     void 지표가_하나라도_없으면_PENDING이고_사유에_어떤_지표인지_명시한다() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
 
         scheduler.evaluateFilter(entity);
 
@@ -82,8 +83,8 @@ class IpoSyncSchedulerTest {
 
     @Test
     void 경계값_정확히_임계치와_같으면_RECOMMEND() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
-        entity.applyMetrics(new BigDecimal("500"), new BigDecimal("0.20"));
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
+        entity.applyMetrics(new BigDecimal("500"), new BigDecimal("0.20"), Instant.now());
 
         scheduler.evaluateFilter(entity);
 
@@ -93,10 +94,10 @@ class IpoSyncSchedulerTest {
     @Test
     void 청약시작_D_1에_알림을_발행한다() {
         LocalDate today = LocalDate.of(2026, 9, 11);
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         entity.applyOfferingDetail(new DartClient.OfferingDetail(
                 "20260910000583", today.plusDays(1), today.plusDays(2), null, "SK증권",
-                new BigDecimal("5030"), 3_800_000L));
+                new BigDecimal("5030"), 3_800_000L), Instant.now());
         when(repository.findAll()).thenReturn(List.of(entity));
         when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of());
 
@@ -111,10 +112,10 @@ class IpoSyncSchedulerTest {
     @Test
     void 청약기간_중이_아니고_D_1_당일도_아니면_알림을_발행하지_않는다() {
         LocalDate today = LocalDate.of(2026, 9, 11);
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         entity.applyOfferingDetail(new DartClient.OfferingDetail(
                 "20260910000583", today.plusDays(10), today.plusDays(11), null, "SK증권",
-                new BigDecimal("5030"), 3_800_000L));
+                new BigDecimal("5030"), 3_800_000L), Instant.now());
         when(repository.findAll()).thenReturn(List.of(entity));
         when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of());
 
@@ -125,11 +126,11 @@ class IpoSyncSchedulerTest {
 
     @Test
     void 상태_재계산_청약기간_중이면_SUBSCRIBING() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         LocalDate today = LocalDate.of(2026, 11, 9);
         entity.applyOfferingDetail(new DartClient.OfferingDetail(
                 "20260910000583", LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 10), null, "SK증권",
-                new BigDecimal("5030"), 3_800_000L));
+                new BigDecimal("5030"), 3_800_000L), Instant.now());
 
         scheduler.recalculateStatus(entity, today);
 
@@ -138,10 +139,10 @@ class IpoSyncSchedulerTest {
 
     @Test
     void 상태_재계산_청약종료_이후면_PASSED() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         entity.applyOfferingDetail(new DartClient.OfferingDetail(
                 "20260910000583", LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 10), null, "SK증권",
-                new BigDecimal("5030"), 3_800_000L));
+                new BigDecimal("5030"), 3_800_000L), Instant.now());
 
         scheduler.recalculateStatus(entity, LocalDate.of(2026, 11, 20));
 

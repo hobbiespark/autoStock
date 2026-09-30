@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import java.time.Instant;
 import com.autostock.ipo.DartClient;
 import com.autostock.ipo.DartProperties;
 import com.autostock.ipo.IpoDealCommandService;
@@ -39,11 +40,11 @@ class IpoControllerTest {
             new IpoFilterProperties(new BigDecimal("500"), new BigDecimal("0.20")),
             mock(DartClient.class), repository, mock(ApplicationEventPublisher.class), Clock.systemUTC());
     private final IpoController controller =
-            new IpoController(repository, new IpoDealCommandService(repository, syncScheduler));
+            new IpoController(repository, new IpoDealCommandService(repository, syncScheduler, Clock.systemUTC()));
 
     @Test
     void status_생략시_전체_목록을_반환한다() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         when(repository.findAllByOrderBySubscriptionStartDesc()).thenReturn(List.of(entity));
 
         var result = controller.deals(null);
@@ -80,7 +81,7 @@ class IpoControllerTest {
 
     @Test
     void 청약기록을_부분_갱신한다() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
 
         var response = controller.record(1L, new IpoRecordRequest(10, new BigDecimal("503000"), null, null, null, "메모"));
@@ -93,7 +94,7 @@ class IpoControllerTest {
 
     @Test
     void 배치와_동시_갱신_충돌은_전역_처리기로_전파된다() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
         when(repository.save(entity)).thenThrow(new ObjectOptimisticLockingFailureException(IpoDealEntity.class, 1L));
 
@@ -104,7 +105,7 @@ class IpoControllerTest {
 
     @Test
     void 지표_입력은_즉시_필터를_재평가한다() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
 
         var response = controller.metrics(1L, new IpoMetricsRequest(new BigDecimal("600"), new BigDecimal("0.30"), null));
@@ -115,8 +116,8 @@ class IpoControllerTest {
 
     @Test
     void 상장일만_입력하면_지표는_유지되고_상장일_도래시_LISTED가_된다() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
-        entity.applyMetrics(new BigDecimal("600"), new BigDecimal("0.30"));
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
+        entity.applyMetrics(new BigDecimal("600"), new BigDecimal("0.30"), Instant.now());
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
 
         var response = controller.metrics(1L, new IpoMetricsRequest(null, null, LocalDate.of(2020, 1, 2)));

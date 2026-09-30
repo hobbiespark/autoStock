@@ -54,24 +54,13 @@ class StaleOrderCancellerTest {
     }
 
     private OrderEntity submittedOrderUpdatedAt(Instant updatedAt) {
+        // 엔티티가 시각을 인자로 받으므로(A4 ③) 원하는 과거 시각에 접수된 주문을 그대로 만든다 — 예전에는 리플렉션으로 강제했다
         OrderEntity order = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", new StockCode("005930"), Side.BUY, new Quantity(10),
-                new Price(new BigDecimal("70000")), "BREAKOUT");
-        order.transitionTo(OrderStatus.VALIDATED);
-        order.transitionTo(OrderStatus.SUBMITTING);
-        order.markSubmitted(new BrokerOrderId("BROKER-1")); // updatedAt = Instant.now() (실제 시각)
-        setUpdatedAtViaFill(order, updatedAt);
+                new Price(new BigDecimal("70000")), "BREAKOUT", updatedAt);
+        order.transitionTo(OrderStatus.VALIDATED, updatedAt);
+        order.transitionTo(OrderStatus.SUBMITTING, updatedAt);
+        order.markSubmitted(new BrokerOrderId("BROKER-1"), updatedAt);
         return order;
-    }
-
-    /** 테스트 전용: updatedAt을 원하는 과거 시각으로 강제하기 위해 리플렉션 대신 재구성한다. */
-    private void setUpdatedAtViaFill(OrderEntity order, Instant updatedAt) {
-        try {
-            var field = OrderEntity.class.getDeclaredField("updatedAt");
-            field.setAccessible(true);
-            field.set(order, updatedAt);
-        } catch (ReflectiveOperationException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     @Test
@@ -110,7 +99,7 @@ class StaleOrderCancellerTest {
         StaleOrderCanceller canceller = new StaleOrderCanceller(orderRepository, brokerPort, properties, fixedClock, marketSession);
         OrderEntity stale = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(6)));
         OrderEntity latest = submittedOrderUpdatedAt(NOW.minus(Duration.ofMinutes(6)));
-        latest.applyFill(new Quantity(4)); // 목록 조회 뒤 체결 통보가 먼저 저장됐다(R2)
+        latest.applyFill(new Quantity(4), Instant.now()); // 목록 조회 뒤 체결 통보가 먼저 저장됐다(R2)
         when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(stale));
         doThrow(new ObjectOptimisticLockingFailureException(OrderEntity.class, 1L))
                 .when(orderRepository).save(stale);

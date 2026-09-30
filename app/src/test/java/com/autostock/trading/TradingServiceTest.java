@@ -135,10 +135,10 @@ class TradingServiceTest {
 
     private static OrderEntity submitted(String clientOrderId, long quantity) {
         OrderEntity entity = new OrderEntity(clientOrderId, new StockCode("005930"), Side.BUY, new Quantity(quantity),
-                new Price(new BigDecimal("70000")), "test-strategy");
-        entity.transitionTo(OrderStatus.VALIDATED);
-        entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted(new BrokerOrderId("BROKER-1"));
+                new Price(new BigDecimal("70000")), "test-strategy", Instant.now());
+        entity.transitionTo(OrderStatus.VALIDATED, Instant.now());
+        entity.transitionTo(OrderStatus.SUBMITTING, Instant.now());
+        entity.markSubmitted(new BrokerOrderId("BROKER-1"), Instant.now());
         return entity;
     }
 
@@ -168,8 +168,8 @@ class TradingServiceTest {
         OrderEntity beforeCancel = submitted("key-cancel", 10);
         // 브로커 취소 응답을 기다리는 동안 WS 체결 통보가 3주를 반영해 저장했다(R2 F1)
         OrderEntity latest = submitted("key-cancel", 10);
-        latest.transitionTo(OrderStatus.CANCEL_REQUESTED);
-        latest.applyFill(new Quantity(3));
+        latest.transitionTo(OrderStatus.CANCEL_REQUESTED, Instant.now());
+        latest.applyFill(new Quantity(3), Instant.now());
         when(orderRepository.findByClientOrderId("key-cancel"))
                 .thenReturn(Optional.of(beforeCancel), Optional.of(latest));
 
@@ -185,7 +185,7 @@ class TradingServiceTest {
     void 취소_거부_시점에_이미_전량체결됐으면_FILLED를_유지하고_대사를_요청한다() {
         OrderEntity beforeCancel = submitted("key-filled", 10);
         OrderEntity latest = submitted("key-filled", 10);
-        latest.applyFill(new Quantity(10));
+        latest.applyFill(new Quantity(10), Instant.now());
         when(orderRepository.findByClientOrderId("key-filled"))
                 .thenReturn(Optional.of(beforeCancel), Optional.of(latest));
         doThrow(new RuntimeException("이미 체결된 주문")).when(brokerPort).cancelOrder(any(), any(), anyLong());
@@ -202,7 +202,7 @@ class TradingServiceTest {
     void 취소요청_저장이_충돌하면_최신_상태로_다시_판정한다() {
         OrderEntity stale = submitted("key-race", 10);
         OrderEntity latest = submitted("key-race", 10);
-        latest.applyFill(new Quantity(10)); // 그 사이 전량 체결 → 취소 불가
+        latest.applyFill(new Quantity(10), Instant.now()); // 그 사이 전량 체결 → 취소 불가
         when(orderRepository.findByClientOrderId("key-race"))
                 .thenReturn(Optional.of(stale), Optional.of(latest));
         doThrow(new ObjectOptimisticLockingFailureException(OrderEntity.class, 1L))
@@ -217,20 +217,20 @@ class TradingServiceTest {
     /** 저장 반환본 흉내 — 같은 값·상태를 가진 다른 인스턴스. */
     private static OrderEntity copyOf(OrderEntity source) {
         OrderEntity copy = new OrderEntity(source.getClientOrderId(), source.getSymbol(), source.getSide(),
-                new Quantity(source.getQuantity()), new Price(source.getLimitPrice()), source.getStrategyId());
+                new Quantity(source.getQuantity()), new Price(source.getLimitPrice()), source.getStrategyId(), Instant.now());
         OrderStatus status = source.getStatus();
         if (status == OrderStatus.CREATED) {
             return copy;
         }
-        copy.transitionTo(OrderStatus.VALIDATED);
+        copy.transitionTo(OrderStatus.VALIDATED, Instant.now());
         if (status == OrderStatus.VALIDATED) {
             return copy;
         }
-        copy.transitionTo(OrderStatus.SUBMITTING);
+        copy.transitionTo(OrderStatus.SUBMITTING, Instant.now());
         if (status == OrderStatus.SUBMITTING) {
             return copy;
         }
-        copy.markSubmitted(source.getBrokerOrderId());
+        copy.markSubmitted(source.getBrokerOrderId(), Instant.now());
         return copy;
     }
 }

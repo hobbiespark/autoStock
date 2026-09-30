@@ -90,9 +90,9 @@ public class OrderEntity {
     protected OrderEntity() {
     }
 
-    /** 새 주문 생성 — 초기 상태는 항상 {@link OrderStatus#CREATED}. */
+    /** 새 주문 생성 — 초기 상태는 항상 {@link OrderStatus#CREATED}. 시각은 호출부가 주입 Clock에서 넘긴다(A4 ③, aiDoc/clock-injection.md) — 엔티티는 시계에 직접 접근하지 않는다. */
     public OrderEntity(String clientOrderId, StockCode symbol, Side side, Quantity quantity,
-                       Price limitPrice, String strategyId) {
+                       Price limitPrice, String strategyId, Instant now) {
         this.clientOrderId = clientOrderId;
         this.symbol = symbol;
         this.side = side;
@@ -101,7 +101,6 @@ public class OrderEntity {
         this.limitPrice = limitPrice.value();
         this.strategyId = strategyId;
         this.status = OrderStatus.CREATED;
-        Instant now = Instant.now();
         this.submittedAt = now;
         this.updatedAt = now;
     }
@@ -111,19 +110,19 @@ public class OrderEntity {
      * 돌려주는 전이는 IllegalStateException으로 즉시 거부된다 — 메시지에 from→to를
      * 남겨 어떤 잘못된 전이가 시도됐는지 로그만 보고도 알 수 있게 한다.
      */
-    public void transitionTo(OrderStatus newStatus) {
+    public void transitionTo(OrderStatus newStatus, Instant now) {
         if (!status.canTransitionTo(newStatus)) {
             throw new IllegalStateException(
                     "불법 주문 상태 전이: " + status + " → " + newStatus + " (clientOrderId=" + clientOrderId + ")");
         }
         this.status = newStatus;
-        this.updatedAt = Instant.now();
+        this.updatedAt = now;
     }
 
     /** 브로커 접수 성공 처리 — brokerOrderId를 채우고 SUBMITTED로 전이한다. */
-    public void markSubmitted(BrokerOrderId brokerOrderId) {
+    public void markSubmitted(BrokerOrderId brokerOrderId, Instant now) {
         this.brokerOrderId = brokerOrderId;
-        transitionTo(OrderStatus.SUBMITTED);
+        transitionTo(OrderStatus.SUBMITTED, now);
     }
 
     /**
@@ -136,10 +135,10 @@ public class OrderEntity {
      *
      * @param qty 이번에 새로 체결된 수량(누적치 아님, 양수는 Quantity가 보장)
      */
-    public void applyFill(Quantity qty) {
+    public void applyFill(Quantity qty, Instant now) {
         this.filledQuantity += qty.value();
         OrderStatus target = filledQuantity >= quantity ? OrderStatus.FILLED : OrderStatus.PARTIALLY_FILLED;
-        transitionTo(target);
+        transitionTo(target, now);
     }
 
     public Long getId() { return id; }

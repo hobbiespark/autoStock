@@ -145,10 +145,10 @@ public class IpoSyncScheduler {
 
     private void syncOneDeal(DartClient.DealNotice deal, LocalDate since, LocalDate today) {
         IpoDealEntity entity = repository.findByRceptNo(deal.rceptNo())
-                .orElseGet(() -> new IpoDealEntity(deal.corpCode(), deal.corpName(), deal.rceptNo(), SOURCE_DART));
+                .orElseGet(() -> new IpoDealEntity(deal.corpCode(), deal.corpName(), deal.rceptNo(), SOURCE_DART, clock.instant()));
         dartClient.fetchOfferingDetail(deal.corpCode(), deal.rceptNo(), since, today)
                 .ifPresentOrElse(
-                        entity::applyOfferingDetail,
+                        detail -> entity.applyOfferingDetail(detail, clock.instant()),
                         () -> logDetailMissing(deal, today));
         repository.save(entity);
     }
@@ -194,7 +194,7 @@ public class IpoSyncScheduler {
         } else {
             newStatus = IpoStatus.UPCOMING; // 일정 미확정 — 기본값 유지
         }
-        entity.updateStatus(newStatus);
+        entity.updateStatus(newStatus, clock.instant());
     }
 
     /**
@@ -212,7 +212,7 @@ public class IpoSyncScheduler {
                     ? "기관경쟁률·의무보유확약비율"
                     : competitionRate == null ? "기관경쟁률" : "의무보유확약비율";
             entity.applyRecommendation(IpoRecommendation.PENDING,
-                    missing + " 미입력 — 자동 수집 불가(DART 미제공), POST /api/ipo/{id}/metrics로 수동 입력 필요");
+                    missing + " 미입력 — 자동 수집 불가(DART 미제공), POST /api/ipo/{id}/metrics로 수동 입력 필요", clock.instant());
             return;
         }
 
@@ -221,11 +221,11 @@ public class IpoSyncScheduler {
         if (pass) {
             entity.applyRecommendation(IpoRecommendation.RECOMMEND,
                     "기관경쟁률 %s:1 ≥ %s:1 AND 확약률 %s ≥ %s 충족".formatted(
-                            competitionRate, minCompetition, lockupRate, minLockup));
+                            competitionRate, minCompetition, lockupRate, minLockup), clock.instant());
         } else {
             entity.applyRecommendation(IpoRecommendation.SKIP,
                     "기관경쟁률 %s:1(임계 %s:1) / 확약률 %s(임계 %s) — 임계 미충족".formatted(
-                            competitionRate, minCompetition, lockupRate, minLockup));
+                            competitionRate, minCompetition, lockupRate, minLockup), clock.instant());
         }
     }
 

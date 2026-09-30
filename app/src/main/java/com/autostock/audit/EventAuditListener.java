@@ -15,6 +15,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.time.Instant;
 
 /**
@@ -44,10 +45,12 @@ public class EventAuditListener {
 
     private final EventRecordRepository repository;
     private final ObjectMapper objectMapper;
+    private final Clock clock;
 
-    public EventAuditListener(EventRecordRepository repository, ObjectMapper objectMapper) {
+    public EventAuditListener(EventRecordRepository repository, ObjectMapper objectMapper, Clock clock) {
         this.repository = repository;
         this.objectMapper = objectMapper;
+        this.clock = clock;
     }
 
     @EventListener
@@ -81,7 +84,7 @@ public class EventAuditListener {
      */
     private void store(String type, Object event, Instant occurredAt) {
         try {
-            repository.save(new EventRecord(type, SCHEMA_V1, objectMapper.writeValueAsString(event), occurredAt));
+            repository.save(new EventRecord(type, SCHEMA_V1, objectMapper.writeValueAsString(event), occurredAt, clock.instant()));
         } catch (Exception ex) {
             log.error("이벤트 감사 기록 실패(스킵) — type={}, occurredAt={}", type, occurredAt, ex);
         }

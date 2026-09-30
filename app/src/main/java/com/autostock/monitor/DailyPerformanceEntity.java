@@ -59,9 +59,9 @@ public class DailyPerformanceEntity {
     }
 
     /** 새 스냅샷 생성 — upsert의 "없으면 생성" 분기에서만 호출된다. */
-    public DailyPerformanceEntity(LocalDate tradeDate) {
+    public DailyPerformanceEntity(LocalDate tradeDate, Instant createdAt) {
         this.tradeDate = tradeDate;
-        this.createdAt = Instant.now();
+        this.createdAt = createdAt;   // 시각은 호출부가 주입 Clock에서 넘긴다(A4 ③, aiDoc/clock-injection.md) — 엔티티는 시계에 직접 접근하지 않는다.
     }
 
     /** 그날 집계값을 통째로 덮어쓴다 — upsert의 "있으면 갱신" 분기(및 최초 생성 직후)에서 호출. */

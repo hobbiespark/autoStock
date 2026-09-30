@@ -46,9 +46,9 @@ class PerformanceControllerTest {
 
     @Test
     void 엔티티를_View_DTO로_변환하고_날짜_오름차순_그대로_반환한다() {
-        DailyPerformanceEntity e1 = new DailyPerformanceEntity(LocalDate.of(2026, 9, 9));
+        DailyPerformanceEntity e1 = new DailyPerformanceEntity(LocalDate.of(2026, 9, 9), Instant.now());
         e1.update(new BigDecimal("1000"), 2, 1, 3.0, 5.0, false, false);
-        DailyPerformanceEntity e2 = new DailyPerformanceEntity(LocalDate.of(2026, 9, 10));
+        DailyPerformanceEntity e2 = new DailyPerformanceEntity(LocalDate.of(2026, 9, 10), Instant.now());
         e2.update(new BigDecimal("-500"), 1, 1, 2.0, 2.0, true, false);
         when(repository.findByTradeDateGreaterThanEqualOrderByTradeDateAsc(any())).thenReturn(List.of(e1, e2));
 

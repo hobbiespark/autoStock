@@ -11,7 +11,7 @@
   - R3: 완료 (`ipo-command-transaction.md`). 동시 갱신 문제는 R2로 넘김
   - R2: 완료, 커밋 `fb02d61` (`order-concurrency.md`). 사용자 확정. 실제 DB 검증은 남음
   - R4(신규, F3): (a) 보류 후 재처리, 커밋 `3f6dc77`, 사용자 확정 (`order-concurrency.md` 8절). (b) 체결내역 조회 TR은 미착수
-  - A4: 빈·정적 유틸 완료, 커밋 `71e2afd` (`clock-injection.md`). 엔티티 시각(③)은 결정 대기
+  - A4: 빈·정적 유틸 완료, 커밋 `71e2afd`. 엔티티 시각(③)도 완료(2026-09-30 사용자 결정) — 직접 시계 호출 0, 규칙 테스트로 고정 (`clock-injection.md` 10절)
   - A3: 완료, 커밋 `2badb2f` (`architecture-rules.md`). market→kiwoom 규칙은 A2 뒤에
   - A2: 완료, 커밋 `71b7927` (`market-data-port.md`). market→kiwoom 규칙 추가
   - B2: 완료, 커밋 `6075dab` (`request-validation.md`). 킬스위치 fail-open 결함 실측 확인·수정
@@ -20,6 +20,7 @@
   - A5: 완료 (`time.md`). `hibernate.jdbc.time_zone`의 DATE 영향은 내장 PostgreSQL로 실측(영향 없음)
   - P3 Testcontainers: 완료, 사용자 확정(운영 정확도 우선 + Docker 없을 때 내장 PG 16.15) (`db-integration-test.md`). H2 제거
   - B3: 완료, 사용자 확정 A안 (`large-classes.md`) — WS 클라이언트에서 ReconnectBackoff·DisconnectionTracker 추출. RiskGate·백테스트는 유지
+  - B4: 사용자 결정 2026-09-30 — 나중에
   - 나머지: 미착수
 
 ## 0. 원칙

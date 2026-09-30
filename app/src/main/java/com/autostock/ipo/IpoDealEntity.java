@@ -119,7 +119,8 @@ public class IpoDealEntity {
     protected IpoDealEntity() {
     }
 
-    public IpoDealEntity(String corpCode, String corpName, String rceptNo, String source) {
+    /** 시각은 호출부가 주입 Clock에서 넘긴다(A4 ③, aiDoc/clock-injection.md) — 엔티티는 시계에 직접 접근하지 않는다. */
+    public IpoDealEntity(String corpCode, String corpName, String rceptNo, String source, Instant now) {
         this.corpCode = corpCode;
         this.corpName = corpName;
         this.rceptNo = rceptNo;
@@ -127,39 +128,38 @@ public class IpoDealEntity {
         this.recommendation = IpoRecommendation.PENDING;
         this.recommendReason = "지표 미확보 — 기관경쟁률/의무보유확약비율 수동 입력 필요";
         this.source = source;
-        Instant now = Instant.now();
         this.createdAt = now;
         this.updatedAt = now;
     }
 
     /** DART estkRs.json 상세 조회 결과로 일정·주관사·공모가를 갱신한다(정정 공시 반영). */
-    public void applyOfferingDetail(DartClient.OfferingDetail detail) {
+    public void applyOfferingDetail(DartClient.OfferingDetail detail, Instant now) {
         this.subscriptionStart = detail.subscriptionStart();
         this.subscriptionEnd = detail.subscriptionEnd();
         this.refundDate = detail.refundDate();
         this.leadManager = detail.leadManager();
         this.offerPriceConfirmed = detail.offerPriceConfirmed();
-        touch();
+        touch(now);
     }
 
     /** IpoSyncScheduler가 매 배치 오늘 날짜 기준으로 재계산한 상태를 반영한다. */
-    public void updateStatus(IpoStatus newStatus) {
+    public void updateStatus(IpoStatus newStatus, Instant now) {
         if (this.status != newStatus) {
             this.status = newStatus;
-            touch();
+            touch(now);
         }
     }
 
     /** 필터 평가 결과를 반영한다(IpoSyncScheduler). */
-    public void applyRecommendation(IpoRecommendation recommendation, String reason) {
+    public void applyRecommendation(IpoRecommendation recommendation, String reason, Instant now) {
         this.recommendation = recommendation;
         this.recommendReason = reason;
-        touch();
+        touch(now);
     }
 
     /** 기관경쟁률·의무보유확약비율 수동 입력(POST /api/ipo/{id}/metrics) — 자동 수집 불가 경로. */
-    public void applyMetrics(BigDecimal institutionalCompetitionRate, BigDecimal lockupCommitRate) {
-        applyMetrics(institutionalCompetitionRate, lockupCommitRate, null);
+    public void applyMetrics(BigDecimal institutionalCompetitionRate, BigDecimal lockupCommitRate, Instant now) {
+        applyMetrics(institutionalCompetitionRate, lockupCommitRate, null, now);
     }
 
     /**
@@ -168,27 +168,27 @@ public class IpoDealEntity {
      * 덮어쓰지 않는다({@link #applyOfferingDetail}는 listingDate를 건드리지 않음).
      */
     public void applyMetrics(BigDecimal institutionalCompetitionRate, BigDecimal lockupCommitRate,
-                             LocalDate listingDate) {
+                             LocalDate listingDate, Instant now) {
         if (institutionalCompetitionRate != null) this.institutionalCompetitionRate = institutionalCompetitionRate;
         if (lockupCommitRate != null) this.lockupCommitRate = lockupCommitRate;
         if (listingDate != null) this.listingDate = listingDate;
-        touch();
+        touch(now);
     }
 
     /** 내 청약/배정/매도 기록(POST /api/ipo/{id}/record). null 파라미터는 값을 지우지 않고 유지한다. */
     public void applyRecord(Integer appliedQty, BigDecimal deposit, Integer allocatedQty,
-                             BigDecimal sellPrice, LocalDate sellDate, String memo) {
+                             BigDecimal sellPrice, LocalDate sellDate, String memo, Instant now) {
         if (appliedQty != null) this.appliedQty = appliedQty;
         if (deposit != null) this.deposit = deposit;
         if (allocatedQty != null) this.allocatedQty = allocatedQty;
         if (sellPrice != null) this.sellPrice = sellPrice;
         if (sellDate != null) this.sellDate = sellDate;
         if (memo != null) this.memo = memo;
-        touch();
+        touch(now);
     }
 
-    private void touch() {
-        this.updatedAt = Instant.now();
+    private void touch(Instant now) {
+        this.updatedAt = now;
     }
 
     public Long getId() { return id; }

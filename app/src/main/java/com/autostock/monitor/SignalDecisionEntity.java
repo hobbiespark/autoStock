@@ -60,7 +60,7 @@ public class SignalDecisionEntity {
     }
 
     public SignalDecisionEntity(Instant decidedAt, LocalDate tradeDate, String horizon, String strategyId,
-                                String symbol, String conclusion, String reason, String metricsJson) {
+                                String symbol, String conclusion, String reason, String metricsJson, Instant createdAt) {
         this.decidedAt = decidedAt;
         this.tradeDate = tradeDate;
         this.horizon = horizon;
@@ -69,7 +69,7 @@ public class SignalDecisionEntity {
         this.conclusion = conclusion;
         this.reason = reason;
         this.metricsJson = metricsJson;
-        this.createdAt = Instant.now();
+        this.createdAt = createdAt;   // 시각은 호출부가 주입 Clock에서 넘긴다(A4 ③, aiDoc/clock-injection.md) — 엔티티는 시계에 직접 접근하지 않는다.
     }
 
     public Long getId() { return id; }

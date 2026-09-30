@@ -111,7 +111,7 @@ public class DisclosureBlacklist {
         }
         repository.save(new DisclosureBlacklistEntity(
                 event.symbol(), event.corpName(), event.disclosureType(),
-                event.rceptNo(), event.rceptDt(), event.expiresOn()));
+                event.rceptNo(), event.rceptDt(), event.expiresOn(), clock.instant()));
         mergeExpiry(event.symbol(), event.expiresOn());
 
         log.warn("공시 블랙리스트 신규 등록: symbol={}, type={}, rceptNo={}, 만료={}",

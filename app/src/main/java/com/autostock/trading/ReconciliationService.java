@@ -169,7 +169,7 @@ public class ReconciliationService {
             // 브로커 조회 동안 WS 통보가 먼저 반영됐으면 충돌 → 최신 상태로 다시 판정한다(R2 F2).
             updateLatest(order, current -> {
                 if (current.getStatus() == OrderStatus.UNKNOWN) {
-                    current.transitionTo(OrderStatus.SUBMITTED);
+                    current.transitionTo(OrderStatus.SUBMITTED, clock.instant());
                     orderRepository.save(current);
                     log.info("Reconciliation: UNKNOWN → SUBMITTED 확정(브로커 미체결 목록에서 발견): {}",
                             current.getClientOrderId());
@@ -190,7 +190,7 @@ public class ReconciliationService {
             // 명시적으로 "체결 아님"이 확인된 경우에만 REJECTED로 확정한다(정책).
             updateLatest(order, current -> {
                 if (current.getStatus().canTransitionTo(OrderStatus.REJECTED)) {
-                    current.transitionTo(OrderStatus.REJECTED);
+                    current.transitionTo(OrderStatus.REJECTED, clock.instant());
                     orderRepository.save(current);
                     log.warn("Reconciliation: 브로커 미체결/체결 어디에도 없음 — REJECTED로 확정: {}",
                             current.getClientOrderId());

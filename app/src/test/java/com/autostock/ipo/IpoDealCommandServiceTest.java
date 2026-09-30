@@ -1,5 +1,6 @@
 package com.autostock.ipo;
 
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,7 +30,7 @@ class IpoDealCommandServiceTest {
             new DartProperties(true, "test-key", 14),
             new IpoFilterProperties(new BigDecimal("500"), new BigDecimal("0.20")),
             mock(DartClient.class), repository, mock(ApplicationEventPublisher.class), Clock.systemUTC());
-    private final IpoDealCommandService service = new IpoDealCommandService(repository, syncScheduler);
+    private final IpoDealCommandService service = new IpoDealCommandService(repository, syncScheduler, Clock.systemUTC());
 
     @Test
     void 없는_딜에_청약기록을_입력하면_빈_결과이고_저장하지_않는다() {
@@ -44,7 +45,7 @@ class IpoDealCommandServiceTest {
 
     @Test
     void 청약기록은_부분_갱신되어_저장된다() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
 
         IpoDealEntity result = service.recordMyDeal(1L, new IpoDealCommandService.RecordCommand(
@@ -58,7 +59,7 @@ class IpoDealCommandServiceTest {
 
     @Test
     void 지표_입력은_필터와_상태를_재평가해_저장한다() {
-        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
+        IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
 
         IpoDealEntity result = service.updateMetrics(1L, new IpoDealCommandService.MetricsCommand(
