@@ -3,6 +3,7 @@ package com.autostock.monitor;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerBalance;
 import com.autostock.execution.BrokerPort;
 import com.autostock.macrointel.MacroIntelProperties;
@@ -51,7 +52,7 @@ class DailyReportSchedulerTest {
     private RuntimeException balanceFailure;
     private final BrokerPort fakeBroker = new BrokerPort() {
         @Override public com.autostock.execution.BrokerOrderResult placeOrder(com.autostock.common.event.OrderRequest r) { throw new UnsupportedOperationException(); }
-        @Override public void cancelOrder(BrokerOrderId id, String symbol, long qty) { throw new UnsupportedOperationException(); }
+        @Override public void cancelOrder(BrokerOrderId id, StockCode symbol, long qty) { throw new UnsupportedOperationException(); }
         @Override public List<com.autostock.execution.BrokerOutstandingOrder> outstandingOrders() { return List.of(); }
         @Override public BrokerBalance balance() {
             if (balanceFailure != null) throw balanceFailure;

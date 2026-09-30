@@ -5,6 +5,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerOrderResult;
 import com.autostock.execution.BrokerPort;
 import com.autostock.execution.BrokerRejectedException;
@@ -145,7 +146,7 @@ public class TradingService {
         log.info("[SIM] 즉시 체결: {} {} {}주 @ {}",
                 request.symbol(), request.side(), request.quantity(), request.limitPrice());
 
-        OrderEntity entity = new OrderEntity(request.idempotencyKey(), request.symbol(), request.side(),
+        OrderEntity entity = new OrderEntity(request.idempotencyKey(), new StockCode(request.symbol()), request.side(),
                 new Quantity(request.quantity()), request.limitPrice(), request.strategyId());
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
@@ -168,7 +169,7 @@ public class TradingService {
      * 타임아웃/불명 예외 시 UNKNOWN + Reconciliation 요청.
      */
     private void executeLive(OrderRequest request) {
-        OrderEntity entity = new OrderEntity(request.idempotencyKey(), request.symbol(), request.side(),
+        OrderEntity entity = new OrderEntity(request.idempotencyKey(), new StockCode(request.symbol()), request.side(),
                 new Quantity(request.quantity()), request.limitPrice(), request.strategyId());
         entity.transitionTo(OrderStatus.VALIDATED);
 

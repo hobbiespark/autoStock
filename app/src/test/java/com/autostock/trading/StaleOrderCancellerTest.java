@@ -3,6 +3,7 @@ package com.autostock.trading;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerPort;
 import com.autostock.market.MarketSessionService;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,7 +53,7 @@ class StaleOrderCancellerTest {
     }
 
     private OrderEntity submittedOrderUpdatedAt(Instant updatedAt) {
-        OrderEntity order = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", "005930", Side.BUY, new Quantity(10),
+        OrderEntity order = new OrderEntity("20260813-BREAKOUT-005930-BUY-001", new StockCode("005930"), Side.BUY, new Quantity(10),
                 new BigDecimal("70000"), "BREAKOUT");
         order.transitionTo(OrderStatus.VALIDATED);
         order.transitionTo(OrderStatus.SUBMITTING);
@@ -84,7 +85,7 @@ class StaleOrderCancellerTest {
 
         assertEquals(OrderStatus.CANCEL_REQUESTED, stale.getStatus());
         verify(orderRepository, times(1)).save(stale);
-        verify(brokerPort, times(1)).cancelOrder(any(), anyString(), anyLong());
+        verify(brokerPort, times(1)).cancelOrder(any(), any(), anyLong());
     }
 
     @Test
@@ -99,7 +100,7 @@ class StaleOrderCancellerTest {
 
         assertEquals(OrderStatus.SUBMITTED, fresh.getStatus());
         verify(orderRepository, never()).save(fresh);
-        verify(brokerPort, never()).cancelOrder(any(), anyString(), anyLong());
+        verify(brokerPort, never()).cancelOrder(any(), any(), anyLong());
     }
 
     @Test
@@ -118,7 +119,7 @@ class StaleOrderCancellerTest {
 
         assertEquals(OrderStatus.PARTIALLY_FILLED, latest.getStatus());
         verify(orderRepository, never()).save(latest);
-        verify(brokerPort, never()).cancelOrder(any(), anyString(), anyLong());
+        verify(brokerPort, never()).cancelOrder(any(), any(), anyLong());
     }
 
     @Test
@@ -140,6 +141,6 @@ class StaleOrderCancellerTest {
         canceller.cancelStaleOrders();
 
         verify(orderRepository, never()).findByStatusIn(anyCollection());
-        verify(brokerPort, never()).cancelOrder(any(), anyString(), anyLong());
+        verify(brokerPort, never()).cancelOrder(any(), any(), anyLong());
     }
 }

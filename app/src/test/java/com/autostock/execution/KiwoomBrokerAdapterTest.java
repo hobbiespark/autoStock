@@ -3,6 +3,7 @@ package com.autostock.execution;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.StockCode;
 import com.autostock.kiwoom.KiwoomApiException;
 import com.autostock.kiwoom.KiwoomRestClient;
 import com.autostock.kiwoom.TrId;
@@ -66,6 +67,19 @@ class KiwoomBrokerAdapterTest {
 
         assertEquals(1, orders.size());
         assertEquals(new BrokerOrderId("0119433"), orders.get(0).brokerOrderId());
+        assertEquals(new StockCode("005930"), orders.get(0).symbol()); // 키움 "A" 접두사를 벗긴다
         assertEquals(4, orders.get(0).remainingQuantity());
+    }
+
+    @Test
+    void 미체결_목록에서_종목코드_형식이_틀린_행은_건너뛴다() {
+        when(client.call(eq(TrId.OUTSTANDING_ORDERS), anyString(), any())).thenReturn(Map.of("oso", List.of(
+                Map.of("ord_no", "0119433", "stk_cd", "A005930", "ord_qty", "10"),
+                Map.of("ord_no", "0119434", "stk_cd", "", "ord_qty", "1"))));
+
+        List<BrokerOutstandingOrder> orders = adapter.outstandingOrders();
+
+        assertEquals(1, orders.size());
+        assertEquals(new BrokerOrderId("0119433"), orders.get(0).brokerOrderId());
     }
 }

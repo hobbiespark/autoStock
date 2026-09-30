@@ -2,6 +2,7 @@ package com.autostock.execution;
 
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.StockCode;
 
 /**
  * 브로커에 남아있는 미체결 주문 1건 — {@link BrokerPort#outstandingOrders()}의 원소.
@@ -15,7 +16,7 @@ import com.autostock.common.util.BrokerOrderId;
  */
 public record BrokerOutstandingOrder(
         BrokerOrderId brokerOrderId,
-        String symbol,
+        StockCode symbol,
         Side side,
         long quantity,
         long remainingQuantity
