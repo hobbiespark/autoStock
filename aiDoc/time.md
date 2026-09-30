@@ -48,7 +48,9 @@
 
 ## 5. 부산물 — Docker 없이 실제 PostgreSQL로 테스트하는 방법
 
-P3의 Testcontainers 결정(사용자 결정 대기)과 관련된 정보다. zonky embedded-postgres는 Docker 없이 Maven 의존성만으로 실제 PostgreSQL을 띄운다. 작업 환경(Docker 없음, root)에서도 동작했다. 저장소·Flyway·`ddl-auto: validate`·값 객체 컨버터(`BrokerOrderIdConverter`, `StockCodeConverter`)를 검증하는 통합 테스트에 쓸 수 있다. 도입 여부는 P3와 함께 정한다.
+→ 2026-09-30 사용자 결정으로 도입했다(Docker 우선, 없을 때 내장 PG). `db-integration-test.md` 참고. 아래는 결정 전 기록이다.
+
+P3의 Testcontainers 결정과 관련된 정보다. zonky embedded-postgres는 Docker 없이 Maven 의존성만으로 실제 PostgreSQL을 띄운다. 작업 환경(Docker 없음, root)에서도 동작했다. 저장소·Flyway·`ddl-auto: validate`·값 객체 컨버터(`BrokerOrderIdConverter`, `StockCodeConverter`)를 검증하는 통합 테스트에 쓸 수 있다. 도입 여부는 P3와 함께 정한다.
 
 ## 6. 변경 파일과 검증
 

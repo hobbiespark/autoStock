@@ -38,7 +38,12 @@ dependencies {
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
     testImplementation 'org.springframework.modulith:spring-modulith-starter-test'
     testImplementation 'com.tngtech.archunit:archunit:1.4.2'                  // ArchitectureRulesTest — Modulith가 끌고 오는 버전과 동일하게 고정(BOM 미관리)
-    testRuntimeOnly 'com.h2database:h2'
+    // DB 통합 테스트(support.PostgresTestDatabase, 2026-09-30 사용자 결정: 운영 정확도 우선 + Docker 없을 때 대응)
+    //  - Docker가 있으면 Testcontainers로 운영과 같은 postgres:16-alpine 이미지(버전은 Boot BOM 관리)
+    //  - 없으면 zonky 내장 PostgreSQL — 바이너리를 운영과 같은 16.15로 고정
+    testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'io.zonky.test:embedded-postgres:2.1.0'
+    testImplementation enforcedPlatform('io.zonky.test.postgres:embedded-postgres-binaries-bom:16.15.0')
 }
 
 tasks.named('test') {
