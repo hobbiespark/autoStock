@@ -84,7 +84,7 @@ class StaleOrderCancellerTest {
 
         assertEquals(OrderStatus.CANCEL_REQUESTED, stale.getStatus());
         verify(orderRepository, times(1)).save(stale);
-        verify(brokerPort, times(1)).cancelOrder(anyString(), anyString(), anyLong());
+        verify(brokerPort, times(1)).cancelOrder(any(), anyString(), anyLong());
     }
 
     @Test
@@ -99,7 +99,7 @@ class StaleOrderCancellerTest {
 
         assertEquals(OrderStatus.SUBMITTED, fresh.getStatus());
         verify(orderRepository, never()).save(fresh);
-        verify(brokerPort, never()).cancelOrder(anyString(), anyString(), anyLong());
+        verify(brokerPort, never()).cancelOrder(any(), anyString(), anyLong());
     }
 
     @Test
@@ -118,7 +118,7 @@ class StaleOrderCancellerTest {
 
         assertEquals(OrderStatus.PARTIALLY_FILLED, latest.getStatus());
         verify(orderRepository, never()).save(latest);
-        verify(brokerPort, never()).cancelOrder(anyString(), anyString(), anyLong());
+        verify(brokerPort, never()).cancelOrder(any(), anyString(), anyLong());
     }
 
     @Test
@@ -140,6 +140,6 @@ class StaleOrderCancellerTest {
         canceller.cancelStaleOrders();
 
         verify(orderRepository, never()).findByStatusIn(anyCollection());
-        verify(brokerPort, never()).cancelOrder(anyString(), anyString(), anyLong());
+        verify(brokerPort, never()).cancelOrder(any(), anyString(), anyLong());
     }
 }

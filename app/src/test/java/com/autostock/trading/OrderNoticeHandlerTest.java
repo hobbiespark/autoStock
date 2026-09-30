@@ -52,7 +52,7 @@ class OrderNoticeHandlerTest {
         orderRepository = mock(OrderRepository.class);
         when(orderRepository.save(any(OrderEntity.class))).thenAnswer(inv -> inv.getArgument(0));
         BrokerPort brokerPort = mock(BrokerPort.class);
-        when(brokerPort.placeOrder(any(OrderRequest.class))).thenReturn(new BrokerOrderResult(BROKER_ORDER_ID));
+        when(brokerPort.placeOrder(any(OrderRequest.class))).thenReturn(new BrokerOrderResult(new BrokerOrderId(BROKER_ORDER_ID)));
         ReconciliationService reconciliationService = mock(ReconciliationService.class);
 
         tradingService = new TradingService(

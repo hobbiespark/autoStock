@@ -2,15 +2,16 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.BrokerOrderId;
 import com.autostock.execution.BrokerBalance;
 import com.autostock.execution.BrokerPort;
 import com.autostock.macrointel.MacroIntelProperties;
+import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.MacroGuard;
 import com.autostock.risk.PaperEquitySource;
-import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.RiskProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -50,7 +51,7 @@ class DailyReportSchedulerTest {
     private RuntimeException balanceFailure;
     private final BrokerPort fakeBroker = new BrokerPort() {
         @Override public com.autostock.execution.BrokerOrderResult placeOrder(com.autostock.common.event.OrderRequest r) { throw new UnsupportedOperationException(); }
-        @Override public void cancelOrder(String id, String symbol, long qty) { throw new UnsupportedOperationException(); }
+        @Override public void cancelOrder(BrokerOrderId id, String symbol, long qty) { throw new UnsupportedOperationException(); }
         @Override public List<com.autostock.execution.BrokerOutstandingOrder> outstandingOrders() { return List.of(); }
         @Override public BrokerBalance balance() {
             if (balanceFailure != null) throw balanceFailure;

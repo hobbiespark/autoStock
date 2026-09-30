@@ -96,7 +96,7 @@ class TradingServiceTest {
         TradingService liveService = new TradingService(
                 new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5)),
                 brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry(), Clock.systemUTC());
-        when(brokerPort.placeOrder(any(OrderRequest.class))).thenReturn(new BrokerOrderResult("BROKER-1"));
+        when(brokerPort.placeOrder(any(OrderRequest.class))).thenReturn(new BrokerOrderResult(new BrokerOrderId("BROKER-1")));
 
         liveService.onOrderRequest(order("key-live-1"));
 
@@ -152,7 +152,7 @@ class TradingServiceTest {
             saveResults.add(copy);
             return copy;
         });
-        when(brokerPort.placeOrder(any(OrderRequest.class))).thenReturn(new BrokerOrderResult("BROKER-1"));
+        when(brokerPort.placeOrder(any(OrderRequest.class))).thenReturn(new BrokerOrderResult(new BrokerOrderId("BROKER-1")));
 
         liveService().onOrderRequest(order("key-live-copy"));
 

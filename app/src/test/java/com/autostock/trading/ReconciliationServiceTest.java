@@ -69,7 +69,7 @@ class ReconciliationServiceTest {
         order.transitionTo(OrderStatus.UNKNOWN); // 타임아웃으로 UNKNOWN이 됐다고 가정
         when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(order));
         when(brokerPort.outstandingOrders()).thenReturn(
-                List.of(new BrokerOutstandingOrder("BROKER-1", "005930", Side.BUY, 10, 10)));
+                List.of(new BrokerOutstandingOrder(new BrokerOrderId("BROKER-1"), "005930", Side.BUY, 10, 10)));
 
         service.reconcile();
 
@@ -82,7 +82,7 @@ class ReconciliationServiceTest {
         OrderEntity order = submittedEntity("key-2", "BROKER-2");
         when(orderRepository.findByStatusIn(anyCollection())).thenReturn(List.of(order));
         when(brokerPort.outstandingOrders()).thenReturn(
-                List.of(new BrokerOutstandingOrder("BROKER-2", "005930", Side.BUY, 10, 10)));
+                List.of(new BrokerOutstandingOrder(new BrokerOrderId("BROKER-2"), "005930", Side.BUY, 10, 10)));
 
         service.reconcile();
 
@@ -126,7 +126,7 @@ class ReconciliationServiceTest {
         order.transitionTo(OrderStatus.UNKNOWN);
         when(orderRepository.findByClientOrderId("key-5")).thenReturn(Optional.of(order));
         when(brokerPort.outstandingOrders()).thenReturn(
-                List.of(new BrokerOutstandingOrder("BROKER-5", "005930", Side.BUY, 10, 10)));
+                List.of(new BrokerOutstandingOrder(new BrokerOrderId("BROKER-5"), "005930", Side.BUY, 10, 10)));
 
         service.requestReconcile("key-5");
 
