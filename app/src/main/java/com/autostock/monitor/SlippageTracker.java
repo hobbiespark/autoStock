@@ -101,10 +101,7 @@ public class SlippageTracker {
                     fill.orderIdempotencyKey());
             return;
         }
-        if (fill.fillPrice() == null || fill.fillPrice().signum() <= 0) {
-            return;
-        }
-        BigDecimal diff = fill.fillPrice().subtract(origin.decisionPrice());
+        BigDecimal diff = fill.fillPrice().value().subtract(origin.decisionPrice());
         if (origin.side() == Side.SELL) {
             diff = diff.negate(); // 매도는 "결정가보다 싸게 팔린 만큼"이 불리
         }

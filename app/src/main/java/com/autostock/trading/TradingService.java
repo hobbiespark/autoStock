@@ -159,7 +159,7 @@ public class TradingService {
                 request.symbol(),
                 request.side(),
                 request.quantity(),
-                request.limitPrice().value(),   // 지정가 그대로 체결됐다고 가정
+                request.limitPrice(),           // 지정가 그대로 체결됐다고 가정
                 clock.instant()));
     }
 

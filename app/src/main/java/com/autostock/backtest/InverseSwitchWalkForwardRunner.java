@@ -330,7 +330,7 @@ public final class InverseSwitchWalkForwardRunner {
         long qty = kodex ? ledger.kodexQty : ledger.inverseQty;
         OrderRequest order = buildOrder(today, Side.SELL, qty);
         Fill fill = executionHandler.execute(order, referencePrice);
-        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
+        BigDecimal notional = fill.fillPrice().value().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
         ledger.cash = ledger.cash.add(notional).subtract(costModel.sellFee(notional));
         if (kodex) {
             ledger.kodexQty = 0;
@@ -350,7 +350,7 @@ public final class InverseSwitchWalkForwardRunner {
         }
         OrderRequest order = buildOrder(today, Side.BUY, qty);
         Fill fill = executionHandler.execute(order, referencePrice);
-        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
+        BigDecimal notional = fill.fillPrice().value().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
         ledger.cash = ledger.cash.subtract(notional).subtract(costModel.buyFee(notional));
         if (kodex) {
             ledger.kodexQty = qty;

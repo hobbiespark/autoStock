@@ -98,11 +98,11 @@ public class DailyPnlTracker {
     private void recordBuy(Fill fill) {
         lots.compute(fill.symbol(), (symbol, current) -> {
             if (current == null) {
-                return new Lot(fill.filledQuantity().value(), fill.fillPrice());
+                return new Lot(fill.filledQuantity().value(), fill.fillPrice().value());
             }
             long newQty = current.quantity() + fill.filledQuantity().value();
             BigDecimal totalCost = current.avgPrice().multiply(BigDecimal.valueOf(current.quantity()))
-                    .add(fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity().value())));
+                    .add(fill.fillPrice().value().multiply(BigDecimal.valueOf(fill.filledQuantity().value())));
             BigDecimal avg = totalCost.divide(BigDecimal.valueOf(newQty), 2, RoundingMode.HALF_UP);
             return new Lot(newQty, avg);
         });
@@ -133,10 +133,10 @@ public class DailyPnlTracker {
         }
 
         BigDecimal qty = BigDecimal.valueOf(soldQty);
-        BigDecimal grossPnl = fill.fillPrice().subtract(avgPriceBeforeThisFill).multiply(qty);
+        BigDecimal grossPnl = fill.fillPrice().value().subtract(avgPriceBeforeThisFill).multiply(qty);
 
         BigDecimal buyNotional = avgPriceBeforeThisFill.multiply(qty);
-        BigDecimal sellNotional = fill.fillPrice().multiply(qty);
+        BigDecimal sellNotional = fill.fillPrice().value().multiply(qty);
         BigDecimal roundTripCost = buyNotional.multiply(BigDecimal.valueOf(properties.feeRate()))
                 .add(sellNotional.multiply(BigDecimal.valueOf(properties.feeRate() + properties.sellTaxRate())));
 

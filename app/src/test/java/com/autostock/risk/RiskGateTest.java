@@ -116,7 +116,7 @@ class RiskGateTest {
     @Test
     void 보유_종목_추가_매수_차단() {
         positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10),
-                new BigDecimal("70000"), Instant.now()));
+                new Price(new BigDecimal("70000")), Instant.now()));
         gate.onSignal(buySignal("005930", "70000"));
         assertTrue(onlyOrders(published).isEmpty());
     }
@@ -131,7 +131,7 @@ class RiskGateTest {
     @Test
     void 보유_종목_매도는_전량_청산() {
         positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(14),
-                new BigDecimal("70000"), Instant.now()));
+                new Price(new BigDecimal("70000")), Instant.now()));
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
                 new BigDecimal("71000"), 1.0, Instant.now()));
 
@@ -145,7 +145,7 @@ class RiskGateTest {
     void 기준가가_0이거나_없는_매도는_거부하고_주문_슬롯을_쓰지_않는다() {
         // 잔고 복원에서 매입가를 못 찾으면 평균단가가 0이 되고, C3 국면 OFF 청산은 그 값을 기준가로 쓴다.
         positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(14),
-                new BigDecimal("70000"), Instant.now()));
+                new Price(new BigDecimal("70000")), Instant.now()));
 
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL, BigDecimal.ZERO, 1.0, Instant.now()));
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL, null, 1.0, Instant.now()));
@@ -199,7 +199,7 @@ class RiskGateTest {
         String[] symbols = {"000001", "000002", "000003", "000004", "000005"};
         for (String s : symbols) {
             positionBook.onFill(new Fill("k" + s, new BrokerOrderId("b" + s), new StockCode(s), Side.BUY, new Quantity(1),
-                    new BigDecimal("1000"), Instant.now()));
+                    new Price(new BigDecimal("1000")), Instant.now()));
         }
         gate.onSignal(buySignal("005930", "70000"));
         assertTrue(onlyOrders(published).isEmpty());

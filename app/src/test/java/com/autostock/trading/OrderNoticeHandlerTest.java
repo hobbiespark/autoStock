@@ -136,7 +136,24 @@ class OrderNoticeHandlerTest {
         assertEquals(new StockCode("005930"), fill.symbol());
         assertEquals(Side.BUY, fill.side());
         assertEquals(new Quantity(10), fill.filledQuantity());
-        assertEquals(new BigDecimal("70100"), fill.fillPrice());
+        assertEquals(new Price(new BigDecimal("70100")), fill.fillPrice());
+    }
+
+    @Test
+    void 체결가가_없거나_0인_체결통보는_지정가로_근사해_Fill을_발행한다() {
+        // 실측 체결 통보는 FID 910이 늘 있지만(2026-09-11), 빠지면 Fill.fillPrice(Price)를 만들 수 없다 —
+        // 예전에는 null이 그대로 나가 PositionBook·DailyPnlTracker에서 NPE가 났다(조각 17).
+        tradingService.onOrderRequest(order("key-1"));
+        OrderEntity entity = stubEntity("key-1", Side.BUY, 10);
+
+        handler.onOrderNotice(notice("체결", 4, null));
+        handler.onOrderNotice(notice("체결", 10, BigDecimal.ZERO));
+
+        assertEquals(2, published.size());
+        assertEquals(new Price(new BigDecimal("70000")), ((Fill) published.get(0)).fillPrice());
+        assertEquals(new Price(new BigDecimal("70000")), ((Fill) published.get(1)).fillPrice());
+        assertEquals(new Quantity(6), ((Fill) published.get(1)).filledQuantity());
+        assertEquals(10, entity.getFilledQuantity());
     }
 
     @Test
@@ -202,9 +219,9 @@ class OrderNoticeHandlerTest {
         Fill second = (Fill) published.get(1);
         assertEquals(new Quantity(4), first.filledQuantity());                                    // 증분 4
         assertEquals(new Quantity(6), second.filledQuantity());                                   // 증분 10-4=6
-        assertEquals(new BigDecimal("70000"), first.fillPrice());                   // 첫 체결 = 평균가 그대로
+        assertEquals(new Price(new BigDecimal("70000")), first.fillPrice());                   // 첫 체결 = 평균가 그대로
         // 증분 단가 역산: (10×70030 − 4×70000) / 6 = 70050
-        assertEquals(0, new BigDecimal("70050").compareTo(second.fillPrice()));
+        assertEquals(new Price(new BigDecimal("70050")), second.fillPrice());
         // 두 통보 모두 같은 원 주문(key-2)에 연결돼야 한다
         assertEquals("key-2", first.orderIdempotencyKey());
         assertEquals("key-2", second.orderIdempotencyKey());
@@ -348,7 +365,7 @@ class OrderNoticeHandlerTest {
         assertEquals(1, published.size());
         Fill fill = (Fill) published.get(0);
         assertEquals(new Quantity(1), fill.filledQuantity());
-        assertEquals(new BigDecimal("258000"), fill.fillPrice());
+        assertEquals(new Price(new BigDecimal("258000")), fill.fillPrice());
     }
 
     @Test
@@ -373,6 +390,6 @@ class OrderNoticeHandlerTest {
         Fill fill = (Fill) published.get(0);
         assertEquals(Side.SELL, fill.side());
         assertEquals(new Quantity(1), fill.filledQuantity());
-        assertEquals(new BigDecimal("258000"), fill.fillPrice());
+        assertEquals(new Price(new BigDecimal("258000")), fill.fillPrice());
     }
 }

@@ -14,6 +14,7 @@ import com.autostock.risk.KillSwitch;
 import com.autostock.risk.MacroGuard;
 import com.autostock.risk.PaperEquitySource;
 import com.autostock.risk.RiskProperties;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -88,7 +89,7 @@ class DailyReportSchedulerTest {
     @Test
     void 리포트는_INFO_한_건으로_발송되고_포지션과_킬스위치_상태를_포함한다() {
         positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10),
-                new BigDecimal("70000"), Instant.now()));
+                new Price(new BigDecimal("70000")), Instant.now()));
 
         scheduler.sendDailyReport();
 

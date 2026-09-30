@@ -39,7 +39,7 @@ class TradeNotificationListenerTest {
     @Test
     void Fill은_INFO로_발송된다() {
         listener.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10),
-                new BigDecimal("70000"), Instant.now()));
+                new Price(new BigDecimal("70000")), Instant.now()));
 
         assertEquals(1, notices.size());
         assertEquals(NoticeLevel.INFO, notices.get(0).level());

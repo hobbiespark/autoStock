@@ -67,7 +67,7 @@ class SlippageTrackerTest {
     }
 
     private Fill fill(String key, Side side, long qty, String price) {
-        return new Fill(key, new BrokerOrderId("B1"), new StockCode("005930"), side, new Quantity(qty), new BigDecimal(price), DAY1);
+        return new Fill(key, new BrokerOrderId("B1"), new StockCode("005930"), side, new Quantity(qty), new Price(new BigDecimal(price)), DAY1);
     }
 
     @Test

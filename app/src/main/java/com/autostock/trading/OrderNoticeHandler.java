@@ -5,6 +5,7 @@ import com.autostock.common.event.OrderNotice;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -166,6 +167,10 @@ public class OrderNoticeHandler {
             cumulativeNotional.remove(brokerOrderId);
         }
 
+        Price fillPrice = fillPriceOf(applied.deltaPrice(), order);
+        if (fillPrice == null) {
+            return;
+        }
         String clientOrderId = original != null ? original.idempotencyKey() : order.getClientOrderId();
         // 매수/매도 방향은 통보에 없으므로 원 주문(인메모리 우선, 없으면 DB 엔티티)에서 가져온다
         Side side = original != null ? original.side() : order.getSide();
@@ -175,8 +180,28 @@ public class OrderNoticeHandler {
                 order.getSymbol(),        // DB 주문의 종목코드 — WS 통보 필드(9001)는 비어 올 수 있다
                 side,
                 new Quantity(applied.delta()), // 증분 수량 — PositionBook은 증분 합산 전제(이중계상 수정)
-                applied.deltaPrice(),
+                fillPrice,
                 notice.timestamp()));
+    }
+
+    /**
+     * Fill에 실을 체결가. 실측(2026-09-11) 체결 통보는 FID 910(누적 평균가)이 늘 있지만, 빠지거나 0이면 주문 지정가로
+     * 근사한다 — 지정가 주문의 체결가는 지정가와 같거나 유리하므로 포지션 평단·손익의 오차는 그 차이만큼이다.
+     * 지정가도 없으면 Fill을 내지 않는다(주문 체결량은 이미 저장됐고, 포지션은 대사·재기동 잔고 복원이 맞춘다).
+     */
+    private Price fillPriceOf(BigDecimal deltaPrice, OrderEntity order) {
+        if (deltaPrice != null && deltaPrice.signum() > 0) {
+            return new Price(deltaPrice);
+        }
+        BigDecimal limitPrice = order.getLimitPrice();
+        if (limitPrice != null && limitPrice.signum() > 0) {
+            log.warn("체결통보에 체결가 없음({}) — 지정가 {}로 근사해 Fill 발행: {}",
+                    deltaPrice, limitPrice.toPlainString(), order.getBrokerOrderId());
+            return new Price(limitPrice);
+        }
+        log.error("체결통보에 체결가도 지정가도 없어 Fill 미발행(포지션은 대사·잔고 복원이 맞춤): {}",
+                order.getBrokerOrderId());
+        return null;
     }
 
     /**
