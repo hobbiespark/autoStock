@@ -1,11 +1,16 @@
 package com.autostock.kiwoom;
 
+import com.autostock.common.event.BrokerAuthFailure;
+import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 
+import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -46,6 +51,9 @@ import java.util.concurrent.locks.ReentrantLock;
  *       {@code [8005:Token이 유효하지 않습니다]}로 거부하면 캐시를 버려 다음 호출이 재발급하게 한다.
  *       실측: 07:12 발급 토큰이 PC 절전 복귀(17:51) 직후 8005로 거부됐고, 캐시상 유효라 재발급 없이
  *       일일 리포트(kt00018)·분봉 적재(ka10080)가 전부 실패했다.</li>
+ *   <li><b>발급 실패 알림</b>(Phase 0.6, aiDoc/kiwoom-error-codes.md): 발급 응답에 인증 계열 오류코드(8001·8002·8010·
+ *       8030·8031·8040·8050·8103)가 있으면 {@link BrokerAuthFailure}를 발행한다 — REST·WS 어느 경로의 발급이든
+ *       여기 한 곳에서 잡힌다. 흔한 원인은 허용 IP 미등록·App Key 해지(3개월 실서버 미접속)다.</li>
  * </ul>
  */
 @Component
@@ -64,6 +72,7 @@ public class TokenManager {
 
     private final WebClient webClient;
     private final KiwoomProperties properties;
+    private final ApplicationEventPublisher publisher;
 
     /** 현재 유효한 토큰 캐시. null이면 아직 한 번도 발급받지 않은 상태. */
     private final AtomicReference<CachedToken> cached = new AtomicReference<>();
@@ -79,9 +88,11 @@ public class TokenManager {
      */
     static final Duration MIN_AGE_TO_INVALIDATE = Duration.ofSeconds(60);
 
-    public TokenManager(WebClient.Builder builder, KiwoomProperties properties, Clock clock) {
+    public TokenManager(WebClient.Builder builder, KiwoomProperties properties,
+                        ApplicationEventPublisher publisher, Clock clock) {
         this.clock = clock;
         this.properties = properties;
+        this.publisher = publisher;
         this.webClient = builder.baseUrl(properties.restBaseUrl()).build();
     }
 
@@ -135,17 +146,37 @@ public class TokenManager {
     /** 키움에 토큰 발급을 요청한다. 실패 시 예외 — 호출자(재시도 로직)가 처리. */
     private CachedToken issue() {
         log.info("접근토큰 발급 요청");
-        Map<String, Object> response = callApi();
-        if (response == null || response.get("token") == null) {
-            throw new KiwoomApiException("토큰 발급 실패: 응답 없음");
+        Map<String, Object> response;
+        try {
+            response = callApi();
+        } catch (WebClientResponseException e) {
+            // HTTP 오류 본문의 return_msg에 인증 코드가 있으면 알린다. 예외 자체는 예전과 같이 그대로 던진다
+            // (주문 경로에서 결과 불명 처리 등 기존 분류를 바꾸지 않는다).
+            reportAuthFailure(e.getResponseBodyAsString());
+            throw e;
         }
         // HTTP 200이어도 return_code != 0이면 논리 오류(키/시크릿 오류 등) — 실측 응답 포맷:
         // {"expires_dt":"20260814121649","return_msg":"...","token_type":"Bearer","return_code":0,"token":"..."}
-        Object returnCode = response.get("return_code");
+        // return_code를 토큰 유무보다 먼저 본다 — 실패 응답에는 토큰이 없어 "응답 없음"으로 뭉개지면 원인 코드를 잃는다.
+        Object returnCode = response == null ? null : response.get("return_code");
         if (returnCode != null && ((Number) returnCode).intValue() != 0) {
-            throw new KiwoomApiException("토큰 발급 실패: " + response.get("return_msg"));
+            String message = String.valueOf(response.get("return_msg"));
+            reportAuthFailure(message);
+            throw new KiwoomTokenIssueException("토큰 발급 실패: " + message);
+        }
+        if (response == null || response.get("token") == null) {
+            throw new KiwoomTokenIssueException("토큰 발급 실패: 응답 없음");
         }
         return new CachedToken((String) response.get("token"), parseExpiresAt(response), clock.instant());
+    }
+
+    /** 발급 실패 원문에 인증 계열 코드가 있으면 {@link BrokerAuthFailure}를 발행한다(클래스 설명 "발급 실패 알림"). */
+    private void reportAuthFailure(String responseText) {
+        KiwoomErrorCodes.find(responseText, KiwoomErrorCodes.AUTH_FAILURE).ifPresent(code -> {
+            String host = URI.create(properties.restBaseUrl()).getHost();
+            log.error("키움 접근토큰 발급 인증 실패 [{}] host={} — 허용 IP·App Key 상태 확인 필요, 긴급 알림 발행", code, host);
+            publisher.publishEvent(new BrokerAuthFailure(code, SecretMasking.mask(responseText), host, clock.instant()));
+        });
     }
 
     /**

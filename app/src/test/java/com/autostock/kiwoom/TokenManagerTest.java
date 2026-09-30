@@ -147,7 +147,7 @@ class TokenManagerTest {
         }
 
         FakeTokenManager(Clock clock) {
-            super(WebClient.builder(), PROPERTIES, clock);
+            super(WebClient.builder(), PROPERTIES, event -> { }, clock);
         }
 
         @Override

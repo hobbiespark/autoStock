@@ -6,6 +6,7 @@ import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.KiwoomNumbers;
 import com.autostock.common.util.StockCode;
 import com.autostock.kiwoom.KiwoomApiException;
+import com.autostock.kiwoom.KiwoomTimeoutException;
 import com.autostock.kiwoom.KiwoomRestClient;
 import com.autostock.kiwoom.TrId;
 import org.slf4j.Logger;
@@ -77,10 +78,14 @@ public class KiwoomBrokerAdapter implements BrokerPort {
                     "ord_uv", request.limitPrice().value().toPlainString(),
                     "trde_tp", "0"          // 보통(지정가) — 문서 실측 후 확정
             ));
+        } catch (KiwoomTimeoutException e) {
+            // 응답 시간 초과 = 결과 불명 — 거부로 단정하면 실제 접수된 주문을 REJECTED로 종결하고 대사도 하지 않는다
+            // (Phase 0.6에서 발견한 잠복 결함). 그대로 던져 TradingService가 UNKNOWN + 대사로 확정하게 한다.
+            throw e;
         } catch (KiwoomApiException e) {
             // KiwoomApiException = API 계층 오류 응답을 "수신"한 경우 — 결과 불명이 아니라
-            // 명시 거부다. 타임아웃/네트워크 예외(WebClient 계열)는 그대로 위로 던져져
-            // TradingService에서 UNKNOWN 처리된다.
+            // 명시 거부다. 타임아웃(KiwoomTimeoutException, 위)과 네트워크 예외(WebClient 계열)는
+            // 그대로 위로 던져져 TradingService에서 UNKNOWN 처리된다.
             throw new BrokerRejectedException(e.getMessage(), e);
         }
         Object orderNo = response.get("ord_no");
