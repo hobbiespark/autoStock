@@ -220,7 +220,7 @@ public class C3LiveStrategy {
     /** 국면 OFF — 이 전략이 관리하는 종목 중 보유 중인 것 전부 SELL Signal 발행. */
     private void liquidateAll() {
         for (String symbol : properties.symbols()) {
-            PositionBook.Position position = positionBook.get(symbol);
+            PositionBook.Position position = positionBook.get(new StockCode(symbol));
             if (position != null) {
                 log.info("C3: 국면 OFF — 강제 청산: {}", symbol);
                 publishSell(symbol, position.avgPrice());
@@ -256,7 +256,7 @@ public class C3LiveStrategy {
         lastDecisionDate.put(symbol, today);
 
         boolean uptrend = MomentumMath.shouldHold(closes, properties.lookbackN());
-        boolean holding = positionBook.holds(symbol);
+        boolean holding = positionBook.holds(new StockCode(symbol));
         BigDecimal latestClose = candles.get(candles.size() - 1).close();
 
         // FE-6 판단 근거 지표 — MomentumMath와 같은 입력(closes, lookbackN)으로 "N일 수익률"을

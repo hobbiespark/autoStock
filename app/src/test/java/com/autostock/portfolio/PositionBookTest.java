@@ -25,8 +25,8 @@ class PositionBookTest {
     void 매수_체결로_포지션_생성() {
         book.onFill(fill(Side.BUY, 10, "70000"));
 
-        assertTrue(book.holds("005930"));
-        assertEquals(10, book.get("005930").quantity());
+        assertTrue(book.holds(new StockCode("005930")));
+        assertEquals(10, book.get(new StockCode("005930")).quantity());
         assertEquals(1, book.openPositionCount());
     }
 
@@ -35,8 +35,8 @@ class PositionBookTest {
         book.onFill(fill(Side.BUY, 10, "70000"));
         book.onFill(fill(Side.BUY, 10, "72000"));
 
-        assertEquals(20, book.get("005930").quantity());
-        assertEquals(new BigDecimal("71000.00"), book.get("005930").avgPrice());
+        assertEquals(20, book.get(new StockCode("005930")).quantity());
+        assertEquals(new BigDecimal("71000.00"), book.get(new StockCode("005930")).avgPrice());
     }
 
     @Test
@@ -44,7 +44,7 @@ class PositionBookTest {
         book.onFill(fill(Side.BUY, 10, "70000"));
         book.onFill(fill(Side.SELL, 10, "71000"));
 
-        assertFalse(book.holds("005930"));
+        assertFalse(book.holds(new StockCode("005930")));
         assertEquals(0, book.openPositionCount());
     }
 
@@ -54,8 +54,8 @@ class PositionBookTest {
         book.onFill(fill(Side.BUY, 10, "70000"));
         book.onPositionRestored(new PositionRestored(new StockCode("005930"), 19, new BigDecimal("259974")));
 
-        assertEquals(3, book.get("000660").quantity());
-        assertEquals(10, book.get("005930").quantity());
+        assertEquals(3, book.get(new StockCode("000660")).quantity());
+        assertEquals(10, book.get(new StockCode("005930")).quantity());
         assertEquals(2, book.openPositionCount());
     }
 }
