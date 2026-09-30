@@ -9,6 +9,7 @@ import com.autostock.market.MarketDataPort;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
 import com.autostock.risk.KillSwitch;
+import com.autostock.trading.TradingProperties;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -57,17 +58,20 @@ public class DashboardController {
     private final KillSwitch killSwitch;
     private final ApplicationEventPublisher publisher;
     private final MarketDataPort marketData;
+    private final TradingProperties tradingProperties;
     private final Clock clock;
 
     public DashboardController(DashboardFacade facade,
                                KillSwitch killSwitch,
                                ApplicationEventPublisher publisher,
-                               MarketDataPort marketData, Clock clock) {
+                               MarketDataPort marketData,
+                               TradingProperties tradingProperties, Clock clock) {
         this.clock = clock;
         this.facade = facade;
         this.killSwitch = killSwitch;
         this.publisher = publisher;
         this.marketData = marketData;
+        this.tradingProperties = tradingProperties;
     }
 
     /**
@@ -114,12 +118,14 @@ public class DashboardController {
      * 흐름: 여기서 Signal 발행 → RiskGate 검사 → OrderRequest → 체결 → Fill
      * → PositionBook/EventFeed 갱신. 즉 실제 매매와 완전히 같은 경로를 탄다.
      *
-     * <p>quantity(운영 1일차 ⑦)는 선택값 — 비우면 RiskGate 자동 사이징(매수: 예산 비율,
-     * 매도: 전량 청산), 지정하면 RiskGate가 상한(예산 캡·보유량 캡) 안에서 그 수량을 쓴다.
+     * <p>quantity는 <b>필수</b>다(Phase 0.4, D-06 — aiDoc/manual-order-guard.md). 예전에는 비우면 자동 사이징이었는데,
+     * 2026-09-18 기본 종목이 채워진 폼에서 수량을 비운 채 눌러 193주(약 5,000만 원)가 즉시 체결됐다. RiskGate는
+     * 지정 수량을 상한(매수 금액 상한·예산 캡, 매도 보유량 캡) 안에서만 쓴다. 응답의 executionMode로 화면이 어느
+     * 모드로 발행됐는지 보여준다.
      */
     @PostMapping("/test-signal")
     public TestSignalResponse testSignal(@Valid @RequestBody TestSignalRequest request) {
-        Long fixedQuantity = parseQuantity(request.quantity());
+        long fixedQuantity = Long.parseLong(request.quantity()); // 형식은 POSITIVE_QUANTITY가 검증(1 이상)
         publisher.publishEvent(new Signal(
                 "dashboard-manual",
                 new StockCode(request.symbol()),
@@ -128,7 +134,7 @@ public class DashboardController {
                 1.0,
                 fixedQuantity,
                 clock.instant()));
-        return new TestSignalResponse(true);
+        return new TestSignalResponse(true, tradingProperties.mode().name());
     }
 
     /**
@@ -139,7 +145,7 @@ public class DashboardController {
     @PostMapping("/orders/{clientOrderId}/cancel")
     public TestSignalResponse cancelOrder(@PathVariable String clientOrderId) {
         publisher.publishEvent(new CancelRequest(clientOrderId, "dashboard", clock.instant()));
-        return new TestSignalResponse(true);
+        return new TestSignalResponse(true, tradingProperties.mode().name());
     }
 
     /**
@@ -175,20 +181,12 @@ public class DashboardController {
                 book.bestAsk(), book.bestBid());
     }
 
-    /** 수량 문자열 파싱 — 빈 값/미지정은 null(자동 사이징), 숫자 오류는 400 대신 null 처리하지 않고 예외. */
-    private static Long parseQuantity(String quantity) {
-        if (quantity == null || quantity.isBlank()) {
-            return null;
-        }
-        return Long.parseLong(quantity.trim());
-    }
-
-    /** 테스트 시그널 입력값. side: "BUY" | "SELL", quantity: 선택(빈 값 = 자동 사이징) */
+    /** 테스트 시그널 입력값. side: "BUY" | "SELL", quantity: 필수(1 이상 정수 — Phase 0.4, 빈 값 자동 사이징 폐지) */
     public record TestSignalRequest(
             @NotBlank @Pattern(regexp = StockCode.PATTERN) String symbol,
             @NotBlank @Pattern(regexp = "BUY|SELL") String side,
             @NotBlank @Pattern(regexp = POSITIVE_PRICE) String price,
-            @Pattern(regexp = "|" + POSITIVE_QUANTITY) String quantity) {
+            @NotBlank @Pattern(regexp = POSITIVE_QUANTITY) String quantity) {
     }
 
     /**
@@ -198,8 +196,11 @@ public class DashboardController {
     public record KillSwitchRequest(@NotNull Boolean engage) {
     }
 
-    /** 테스트 시그널 응답. */
-    public record TestSignalResponse(boolean accepted) {
+    /**
+     * 테스트 시그널·취소 요청 응답. accepted는 "이벤트를 발행했다"는 뜻이다 — RiskGate 거부 여부는 판단 근거 탭
+     * (SignalDecision)과 이벤트 피드로 본다. executionMode(SIM/LIVE)는 Phase 0.4에서 추가한 필드다(계약 확장).
+     */
+    public record TestSignalResponse(boolean accepted, String executionMode) {
     }
 
     /** 킬스위치 상태 응답. */

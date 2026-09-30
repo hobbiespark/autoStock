@@ -1,6 +1,7 @@
 package com.autostock.risk;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.DefaultValue;
 
 /**
  * 리스크 한도 (PLAN 8절 초기값). 코드가 아닌 설정으로 관리.
@@ -21,6 +22,8 @@ public record RiskProperties(
         double paperEquity,               // 모의/시뮬레이션 계좌 평가액 (KRW) — PaperEquitySource, LIVE 폴백에도 쓰인다
         double feeRate,                   // 매수/매도 수수료율 — 실현손익 추정용(CostModel과 동일값, 기본 0.00015)
         double sellTaxRate,                // 매도 증권거래세율 — 실현손익 추정용(CostModel과 동일값, 기본 0.0020 — 2026 세율)
-        boolean enforceMarketHours        // 장 시간(09:00~15:30) 외 Signal 거부 여부 (기본 true)
+        boolean enforceMarketHours,       // 장 시간(09:00~15:30) 외 Signal 거부 여부 (기본 true)
+        @DefaultValue("1000000")
+        long manualOrderMaxKrw            // 대시보드 수동 매수 1건 금액 상한(원, 기본 100만) — D-06, Phase 0.4. 키가 빠져도 0(전면 거부)이 되지 않게 기본값을 둔다
 ) {
 }

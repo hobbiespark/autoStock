@@ -48,6 +48,7 @@ class RiskGateTest {
     // 별도 검증한다.
     private MacroGuard macroGuard;
     private DisclosureBlacklist disclosureBlacklist;
+    private DailyLimitTracker dailyLimits;
     private RiskGate gate;
 
     @BeforeEach
@@ -56,7 +57,7 @@ class RiskGateTest {
         // 실제 실행 시각과 무관하게 결정론적으로 돌게 장 시간 가드를 꺼둔다(RiskGate 클래스
         // 설명의 "장 시간 가드 설계" 절 참고). 시간 가드 자체는 아래 별도 테스트에서 검증한다.
         properties = new RiskProperties(0.10, 5, -0.03, 0.05, -0.02, 30,
-                10_000_000, 0.00015, 0.0015, false);
+                10_000_000, 0.00015, 0.0015, false, 1_000_000);
         // killSwitch 전용 publisher는 이 테스트의 published 리스트와 분리한다 —
         // KillSwitchChanged 이벤트가 여기 섞이면 "주문이 published에 없다"를 검증하는
         // 기존 단언들이 killSwitch.engage() 한 번에 깨진다(이 테스트는 OrderRequest만 관심 대상).
@@ -65,8 +66,9 @@ class RiskGateTest {
         macroGuard = new MacroGuard(defaultMacroIntelProperties(), killSwitch);
         disclosureBlacklist = new DisclosureBlacklist(
                 mock(DisclosureBlacklistRepository.class), publisher, ANY_CLOCK);
+        dailyLimits = new DailyLimitTracker(properties, ANY_CLOCK);
         gate = new RiskGate(publisher, killSwitch, properties,
-                new PositionSizer(properties), positionBook, new DailyLimitTracker(properties, ANY_CLOCK),
+                new PositionSizer(properties), positionBook, dailyLimits,
                 new PaperEquitySource(properties), ANY_CLOCK, marketCalendarService,
                 macroGuard, disclosureBlacklist);
     }
@@ -216,7 +218,7 @@ class RiskGateTest {
 
     private RiskGate gateWithMarketHoursGuard(Clock clock) {
         RiskProperties guardedProperties = new RiskProperties(0.10, 5, -0.03, 0.05, -0.02, 30,
-                10_000_000, 0.00015, 0.0015, true);
+                10_000_000, 0.00015, 0.0015, true, 1_000_000);
         return new RiskGate(publisher, killSwitch, guardedProperties,
                 new PositionSizer(guardedProperties), positionBook, new DailyLimitTracker(guardedProperties, clock),
                 new PaperEquitySource(guardedProperties), clock, marketCalendarService,
@@ -235,5 +237,60 @@ class RiskGateTest {
         RiskGate guarded = gateWithMarketHoursGuard(AFTER_MARKET_HOURS);
         guarded.onSignal(buySignal("005930", "70000"));
         assertTrue(onlyOrders(published).isEmpty());
+    }
+
+    // ---- 수동 주문(대시보드 테스트 시그널) — Phase 0.4 금액 상한(D-06, aiDoc/manual-order-guard.md) ----
+
+    private static Signal manualSignal(Side side, String price, long quantity) {
+        return new Signal("dashboard-manual", new StockCode("005930"), side, new Price(new BigDecimal(price)), 1.0,
+                quantity, Instant.now());
+    }
+
+    private void hold(long quantity, String avgPrice) {
+        positionBook.onFill(new Fill("seed", new BrokerOrderId("seed"), new StockCode("005930"), Side.BUY,
+                new Quantity(quantity), new Price(new BigDecimal(avgPrice)), Instant.now()));
+    }
+
+    @Test
+    void 수동_매수_금액이_상한을_넘으면_거부되고_주문_슬롯을_쓰지_않는다() {
+        // 5주 × 260,000 = 1,300,000원 > 상한 1,000,000원
+        gate.onSignal(manualSignal(Side.BUY, "260000", 5));
+
+        assertTrue(onlyOrders(published).isEmpty());
+        SignalDecision decision = (SignalDecision) published.get(published.size() - 1);
+        assertEquals("수동 주문 금액 상한 초과 — 거부", decision.reason());
+        assertEquals("1300000", decision.metrics().get("amount"));
+        assertEquals(0, dailyLimits.todayOrderCount());
+    }
+
+    @Test
+    void 수동_매수는_상한과_같은_금액까지_지정_수량으로_발행된다() {
+        // 4주 × 250,000 = 1,000,000원 = 상한(초과만 거부)
+        gate.onSignal(manualSignal(Side.BUY, "250000", 4));
+
+        List<OrderRequest> orders = onlyOrders(published);
+        assertEquals(1, orders.size());
+        assertEquals(new Quantity(4), orders.get(0).quantity());
+    }
+
+    @Test
+    void 수동_매도에는_금액_상한을_적용하지_않는다() {
+        // 보유분 수동 청산을 막지 않는다 — 19주 × 260,000 = 4,940,000원
+        hold(19, "259974");
+
+        gate.onSignal(manualSignal(Side.SELL, "260000", 19));
+
+        List<OrderRequest> orders = onlyOrders(published);
+        assertEquals(1, orders.size());
+        assertEquals(new Quantity(19), orders.get(0).quantity());
+    }
+
+    @Test
+    void 수동_매도_수량은_보유량으로_캡된다() {
+        hold(10, "70000");
+
+        gate.onSignal(manualSignal(Side.SELL, "70000", 23));
+
+        assertEquals(new Quantity(10), onlyOrders(published).get(0).quantity());
     }
 }

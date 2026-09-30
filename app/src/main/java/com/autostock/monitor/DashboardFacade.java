@@ -46,6 +46,7 @@ public class DashboardFacade {
     private final SlippageTracker slippageTracker;
     private final boolean c3Enabled;
     private final boolean wsEnabled;
+    private final long manualOrderMaxKrw;
 
     public DashboardFacade(PositionBook positionBook,
                            EventFeed eventFeed,
@@ -58,7 +59,8 @@ public class DashboardFacade {
                            TradingProperties tradingProperties,
                            SlippageTracker slippageTracker,
                            @Value("${strategy.c3.enabled:false}") boolean c3Enabled,
-                           @Value("${autostock.ws.enabled:false}") boolean wsEnabled) {
+                           @Value("${autostock.ws.enabled:false}") boolean wsEnabled,
+                           @Value("${risk.manual-order-max-krw:1000000}") long manualOrderMaxKrw) {
         this.positionBook = positionBook;
         this.eventFeed = eventFeed;
         this.killSwitch = killSwitch;
@@ -71,6 +73,7 @@ public class DashboardFacade {
         this.slippageTracker = slippageTracker;
         this.c3Enabled = c3Enabled;
         this.wsEnabled = wsEnabled;
+        this.manualOrderMaxKrw = manualOrderMaxKrw;
     }
 
     /** 대시보드 전체 조합 — GET /api/dashboard 하나가 부르는 진입점. */
@@ -107,6 +110,7 @@ public class DashboardFacade {
         return new SystemStatusView(
                 tradingProperties.mode().name(),
                 c3Enabled,
-                wsEnabled);
+                wsEnabled,
+                manualOrderMaxKrw);
     }
 }

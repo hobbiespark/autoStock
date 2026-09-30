@@ -38,3 +38,4 @@
 - [stale-cancel.md](stale-cancel.md) — Phase 0.1: 미체결 타임아웃 취소 정상화(ACCEPTED·부분체결 포함, 취소 경로 TradingService로 일원화, CANCELLED 확정, 대사에 CANCEL_REQUESTED 추가)
 - [risk-state-persistence.md](risk-state-persistence.md) — Phase 0.2: 킬스위치·일 손실 누계 영속화(V9 risk_state·risk_daily_pnl)와 재기동 복원, 원가 장부 시드(PositionRestored), 켜진 채 시작하면 DEGRADED
 - [disclosure-blacklist-tx.md](disclosure-blacklist-tx.md) — Phase 0.3: 공시 블랙리스트 파생 삭제에 트랜잭션(트랜잭션 밖 호출 시 예외로 한 건도 안 지워지던 결함 — 실패 테스트로 확인 후 수정), remove는 DB 먼저
+- [manual-order-guard.md](manual-order-guard.md) — Phase 0.4+0.5: 수동 주문 수량 필수·매수 1건 100만 원 상한(RiskGate), 발행 전 확인 창(LIVE면 종목코드 재입력), 킬스위치 해제·매매 시작 확인, 서버 오류 표시, LIVE 띠

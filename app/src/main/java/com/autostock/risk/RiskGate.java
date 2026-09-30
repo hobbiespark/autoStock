@@ -290,9 +290,13 @@ public class RiskGate {
      * <ul>
      *   <li>매수: 보수 모드·공시 블랙리스트는 그대로 거부. 물타기 금지·동시 보유 한도는
      *       수동 지정에 한해 적용하지 않는다(운영자가 의도한 개입 — 테스트/수동 정리 용도).
-     *       상한은 자동 사이징과 같은 예산 캡(equity×비중×confidence)이다.</li>
+     *       <b>1건 금액 상한</b>({@code risk.manual-order-max-krw}, 기본 100만 원 — D-06, Phase 0.4): 지정 수량 ×
+     *       기준가가 상한을 넘으면 줄이지 않고 거부한다(잘못 입력한 주문을 조용히 줄여 내보내지 않게 — 9/18 "193주"
+     *       사고). 사이징 단계라 거부돼도 주문 슬롯을 쓰지 않는다. 그 다음 상한은 자동 사이징과 같은 예산 캡
+     *       (equity×비중×confidence)이다.</li>
      *   <li>매도: 보유 수량 캡 — 초과 지정 시 보유량으로 줄인다(2026-09-11 실측: 이중계상된
-     *       로컬 23주로 매도 시 브로커 800033 "매도가능수량 부족" 거부 — 이 캡이 1차 방어).</li>
+     *       로컬 23주로 매도 시 브로커 800033 "매도가능수량 부족" 거부 — 이 캡이 1차 방어).
+     *       금액 상한은 적용하지 않는다 — 매도는 노출을 줄이는 방향이고, 보유분 수동 청산을 막지 않기 위해서다.</li>
      * </ul>
      */
     private long sizeManual(Signal signal) {
@@ -324,6 +328,19 @@ public class RiskGate {
             log.info("공시 블랙리스트 종목 — 수동 매수도 거부: {}", signal.symbol());
             publishRejected(signal, "공시 블랙리스트 종목 — 매수 거부", Map.of());
             return 0;
+        }
+        BigDecimal refPrice = refPriceOf(signal);
+        if (refPrice != null) {
+            BigDecimal amount = refPrice.multiply(BigDecimal.valueOf(requested));
+            BigDecimal maxAmount = BigDecimal.valueOf(properties.manualOrderMaxKrw());
+            if (amount.compareTo(maxAmount) > 0) {
+                log.warn("수동 매수 금액 상한 초과 — 거부: {} {}주 × {} = {}원 > 상한 {}원",
+                        signal.symbol(), requested, refPrice, amount.toPlainString(), maxAmount);
+                publishRejected(signal, "수동 주문 금액 상한 초과 — 거부",
+                        Map.of("amount", amount.toPlainString(), "maxAmount", maxAmount.toPlainString(),
+                                "quantity", String.valueOf(requested)));
+                return 0;
+            }
         }
         long cap = sizer.sizeBuy(equitySource.equity(), refPriceOf(signal), clampConfidence(signal));
         if (cap <= 0) {
