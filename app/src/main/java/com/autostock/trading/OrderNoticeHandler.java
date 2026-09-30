@@ -15,12 +15,8 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.math.MathContext;
-import java.math.RoundingMode;
 import java.time.Clock;
-import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * WS 주문체결통보(OrderNotice) → Fill 변환기.
@@ -63,18 +59,12 @@ public class OrderNoticeHandler {
      */
     private static final String FILLED_KEYWORD = "체결";
 
-    /** 누적금액 추적 맵 상한 — 비정상 누수 방어(일 주문 상한 30의 넉넉한 배수). */
-    private static final int MAX_TRACKED = 500;
-
     private final TradingService tradingService;
     private final OrderRepository orderRepository;
     private final ApplicationEventPublisher publisher;
 
-    /**
-     * brokerOrderId → 직전 누적 체결금액(수량×평균가). 증분 단가 역산용.
-     * 주문 종결(902 잔량 0 또는 FILLED) 시 제거. 재시작 시 유실 — 위 Javadoc의 근사로 폴백.
-     */
-    private final Map<BrokerOrderId, BigDecimal> cumulativeNotional = new ConcurrentHashMap<>();
+    /** 누적 통보 → 증분 체결단가(직전 누적금액 기억). B3 B안에서 추출 — {@link CumulativeFillTracker}. */
+    private final CumulativeFillTracker fills = new CumulativeFillTracker();
 
     /** 주문번호 등록 전에 도착한 체결 통보 보류함(R4). */
     private final PendingOrderNotices pending = new PendingOrderNotices();
@@ -160,12 +150,8 @@ public class OrderNoticeHandler {
             return;
         }
         OrderEntity order = applied.order();
-        if (applied.cumulativeNotional() != null) {
-            cumulativeNotional.put(brokerOrderId, applied.cumulativeNotional());
-        }
-        if (notice.remainingQuantity() == 0 || order.getStatus() == OrderStatus.FILLED) {
-            cumulativeNotional.remove(brokerOrderId);
-        }
+        fills.record(brokerOrderId, applied.cumulativeNotional(),
+                notice.remainingQuantity() == 0 || order.getStatus() == OrderStatus.FILLED);
 
         Price fillPrice = fillPriceOf(applied.deltaPrice(), order);
         if (fillPrice == null) {
@@ -223,9 +209,8 @@ public class OrderNoticeHandler {
                     cumulativeQty, previousQty, notice.brokerOrderId());
             return null;
         }
-        BigDecimal deltaPrice = resolveDeltaPrice(notice, cumulativeQty, previousQty, delta);
-        BigDecimal avgPrice = averagePriceOf(notice);
-        BigDecimal cumNotional = avgPrice == null ? null : avgPrice.multiply(BigDecimal.valueOf(cumulativeQty));
+        CumulativeFillTracker.Increment increment =
+                fills.increment(notice.brokerOrderId(), averagePriceOf(notice), cumulativeQty, previousQty);
 
         OrderEntity saved = order;
         try {
@@ -242,45 +227,12 @@ public class OrderNoticeHandler {
             // 위해 에러로 남긴다.
             log.error("체결통보 반영 중 주문 상태 갱신 실패(Fill은 계속 발행): {}", e.getMessage());
         }
-        return new AppliedFill(saved, delta, deltaPrice, cumNotional);
+        return new AppliedFill(saved, delta, increment.deltaPrice(), increment.cumulativeNotional());
     }
 
     /** 체결 반영 결과 — 저장된 주문, 증분 수량·단가, 이번 누적금액(평균가 없으면 null). */
     private record AppliedFill(OrderEntity order, long delta, BigDecimal deltaPrice,
                                BigDecimal cumulativeNotional) {
-    }
-
-    /**
-     * 증분 체결단가 역산 — FID 910은 누적 평균가이므로(실측), 증분 단가는
-     * (누적금액 − 직전 누적금액) / 증분 수량으로 되돌린다. 평균가가 없으면 null 그대로.
-     */
-    private BigDecimal resolveDeltaPrice(OrderNotice notice, long cumulativeQty,
-                                         long previousQty, long delta) {
-        BigDecimal avgPrice = averagePriceOf(notice);
-        if (avgPrice == null) {
-            return null;
-        }
-        if (cumulativeNotional.size() >= MAX_TRACKED) {
-            log.warn("누적금액 추적 맵 상한({}) 도달 — 비움(단가는 평균가 폴백)", MAX_TRACKED);
-            cumulativeNotional.clear();
-        }
-        BigDecimal cumNotional = avgPrice.multiply(BigDecimal.valueOf(cumulativeQty));
-        BigDecimal prevNotional = cumulativeNotional.get(notice.brokerOrderId());
-        if (prevNotional == null) {
-            if (previousQty > 0) {
-                // 재시작 등으로 직전 누적금액 유실 — 이번 평균가로 근사(오차 미미, 로그로 명시)
-                log.info("직전 누적금액 미보유 — 평균가 근사로 증분 단가 계산: {}", notice.brokerOrderId());
-            }
-            prevNotional = avgPrice.multiply(BigDecimal.valueOf(previousQty));
-        }
-        // 누적금액 맵 갱신은 저장 성공 뒤 호출부가 한다(충돌 재시도 시 직전 값이 오염되지 않게).
-        if (previousQty == 0) {
-            // 첫 체결: 누적=증분이므로 평균가가 곧 증분 단가 — 원 스케일 그대로 반환
-            return avgPrice;
-        }
-        return cumNotional.subtract(prevNotional)
-                .divide(BigDecimal.valueOf(delta), MathContext.DECIMAL64)
-                .setScale(4, RoundingMode.HALF_UP);
     }
 
     /**

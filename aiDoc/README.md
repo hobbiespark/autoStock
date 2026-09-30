@@ -19,7 +19,7 @@
 
 - 진행 상태의 기준은 `refactoring-plan.md` 상단 상태 목록이다. A1 값 객체는 조각 21까지 완료(Candle 보류 외 이벤트 적용 끝)(`value-objects.md`).
 - FE: `frontend` 소스를 고치면 `npm run build`(→ `app/src/main/resources/static`) 결과도 함께 커밋한다. Windows `node_modules`는 Linux에서 쓸 수 없어 작업 환경에서는 소스를 옮겨 `npm ci`로 빌드한다(2026-09-30 `da75348`).
-- 다음 후보: 착수 가능한 계획 항목 없음 — 남은 것은 사용자 결정 대기(아래). 선택: `OrderNoticeHandler` 증분 계산 추출(`large-classes.md` B안). `Candle` 종목코드는 사용자 결정으로 보류.
+- 다음 후보: 착수 가능한 계획 항목 없음 — 남은 것은 사용자 결정 대기·나중 항목(아래). `Candle` 종목코드는 사용자 결정으로 보류.
 - 사용자 결정 대기: P3 나머지 항목(Testcontainers는 완료 — `db-integration-test.md`).
 - 나중에(사용자 결정 2026-09-30): B4 감사 실패 알림.
 - 재기동 후 확인할 미검증 항목은 각 문서의 "검증 상태" 절에 있다(V8 마이그레이션, 루프백 바인딩, 타임아웃, event_store JSON, 체결·포지션 반영 등).
