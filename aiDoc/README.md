@@ -20,7 +20,7 @@
 - 진행 상태의 기준은 `refactoring-plan.md` 상단 상태 목록이다. A1 값 객체는 조각 21까지 완료(Candle 보류 외 이벤트 적용 끝)(`value-objects.md`).
 - FE 빌드 필요: 조각 19에서 `frontend` 소스를 고쳤다(평단 미상 `—`). `npm run build` 후 `static/` 커밋.
 - 다음 후보: B3 큰 클래스 조사. `Candle` 종목코드는 사용자 결정으로 보류.
-- 사용자 결정 대기: B4 감사 실패 알림, 엔티티 시각의 Clock 주입, P3 항목(특히 Testcontainers — Docker 없는 내장 PostgreSQL 대안은 `time.md` 5절).
+- 사용자 결정 대기: B4 감사 실패 알림, 엔티티 시각의 Clock 주입, P3 나머지 항목(Testcontainers는 완료 — `db-integration-test.md`).
 - 재기동 후 확인할 미검증 항목은 각 문서의 "검증 상태" 절에 있다(V8 마이그레이션, 루프백 바인딩, 타임아웃, event_store JSON, 체결·포지션 반영 등).
 - 리포 밖 파일의 사본(2026-09-30 복사). 새 PC에서는 원래 위치로 복사해 쓴다.
   - `claude-rules/` → `C:\claude\` — `CLAUDE.md`(최상위 규칙, `@C:/claude/coding-rules.md`로 코딩 규칙을 불러온다), `coding-rules.md`
@@ -29,5 +29,6 @@
 - 여전히 리포에 없는 것(직접 옮긴다):
   - `.env` — 비밀값, 커밋 금지
   - `.claude/settings.local.json` — 개인 권한 설정
+- [db-integration-test.md](db-integration-test.md) — P3: DB 통합 테스트(Docker면 postgres:16-alpine, 없으면 내장 PG 16.15), 첫 검증 4건
 - [time.md](time.md) — A5: 시간대 명시(저장 UTC·업무 날짜 KST 변환 층 표, DATE 영향 실측, cron zone 규칙 테스트)
 - [sleep-resume.md](sleep-resume.md) — 2026-09-30 로그: 장중 PC 절전 방지·복귀 감지, 토큰 거부(8005) 재발급, 로그 소음 정리

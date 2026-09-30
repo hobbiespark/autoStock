@@ -18,6 +18,7 @@
   - B1: 완료, 커밋 `578dba8` (`error-handling.md`)
   - A1: 조각 1(trading 내부 BrokerOrderId·Quantity) 완료, 커밋 `f6915b7`. 조각 2(BrokerPort BrokerOrderId) 완료, 커밋 `a08d430`. 조각 3(StockCode 1단계: 타입+JSON) 완료, 커밋 `f923f68`. 조각 4(StockCode 2단계: trading·BrokerPort) 완료, 커밋 `7d848db`. 조각 5(OrderRequest 이벤트) 완료, 커밋 `866dedc`. 조각 6(Fill 이벤트) 완료, 커밋 `1eba51a`. 조각 7(Signal 이벤트) 완료, 커밋 `b1c6a1d`. 조각 8(PositionRestored 이벤트) 완료, 커밋 `e6e9a65`. 조각 9(장부 맵 키 StockCode 전환) 완료, 커밋 `311f8ff`. 조각 10(SignalDecision 이벤트) 완료, 커밋 `6159065`. 조각 11(OrderNotice 파서 번역) 완료, 커밋 `263f490`. 조각 12(Fill 주문번호 BrokerOrderId) 완료, 커밋 `5bbe0b1`. 조각 13(MarketTick 이벤트) 완료, 커밋 `a22293a`. 조각 14(Quantity 이벤트 적용) 완료, 커밋 `f4b0573`. 조각 15(Price 1단계: 타입+JSON) 완료, 커밋 `6d6299f`. 조각 16(OrderRequest.limitPrice) 완료, 커밋 `441dc13`. 조각 17(Fill.fillPrice) 완료, 커밋 `97c7cee`. 조각 18(MarketTick·OrderNotice 가격) 완료, 커밋 `882c365`. 조각 19(PositionRestored 평단 미상 null) 완료, 커밋 `6dbd55e`. 조각 20(C3 강제 청산 기준가 = 최우선 매수호가, 사용자 결정) 완료, 커밋 `fbbea40`. 조각 21(Signal.refPrice) 완료, 커밋 `18eeada` — 이벤트 가격의 Price 도입 끝(Candle 보류). 조각 22(C3 판단일 기준가 = 최유리 호가, 사용자 결정) 완료. Candle은 사용자 결정으로 보류. 사용자 확정: StockCode 단계적 도입 (`value-objects.md`). ARCH 3절 1순위 값 객체는 Candle을 빼고 모두 적용
   - A5: 완료 (`time.md`). `hibernate.jdbc.time_zone`의 DATE 영향은 내장 PostgreSQL로 실측(영향 없음)
+  - P3 Testcontainers: 완료, 사용자 확정(운영 정확도 우선 + Docker 없을 때 내장 PG 16.15) (`db-integration-test.md`). H2 제거
   - 나머지: 미착수
 
 ## 0. 원칙
@@ -262,7 +263,7 @@
 | 항목 | 규칙 | 현행·기존 결정 | 권고 |
 |---|---|---|---|
 | 구조화 JSON 로그 | §2.7, §6 | 평문 롤링 파일(`logs/autostock.log`)과 마스킹 컨버터 | **유지**. 단일 로컬 프로세스라 수집 플랫폼이 없다. 필요해지면 Boot 내장 structured logging으로 전환한다 |
-| Testcontainers 통합 테스트 | §12 | 단위 테스트뿐이다. 저장소, SQL 매핑, Flyway는 검증하지 않는다. H2는 의존성만 있고 쓰지 않는다 | **도입 검토**. PG 컨테이너로 Flyway와 `ddl-auto: validate`, 저장소를 검증한다(R2 검증에도 필요). 쓰지 않는 H2는 제거한다. 로컬과 CI에 Docker가 필요하다 |
+| Testcontainers 통합 테스트(**2026-09-30 완료** — `db-integration-test.md`) | §12 | 단위 테스트뿐이다. 저장소, SQL 매핑, Flyway는 검증하지 않는다. H2는 의존성만 있고 쓰지 않는다 | **도입 검토**. PG 컨테이너로 Flyway와 `ddl-auto: validate`, 저장소를 검증한다(R2 검증에도 필요). 쓰지 않는 H2는 제거한다. 로컬과 CI에 Docker가 필요하다 |
 | 모듈 내부 계층 패키지(domain/application/adapter) | §3 | 평면 구조. ARCH §2는 "커지는 모듈부터 적용" | **필요할 때만**. 후보 1순위는 trading. 지금은 YAGNI |
 | 리포에 커밋하는 md는 README만 | §13 | `PLAN.md`, `PROGRESS.md`, `docs/`를 커밋한다 | **유지**(기존 관례) |
 | 버전 카탈로그 | §11 | BOM과 직접 고정 4개(springdoc, resilience4j×2, junit-bom) | **유지**. 규모가 작다 |

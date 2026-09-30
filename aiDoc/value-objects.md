@@ -76,6 +76,7 @@ trading에서 `clientOrderId`(우리 멱등키)와 `brokerOrderId`(브로커 주
 - **미검증**
   - 실제 PostgreSQL에서 `BrokerOrderIdConverter`와 `ddl-auto: validate`, `findByBrokerOrderId(BrokerOrderId)` 파생 쿼리 동작. 단위 테스트는 목 저장소다.
   - Testcontainers(P3) 결정 뒤 검증하거나, 재기동 시 기동 로그와 첫 주문·체결로 확인한다.
+  - → 2026-09-30 검증: `OrderRepositoryDbTest`(컨버터 저장 형식, `findByBrokerOrderId`, validate).
 
 ### 9. 다음 조각 후보
 

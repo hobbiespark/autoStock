@@ -105,6 +105,7 @@ WS 체결 통보가 2보다 먼저 오면 `OrderNoticeHandler`는 `findByBrokerO
    - 엔티티 단위: 전이와 누적 불변식
    - 경로별: 충돌 시 재처리와 스킵
    - 실제 `@Version` 동작(동시 저장 → 예외)은 DB가 필요하다. Testcontainers(P3) 결정 전에는 **미검증**으로 남는다.
+     → 2026-09-30 검증: `OrderRepositoryDbTest`(실제 PostgreSQL, `db-integration-test.md`). IPO 딜은 아직.
 - 대안(기각)
   - 주문별 인메모리 락: 취소 중 브로커 호출 동안 WS 수신 스레드가 막힌다.
   - 조건부 UPDATE 쿼리: 상태기계 로직이 SQL로 새어 나간다.
@@ -134,7 +135,7 @@ WS 체결 통보가 2보다 먼저 오면 `OrderNoticeHandler`는 `findByBrokerO
   - Flyway V8 적용과 `ddl-auto: validate` 통과
   - 주문 1건의 정상 흐름(VALIDATED → SUBMITTING → SUBMITTED 저장)에서 충돌 예외가 나지 않는지
   - 로그 `주문 동시 갱신 충돌`과 `보류했던 체결통보 재처리`의 빈도
-- 실제 DB에서 `@Version` 충돌 동작 검증: Testcontainers(P3) 결정 뒤
+- 실제 DB에서 `@Version` 충돌 동작 검증: Testcontainers(P3) 결정 뒤 → 주문은 2026-09-30 `OrderRepositoryDbTest`로 검증, IPO 딜은 남음
 
 ## 7. 구현 — R2 낙관적 잠금 (커밋 `fb02d61`)
 
