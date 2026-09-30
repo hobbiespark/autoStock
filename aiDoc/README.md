@@ -39,3 +39,4 @@
 - [risk-state-persistence.md](risk-state-persistence.md) — Phase 0.2: 킬스위치·일 손실 누계 영속화(V9 risk_state·risk_daily_pnl)와 재기동 복원, 원가 장부 시드(PositionRestored), 켜진 채 시작하면 DEGRADED
 - [disclosure-blacklist-tx.md](disclosure-blacklist-tx.md) — Phase 0.3: 공시 블랙리스트 파생 삭제에 트랜잭션(트랜잭션 밖 호출 시 예외로 한 건도 안 지워지던 결함 — 실패 테스트로 확인 후 수정), remove는 DB 먼저
 - [manual-order-guard.md](manual-order-guard.md) — Phase 0.4+0.5: 수동 주문 수량 필수·매수 1건 100만 원 상한(RiskGate), 발행 전 확인 창(LIVE면 종목코드 재입력), 킬스위치 해제·매매 시작 확인, 서버 오류 표시, LIVE 띠
+- [kiwoom-error-codes.md](kiwoom-error-codes.md) — Phase 0.6: 키움 오류코드 분류(유량 1700·1701·1702 재시도, 8005·8010 재발급 1회, 인증 실패 8001·8002·8010·8030·8031·8040·8050·8103 텔레그램 긴급 알림), 주문 타임아웃을 거부가 아닌 결과 불명(UNKNOWN)으로

@@ -6,6 +6,7 @@ import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.StockCode;
 import com.autostock.kiwoom.KiwoomApiException;
 import com.autostock.kiwoom.KiwoomRestClient;
+import com.autostock.kiwoom.KiwoomTimeoutException;
 import com.autostock.kiwoom.TrId;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
@@ -46,6 +47,24 @@ class KiwoomBrokerAdapterTest {
                 .thenReturn(Map.of("return_code", 0, "ord_no", "0119433"));
 
         assertEquals(new BrokerOrderId("0119433"), adapter.placeOrder(buy()).brokerOrderId());
+    }
+
+    @Test
+    void 주문_응답_시간_초과는_거부가_아니라_결과_불명으로_던진다() {
+        // Phase 0.6: 타임아웃을 BrokerRejectedException으로 번역하면 TradingService가 REJECTED로 종결하고 대사하지 않는다
+        // — 실제로 접수된 주문이 추적에서 빠진다. 그대로 던져 UNKNOWN + 대사로 확정하게 한다.
+        when(client.call(eq(TrId.ORDER_BUY), anyString(), anyMap()))
+                .thenThrow(new KiwoomTimeoutException("키움 API 응답 없음 [kt10000] 15초 내 응답 없음"));
+
+        assertThrows(KiwoomTimeoutException.class, () -> adapter.placeOrder(buy()));
+    }
+
+    @Test
+    void 응답을_받은_명시_오류는_브로커_거부로_번역한다() {
+        when(client.call(eq(TrId.ORDER_BUY), anyString(), anyMap()))
+                .thenThrow(new KiwoomApiException("키움 API 논리 오류 [kt10000] [RC4027:가격제한폭 초과]"));
+
+        assertThrows(BrokerRejectedException.class, () -> adapter.placeOrder(buy()));
     }
 
     @Test

@@ -1,9 +1,14 @@
 package com.autostock.kiwoom;
 
+import com.autostock.common.event.BrokerAuthFailure;
+import com.autostock.common.util.SecretMasking;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -12,6 +17,8 @@ import org.springframework.web.reactive.function.client.WebClientResponseExcepti
 
 import reactor.core.publisher.Mono;
 
+import java.net.URI;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.Map;
 
@@ -39,9 +46,16 @@ import java.util.Map;
  *
  * <p>참고: 키움 REST는 <b>조회도 POST 방식</b>이다. HTTP 메서드가 아니라
  * api-id 헤더가 "무엇을 할지"를 결정한다 — 그래서 TrId enum 강제가 중요하다.
+ *
+ * <p><b>오류 분류(Phase 0.6, {@link KiwoomErrorCodes}, aiDoc/kiwoom-error-codes.md)</b>: 유량 1700/1701/1702는
+ * 1.1초 간격 재시도, 토큰 거절 8005/8010은 재발급 후 1회 재시도, 인증 실패 8001/8002/8010/8030/8031/8040/8050/8103은
+ * 재시도 없이 {@link BrokerAuthFailure}를 발행한다(monitor가 텔레그램 긴급 알림). 응답 시간 초과는
+ * {@link KiwoomTimeoutException}(결과 불명)으로 명시 오류와 구분한다.
  */
 @Component
 public class KiwoomRestClient {
+
+    private static final Logger log = LoggerFactory.getLogger(KiwoomRestClient.class);
 
     /**
      * REST 1회 호출 상한. Reactor Netty 기본은 응답 타임아웃이 없어 PC 절전·망 단절 뒤 죽은 소켓에서
@@ -55,11 +69,16 @@ public class KiwoomRestClient {
     private final TokenManager tokenManager;
     private final TrRateLimiter rateLimiter;
     private final MeterRegistry meterRegistry;
+    private final ApplicationEventPublisher publisher;
+    private final Clock clock;
+    /** 알림에 싣는 서버 호스트 — mockapi(모의)·api(실전) 구분용. */
+    private final String host;
 
     /**
      * 호출 한도 초과 전용 재시도 — HTTP 429, 그리고 HTTP 200으로 오는 논리 오류 return_code 5
-     * {@code [1700:허용된 API 요청 개수를 초과하였습니다]}(실측 2026-09-23, ka10080/ka10081).
-     * 둘 다 "서버가 요청을 처리하지 않고 거절"한 경우라 재전송해도 중복 사고가 없다.
+     * {@code [1700:허용된 API 요청 개수를 초과하였습니다]}(실측 2026-09-23, ka10080/ka10081). 공식 스펙의
+     * 1701(전체 총유량)·1702(그룹 유량)도 같은 성격이라 함께 재시도한다(Phase 0.6).
+     * 모두 "서버가 요청을 처리하지 않고 거절"한 경우라 재전송해도 중복 사고가 없다.
      * 다른 오류는 재시도하지 않는다 — 주문 중복 위험 때문.
      */
     private final Retry retry;
@@ -68,11 +87,16 @@ public class KiwoomRestClient {
                             KiwoomProperties properties,
                             TokenManager tokenManager,
                             TrRateLimiter rateLimiter,
-                            MeterRegistry meterRegistry) {
+                            MeterRegistry meterRegistry,
+                            ApplicationEventPublisher publisher,
+                            Clock clock) {
         this.webClient = builder.baseUrl(properties.restBaseUrl()).build();
         this.tokenManager = tokenManager;
         this.rateLimiter = rateLimiter;
         this.meterRegistry = meterRegistry;
+        this.publisher = publisher;
+        this.clock = clock;
+        this.host = URI.create(properties.restBaseUrl()).getHost();
         this.retry = Retry.of("kiwoom-429", RetryConfig.custom()
                 .maxAttempts(4)                          // 최초 1회 + 재시도 3회
                 .waitDuration(Duration.ofMillis(1100))   // 재시도 간격 — 유량 1건/초 창을 확실히 넘긴다
@@ -100,6 +124,9 @@ public class KiwoomRestClient {
         try {
             // 바깥: rate limiter (통과할 때까지 대기) → 토큰 거부 시 1회 재발급 → 429 재시도 → 최심부: 실제 HTTP 호출
             return rateLimiter.execute(trId, () -> callRefreshingRejectedToken(trId, path, body));
+        } catch (KiwoomApiException e) {
+            reportAuthFailure(trId, e);
+            throw e;
         } finally {
             sample.stop(Timer.builder("kiwoom.api.latency")
                     .description("TR(api_id)별 키움 REST API 호출 지연(rate limit 대기 포함)")
@@ -109,7 +136,23 @@ public class KiwoomRestClient {
     }
 
     /**
+     * 재시도로 풀리지 않는 인증 실패면 {@link BrokerAuthFailure}를 발행한다 — 텔레그램 긴급 알림(monitor)으로 이어진다.
+     * 토큰 발급 실패({@link KiwoomTokenIssueException})는 {@link TokenManager}가 이미 발행했으므로 건너뛴다.
+     */
+    private void reportAuthFailure(TrId trId, KiwoomApiException e) {
+        if (e instanceof KiwoomTokenIssueException) {
+            return;
+        }
+        KiwoomErrorCodes.find(e.getMessage(), KiwoomErrorCodes.AUTH_FAILURE).ifPresent(code -> {
+            log.error("키움 인증 실패 [{}] api-id={} host={} — 재시도로 풀리지 않는 오류, 긴급 알림 발행", code, trId.apiId(), host);
+            publisher.publishEvent(new BrokerAuthFailure(code, SecretMasking.mask(e.getMessage()), host, clock.instant()));
+        });
+    }
+
+    /**
      * 토큰이 거부되면({@code [8005:Token이 유효하지 않습니다]}) 캐시를 버리고 새 토큰으로 딱 한 번 더 보낸다.
+     * {@code [8010:Token을 발급받은 IP와 서비스를 요청한 IP가 동일하지 않습니다]}도 같다(Phase 0.6) — 공인 IP가 바뀌었으면
+     * 새 IP에서 재발급한 토큰으로 풀린다(새 IP가 허용 IP 목록에 있어야 한다 — 없으면 재시도도 8010, 인증 실패 알림).
      * 서버가 인증 단계에서 거절해 요청을 처리하지 않았으므로 주문 TR이어도 중복 위험이 없다(1700 재시도와 같은 근거).
      * 실측 2026-09-30: 절전 복귀 직후 만료 전 토큰이 8005로 거부돼 리포트·분봉 적재가 전부 실패했다.
      */
@@ -141,7 +184,7 @@ public class KiwoomRestClient {
                             resp.bodyToMono(String.class).map(msg ->
                                     new KiwoomApiException("키움 API 오류 [" + trId.apiId() + "] " + msg)))
                     .bodyToMono(Map.class)
-                    .timeout(REQUEST_TIMEOUT, Mono.error(() -> new KiwoomApiException(
+                    .timeout(REQUEST_TIMEOUT, Mono.error(() -> new KiwoomTimeoutException(
                             "키움 API 응답 없음 [" + trId.apiId() + "] " + REQUEST_TIMEOUT.toSeconds()
                                     + "초 내 응답 없음 — 망 단절/절전 복귀 여부 확인")))
                     .block();
@@ -149,14 +192,17 @@ public class KiwoomRestClient {
         }).get();
     }
 
-    /** 키움이 접근토큰을 거부했는가 — 실측 메시지 {@code 인증에 실패했습니다[8005:Token이 유효하지 않습니다]}. */
+    /**
+     * 키움이 접근토큰을 거부했는가 — 실측 메시지 {@code 인증에 실패했습니다[8005:Token이 유효하지 않습니다]},
+     * 공식 스펙 {@code [8010:…IP와 서비스를 요청한 IP가 동일하지 않습니다]}.
+     */
     static boolean isTokenRejected(Throwable e) {
-        return e instanceof KiwoomApiException && e.getMessage() != null && e.getMessage().contains("[8005");
+        return KiwoomErrorCodes.has(e, KiwoomErrorCodes.TOKEN_REJECTED);
     }
 
-    /** 키움이 HTTP 200으로 돌려주는 유량 초과 논리 오류(return_code 5, 메시지 [1700:...])인가. */
+    /** 키움이 돌려주는 유량 초과 논리 오류(return_code 5, 메시지 [1700:…]·[1701:…]·[1702:…])인가. */
     static boolean isRateLimitLogicError(Throwable e) {
-        return e instanceof KiwoomApiException && e.getMessage() != null && e.getMessage().contains("[1700");
+        return KiwoomErrorCodes.has(e, KiwoomErrorCodes.RATE_LIMIT);
     }
 
     /**

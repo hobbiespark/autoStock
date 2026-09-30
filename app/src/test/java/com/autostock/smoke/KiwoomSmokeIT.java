@@ -70,14 +70,14 @@ class KiwoomSmokeIT {
         WebClient.Builder builder = WebClient.builder();
 
         // ── 1) 토큰 발급 ──────────────────────────────────────────────────────
-        TokenManager tokenManager = new TokenManager(builder, properties, Clock.systemUTC());
+        TokenManager tokenManager = new TokenManager(builder, properties, event -> { }, Clock.systemUTC());
         String token = tokenManager.accessToken();
         assertFalse(token == null || token.isBlank(), "접근토큰이 발급되어야 함");
 
         // ── 2) 잔고 조회(kt00018) — return_code==0 검증 ──────────────────────
         TrRateLimiter rateLimiter = new TrRateLimiter();
         KiwoomRestClient restClient = new KiwoomRestClient(
-                builder, properties, tokenManager, rateLimiter, new SimpleMeterRegistry());
+                builder, properties, tokenManager, rateLimiter, new SimpleMeterRegistry(), event -> { }, Clock.systemUTC());
         Map<String, Object> balance = restClient.call(TrId.ACCOUNT_BALANCE, "/api/dostk/acnt",
                 Map.of("qry_tp", "1", "dmst_stex_tp", "KRX"));
         assertEquals(0, ((Number) balance.get("return_code")).intValue(),
