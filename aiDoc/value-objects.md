@@ -541,8 +541,8 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 |---|---|---|
 | `OrderRequest.limitPrice` | null 가능(`KrxTickSize.align`이 null·0 이하를 그대로 반환) | **조각 16에서 처리** — `RiskGate`가 거부 |
 | `Signal.refPrice` | 생성처(C3, StrategyEngine, 대시보드 테스트 신호)별 확인 필요 | `RiskGate`가 `limitPrice`로 넘긴다 |
-| `OrderNotice.fillPrice` | 빈 값이면 null(`RealMessageParser`). 접수 통보의 `"0"` 여부는 **미실측** | 0이면 파서에서 null로 번역해야 한다 |
-| `Fill.fillPrice` | 체결에서만 발행 — 양수로 **추론** | SIM은 `limitPrice`를 그대로 쓴다 |
+| `OrderNotice.fillPrice` | 빈 값이면 null(`RealMessageParser`). 실측(조각 17): 접수 통보는 빈 값, 체결은 양수 | 0이면 파서에서 null로 번역해야 한다 |
+| `Fill.fillPrice` | LIVE는 910이 비면 null·0이 나갈 수 있었다 | **조각 17에서 처리** — 지정가 근사 |
 | `PositionRestored.avgPrice` | 잔고 필드가 없으면 null 가능(`PositionRestorer.firstPrice`) | |
 | `MarketTick.price` | 빈 값은 파서가 버림. 0은 **미확인** | |
 | `Candle` OHLC | — | 종목코드와 함께 **보류**(조각 13 사용자 결정) |
@@ -590,6 +590,45 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - `.\gradlew.bat test` 전체 통과(2026-09-30, 550건, 건너뜀 16). `RiskGateTest` 13.
 - **미검증:** 실제 주문 전문의 `ord_uv`, event_store의 OrderRequest JSON, 기준가 0 거부 경로의 운영 발생 여부.
 
+## 조각 17 — `Price`: `Fill.fillPrice` (2026-09-30)
+
+### 1. 사전 조사 — 0·null 경로
+
+- 발행처 3곳
+  - LIVE `OrderNoticeHandler`: 증분 단가를 FID 910(누적 평균가)에서 역산한다. 910이 비었거나 0이면 null·0을 **그대로** 실었다.
+  - SIM `TradingService`: 지정가 그대로(조각 16 이후 이미 `Price`).
+  - 백테스트 `BacktestExecutionHandler`: 체결 기준가에 슬리피지를 반영한 값. 매수는 `affordableQuantity`가 0 이하를 거른다.
+- 실측(`docs/measured/ws_probe_20260911_intraday.txt`, 00 통보 4건): 접수는 910·911이 빈 값이고(체결량 0 → Fill 없음), 체결은 `910="258000"`이다. 체결 통보에서 910이 빠진 사례는 관측되지 않았다.
+- **null이 나가면 이미 깨졌다:** `PositionBook.onFill`·`DailyPnlTracker`가 `fillPrice().multiply(...)`를 부른다. 체결가 없는 Fill은 두 리스너에서 NPE였다(**추론**, 코드로 확인).
+
+### 2. 결정
+
+- `Fill.fillPrice`를 `Price`로 바꿨다. 항상 있다. JSON은 숫자 그대로다.
+- `OrderNoticeHandler.fillPriceOf`: 역산 단가가 양수면 그대로, 아니면 **주문 지정가로 근사**하고 WARN을 남긴다. 지정가 주문의 체결가는 지정가와 같거나 유리하므로 평단·손익 오차는 그 차이만큼이다. 지정가도 없으면(과거 행) ERROR를 남기고 Fill을 내지 않는다. 주문 체결량은 이미 저장됐고, 포지션은 대사·재기동 잔고 복원이 맞춘다.
+- 원장 산술(`PositionBook`, `DailyPnlTracker`, `SlippageTracker`, 백테스트 러너)은 `.value()`로 꺼낸다. `PositionBook.Position.avgPrice`와 `DailyPnlTracker.Lot`은 `BigDecimal` 그대로다(평단은 누적 계산 결과라 값 객체 대상이 아님).
+- `SlippageTracker`의 체결가 null·0 이하 검사는 지웠다.
+- 백테스트는 `new Price(execPrice)`. 체결 기준가가 0이면 이제 예외로 드러난다(시세 CSV에 시가 0 이하 행 없음 — 조각 16).
+
+### 3. 함정 점검
+
+- 테스트의 `assertEquals(new BigDecimal(..), fill.fillPrice())` 4곳은 컴파일되지만 항상 실패한다. `Price` 비교로 고쳤다. `compareTo` 1곳은 컴파일 오류로 드러나 같은 방식으로 고쳤다.
+- 운영 코드의 `fillPrice()` 중 산술이 아닌 곳은 로그 `{}`·`%s`(EventFeed, 텔레그램, 슬리피지 로그)뿐이다. `toString()`이 평문 숫자라 문구가 같다.
+- 변이 확인: 근사 분기를 없애면(`new Price(null)`) 새 테스트가 실패함을 실행으로 확인했다.
+
+### 4. 동작 변화
+
+- 체결가 없는 LIVE 체결 통보: 이전에는 null 체결가 Fill → 포지션·손익 리스너 NPE. 이제 지정가 근사 Fill(WARN), 지정가도 없으면 Fill 미발행(ERROR).
+
+### 5. 변경 파일
+
+- 수정(main 9): `common/event/Fill`, `trading/OrderNoticeHandler`, `TradingService`, `portfolio/PositionBook`, `risk/DailyPnlTracker`, `monitor/SlippageTracker`, `backtest/BacktestExecutionHandler`, `BacktestRunner`, `InverseSwitchWalkForwardRunner`
+- 테스트: 생성자 인자 18곳(컴파일 오류 줄만 스크립트 변환), 단언 5곳, `OrderNoticeHandlerTest` 신규 1(체결가 null·0 → 지정가 근사, 주문 체결량 반영)
+
+### 6. 검증 상태
+
+- `.\gradlew.bat test` 전체 통과(2026-09-30, 551건, 건너뜀 16).
+- **미검증:** 장중 실제 체결의 포지션·손익·슬리피지 반영, event_store의 Fill JSON.
+
 ### 10. 변경 이력
 
 - 2026-09-30: 조각 1
@@ -608,3 +647,4 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - 2026-09-30: 조각 14(Quantity 이벤트 적용)
 - 2026-09-30: 조각 15(Price 1단계: 타입과 JSON)
 - 2026-09-30: 조각 16(Price: OrderRequest.limitPrice)
+- 2026-09-30: 조각 17(Price: Fill.fillPrice)

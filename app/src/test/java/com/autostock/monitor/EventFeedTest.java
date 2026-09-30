@@ -34,7 +34,7 @@ class EventFeedTest {
     @Test
     void 체결_요약에_수량과_주문번호가_찍힌다() {
         feed.on(new Fill("20260930-C3-005930-BUY-001", new BrokerOrderId("0119433"), new StockCode("005930"),
-                Side.BUY, new Quantity(14), new BigDecimal("70000"), AT));
+                Side.BUY, new Quantity(14), new Price(new BigDecimal("70000")), AT));
 
         assertEquals("[005930] BUY 14주 @ 70000 체결 (0119433)", feed.recent().get(0).summary());
     }

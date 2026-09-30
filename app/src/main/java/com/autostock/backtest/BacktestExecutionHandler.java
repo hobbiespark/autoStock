@@ -3,6 +3,7 @@ package com.autostock.backtest;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 
 import java.math.BigDecimal;
 
@@ -47,7 +48,7 @@ public final class BacktestExecutionHandler {
                 order.symbol(),
                 order.side(),
                 order.quantity(),
-                execPrice,
+                new Price(execPrice),
                 order.timestamp()
         );
     }

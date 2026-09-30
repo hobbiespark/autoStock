@@ -61,7 +61,7 @@ public class PositionBook {
 
             if (current == null) {
                 // 신규: 매수면 포지션 생성, (있을 수 없는) 미보유 매도면 무시(null 유지)
-                return signed > 0 ? new Position(signed, fill.fillPrice()) : null;
+                return signed > 0 ? new Position(signed, fill.fillPrice().value()) : null;
             }
 
             long newQty = current.quantity() + signed;
@@ -73,7 +73,7 @@ public class PositionBook {
                 // 추가 매수 → 가중평균으로 평단 재계산:
                 //   새 평단 = (기존수량×기존평단 + 체결수량×체결가) / 새 수량
                 BigDecimal totalCost = current.avgPrice().multiply(BigDecimal.valueOf(current.quantity()))
-                        .add(fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity().value())));
+                        .add(fill.fillPrice().value().multiply(BigDecimal.valueOf(fill.filledQuantity().value())));
                 BigDecimal avg = totalCost.divide(BigDecimal.valueOf(newQty), 2, RoundingMode.HALF_UP);
                 return new Position(newQty, avg);
             }

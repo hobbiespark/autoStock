@@ -229,7 +229,7 @@ public final class BacktestRunner {
     private void applySell(Ledger ledger, Candle today, BigDecimal referencePrice) {
         OrderRequest order = buildOrder(today, Side.SELL, ledger.positionQty);
         Fill fill = executionHandler.execute(order, referencePrice);
-        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
+        BigDecimal notional = fill.fillPrice().value().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
         ledger.cash = ledger.cash.add(notional).subtract(costModel.sellFee(notional));
         ledger.positionQty = 0;
         ledger.avgPrice = BigDecimal.ZERO;
@@ -255,10 +255,10 @@ public final class BacktestRunner {
         }
         OrderRequest order = buildOrder(today, Side.BUY, qty);
         Fill fill = executionHandler.execute(order, referencePrice);
-        BigDecimal notional = fill.fillPrice().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
+        BigDecimal notional = fill.fillPrice().value().multiply(BigDecimal.valueOf(fill.filledQuantity().value()));
         ledger.cash = ledger.cash.subtract(notional).subtract(costModel.buyFee(notional));
         ledger.positionQty = qty;
-        ledger.avgPrice = fill.fillPrice();
+        ledger.avgPrice = fill.fillPrice().value();
         ledger.tradeCount++;
         return true;
     }
