@@ -11,9 +11,7 @@ import com.autostock.ipo.IpoStatus;
 import com.autostock.ipo.IpoSyncScheduler;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.http.HttpStatus;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.time.Clock;
@@ -66,17 +64,18 @@ class IpoControllerTest {
 
     @Test
     void 알수없는_status는_400을_던진다() {
-        ResponseStatusException ex = assertThrows(ResponseStatusException.class, () -> controller.deals("NOPE"));
-        assertEquals(HttpStatus.BAD_REQUEST, ex.getStatusCode());
+        ApiException ex = assertThrows(ApiException.class, () -> controller.deals("NOPE"));
+        assertEquals(ErrorCode.INVALID_PARAMETER, ex.code());
     }
 
     @Test
-    void 존재하지않는_id_기록_요청은_404를_반환한다() {
+    void 존재하지않는_id_기록_요청은_NOT_FOUND다() {
         when(repository.findById(999L)).thenReturn(Optional.empty());
 
-        var response = controller.record(999L, new IpoRecordRequest(10, null, null, null, null, null));
+        ApiException ex = assertThrows(ApiException.class,
+                () -> controller.record(999L, new IpoRecordRequest(10, null, null, null, null, null)));
 
-        assertEquals(404, response.getStatusCode().value());
+        assertEquals(ErrorCode.NOT_FOUND, ex.code());
     }
 
     @Test
@@ -93,14 +92,14 @@ class IpoControllerTest {
     }
 
     @Test
-    void 배치와_동시_갱신_충돌이면_409를_반환한다() {
+    void 배치와_동시_갱신_충돌은_전역_처리기로_전파된다() {
         IpoDealEntity entity = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART");
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
         when(repository.save(entity)).thenThrow(new ObjectOptimisticLockingFailureException(IpoDealEntity.class, 1L));
 
-        var response = controller.metrics(1L, new IpoMetricsRequest(new BigDecimal("600"), null, null));
-
-        assertEquals(409, response.getStatusCode().value());
+        // ApiExceptionHandler가 409 CONFLICT로 바꾼다(ApiExceptionHandlerTest)
+        assertThrows(ObjectOptimisticLockingFailureException.class,
+                () -> controller.metrics(1L, new IpoMetricsRequest(new BigDecimal("600"), null, null)));
     }
 
     @Test

@@ -20,6 +20,7 @@ import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -35,7 +36,8 @@ class RequestValidationTest {
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(
             new DashboardController(mock(DashboardFacade.class), killSwitch, publisher,
                     mock(MarketDataPort.class), Clock.systemUTC()),
-            new IpoController(mock(IpoDealRepository.class), ipoCommands)).build();
+            new IpoController(mock(IpoDealRepository.class), ipoCommands))
+            .setControllerAdvice(new ApiExceptionHandler()).build();
 
     private org.springframework.test.web.servlet.ResultActions postJson(String path, String json) throws Exception {
         return mvc.perform(post(path).contentType(MediaType.APPLICATION_JSON).content(json));
@@ -52,7 +54,9 @@ class RequestValidationTest {
     @Test
     void engage가_없는_킬스위치_요청은_400이고_해제되지_않는다() throws Exception {
         // 예전(Map 본문)에는 키가 없거나 오타면 "해제"로 떨어졌다 — 비상 정지가 풀리는 fail-open
-        postJson("/api/dashboard/killswitch", "{\"engaged\":true}").andExpect(status().isBadRequest());
+        postJson("/api/dashboard/killswitch", "{\"engaged\":true}").andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("engage"));
         verify(killSwitch, never()).release(anyString());
         verify(killSwitch, never()).engage(anyString());
     }

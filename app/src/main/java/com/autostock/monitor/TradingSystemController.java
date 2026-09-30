@@ -1,11 +1,11 @@
 package com.autostock.monitor;
 
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
 import java.util.function.Supplier;
 
 /**
@@ -38,13 +38,13 @@ public class TradingSystemController {
         return respond(tradingSystemManager::stop);
     }
 
-    /** 명령 실행 공통 처리 — 불법 전이(IllegalStateException)는 409 + 현재 상태로 응답한다. */
+    /** 명령 실행 공통 처리 — 불법 전이(IllegalStateException)는 409 CONFLICT + 현재 상태(currentStatus). */
     private ResponseEntity<StatusResponse> respond(Supplier<TradingSystemStatus> command) {
         try {
             return ResponseEntity.ok(new StatusResponse(command.get()));
         } catch (IllegalStateException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT)
-                    .body(new StatusResponse(tradingSystemManager.status()));
+            throw new ApiException(ErrorCode.CONFLICT, "현재 상태에서 허용되지 않는 명령입니다.",
+                    Map.of("currentStatus", tradingSystemManager.status().name()));
         }
     }
 

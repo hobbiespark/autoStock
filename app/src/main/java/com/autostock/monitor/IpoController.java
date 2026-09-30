@@ -6,8 +6,6 @@ import com.autostock.ipo.IpoDealRepository;
 import com.autostock.ipo.IpoStatus;
 import com.autostock.monitor.view.IpoDealView;
 import jakarta.validation.Valid;
-import org.springframework.dao.OptimisticLockingFailureException;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,7 +15,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.function.Supplier;
 
@@ -70,22 +70,18 @@ public class IpoController {
                 request.institutionalCompetitionRate(), request.lockupCommitRate(), request.listingDate())));
     }
 
-    /** 없는 딜은 404, 배치와 동시 갱신 충돌은 409(최신 값으로 다시 입력). */
+    /** 없는 딜은 NOT_FOUND. 배치와의 동시 갱신 충돌은 ApiExceptionHandler가 409로 바꾼다. */
     private static ResponseEntity<IpoDealView> toResponse(Supplier<Optional<IpoDealEntity>> command) {
-        try {
-            return command.get().map(entity -> ResponseEntity.ok(toView(entity)))
-                    .orElseGet(() -> ResponseEntity.notFound().build());
-        } catch (OptimisticLockingFailureException e) {
-            return ResponseEntity.status(HttpStatus.CONFLICT).build();
-        }
+        return command.get().map(entity -> ResponseEntity.ok(toView(entity)))
+                .orElseThrow(() -> new ApiException(ErrorCode.NOT_FOUND, "공모주 딜을 찾을 수 없습니다."));
     }
 
     private static IpoStatus parseStatus(String raw) {
         try {
             return IpoStatus.valueOf(raw.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw new org.springframework.web.server.ResponseStatusException(
-                    org.springframework.http.HttpStatus.BAD_REQUEST, "알 수 없는 status: " + raw);
+            throw new ApiException(ErrorCode.INVALID_PARAMETER, "알 수 없는 status입니다.",
+                    Map.of("allowed", Arrays.stream(IpoStatus.values()).map(Enum::name).toList()));
         }
     }
 
