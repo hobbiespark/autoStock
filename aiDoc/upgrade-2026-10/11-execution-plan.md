@@ -89,6 +89,8 @@ AI 작업 환경(리눅스 VM)에서 연결 폴더의 git을 조회할 때는 �
 
 실행 순서: **0.0 → 0.1 → 0.2 → 0.3 → 0.4+0.5(같은 배포) → 0.6 → 0.7 → 0.8 → 0.9 → 0.10 → 0.11**. 0.8·0.9·0.10은 사용자 작업 위주라 코드 작업과 병행 가능.
 
+> **진행(2026-10-01)**: 0.0(휴장일 SQL)·0.1~0.8·0.10·0.11의 코드·스크립트·문서를 PC 작업 트리에 반영했다(커밋 전, 컨테이너 전체 테스트 643건 통과). 남은 것은 사용자 작업(0.7 봇·Healthchecks 발급, 0.8 스케줄 등록·복원 리허설, 0.9 전원 설정, 0.10 포털 확인·고객센터 문의)과 다음 거래일 실측이다 — PROGRESS 트랙 C C2-7. 계획 대비 조정은 각 절의 "구현 조정"에 적었다.
+
 ### 0.0 사전 점검 (착수 전, 0.5일)
 | 확인 | 방법 | 통과 기준 |
 |---|---|---|
@@ -105,6 +107,7 @@ AI 작업 환경(리눅스 VM)에서 연결 폴더의 git을 조회할 때는 �
   1. `TradingService`의 취소 흐름(`onCancelRequest` → `isCancellable` → CANCEL_REQUESTED → `cancelOrder(…, 0)` → `applyCancelOutcome`)을 `requestCancel(String clientOrderId, String requestedBy)` 메서드로 추출하고 `onCancelRequest`는 이를 호출(동작 동일).
   2. `StaleOrderCanceller`: 대상 상태를 `SUBMITTED, ACCEPTED, PARTIALLY_FILLED`로 넓히고, 브로커를 직접 부르던 `cancelOne`을 `tradingService.requestCancel(id, "stale-timeout")` 호출로 교체(기준 시각은 기존대로 `updatedAt` — 부분체결은 "마지막 체결 후 5분" 정체 기준, aiDoc에 명시).
   3. `ReconciliationService.scheduledReconcile` 대상에 `ACCEPTED`, `CANCEL_REQUESTED` 추가 — 미체결 목록(ka10075)에 없고 브로커 기록이 없으면 **UNKNOWN 유지 + 경고**(단정 금지 — 기존 원칙).
+- **구현 조정(2026-10-01, `aiDoc/stale-cancel.md`)**: ① `requestCancel`에 세 번째 인자(최신 주문에 대한 "아직 정체 중인가" 조건)를 더했다 — 목록 조회 뒤 체결이 먼저 반영된 주문을 취소하지 않기 위해서다. ② 대사에는 **`CANCEL_REQUESTED`만** 추가했다 — 정체된 ACCEPTED는 타임아웃 취소가 처리하고, 취소 실패는 UNKNOWN으로 대사에 들어온다. ③ `CANCEL_REQUESTED`인데 1분이 지나도 미체결 목록에 남아 있으면 SUBMITTED(체결분 있으면 PARTIALLY_FILLED)로 되돌려 다시 취소하게 했다.
 - **테스트**: `StaleOrderCancellerTest` — ACCEPTED·PARTIALLY_FILLED 5분 경과 시 취소 요청, 경과 전 무시, 장외 무시, SIM 무시, 취소 성공 시 CANCELLED 확정(TradingService 경유). `TradingServiceTest` — `requestCancel` 추출 후 기존 취소 테스트 그대로 통과. `ReconciliationServiceTest` — ACCEPTED·CANCEL_REQUESTED 포함.
 - **위험**: 취소가 실제로 동작하기 시작한다(의도). C3 지정가(최유리 호가) 주문이 5분 안에 안 잡히면 취소된다 → 다음 판단(21거래일 뒤)까지 미진입 가능. **`execution.stale-order-timeout`(현행 5m)을 유지할지는 D-05에 함께 묻는다.**
 - **배포**: 장외. **실측**: 다음 거래일 09:05 주문의 상태 전이 로그, 미체결 없음 확인. **롤백**: 커밋 되돌림(스키마 변경 없음).
@@ -129,6 +132,7 @@ AI 작업 환경(리눅스 VM)에서 연결 폴더의 git을 조회할 때는 �
   2. `RiskGate` 수동 분기(`strategyId=dashboard-manual`)에 **1건 금액 상한** `risk.manual-order-max-krw` 검사 추가 — 위치는 수량 확정 직후, 호가 보정 전(기존 순서 "사이징 → 지정가 → 슬롯" 유지, 거부 시 슬롯 미사용 규칙 보존). 거부 사유는 기존 `SignalDecision(REJECTED)`로 기록.
   3. 응답 `TestSignalResponse`에 `executionMode` 추가(추가 필드 — 계약 확장).
 - **테스트**: `RequestValidationTest`(수량 공란 400), `RiskGateTest`(상한 초과 거부·슬롯 미사용, 상한 이내 통과). **롤백**: 되돌림(설정 키는 남아도 무해).
+- **구현 조정(2026-10-01, `aiDoc/manual-order-guard.md`)**: 금액 상한은 **수동 매수에만** 적용했다 — 매도는 노출을 줄이는 방향이고 보유분 수동 청산을 막지 않기 위해서다(매도는 기존 보유량 캡). 화면이 같은 상한으로 미리 막도록 `SystemStatusView.manualOrderMaxKrw`를 더했다.
 
 ### 0.5 수동 주문·위험 동작 UX(FE) — FE-#1~#5 (1.5일)
 - **변경**(현 툴체인 그대로 — 테스트 도구는 2.2에서 도입, 이번엔 수동 검증):
@@ -145,9 +149,10 @@ AI 작업 환경(리눅스 VM)에서 연결 폴더의 git을 조회할 때는 �
   2. `isTokenRejected`: `[8010` 추가 — 인증 단계 거절이라 요청이 처리되지 않았으므로 8005와 같은 근거로 1회 재발급·재시도(주문 중복 없음).
   3. 새 이벤트 `common.event.BrokerAuthFailure(code, message, host, at)`(추가만) — `TokenManager` 발급 실패와 `KiwoomRestClient`에서 `8001/8002/8030/8031/8040/8050/8103` 감지 시 발행. `monitor`의 리스너가 **P1 텔레그램 알림**(같은 코드 10분 억제) + 안내 문구: "① 허용 IP 목록에 현재 공인 IP 포함? ② App Key 상태 ③ 3개월 미접속 자동 해지 여부(openapi.kiwoom.com)".
 - **테스트**: `KiwoomRestClientTest` 1701/1702 재시도·8010 1회 재시도·8040 즉시 실패+이벤트, `TokenManagerTest` 8001 이벤트. **롤백**: 되돌림.
+- **구현 중 추가 발견·수정(2026-10-01, `aiDoc/kiwoom-error-codes.md`)**: ① 주문 응답 타임아웃(15초)이 `KiwoomApiException`이라 `KiwoomBrokerAdapter`가 "명시 거부"로 번역 → REJECTED 종결·대사 누락(잠복 결함) → `KiwoomTimeoutException`으로 구분해 UNKNOWN + 대사. ② `TokenManager`가 token 부재를 return_code보다 먼저 봐 발급 실패 원인 코드를 잃음(PROGRESS C2-3 ⑫에 완료로 적혀 있었으나 리포에 없었음) → 순서 교정.
 
 ### 0.7 외부 heartbeat + 텔레그램 가동 (1일 + 사용자 작업) · D-09
-- **사용자 작업**: BotFather로 봇 생성 → `.env`에 `TELEGRAM_BOT_TOKEN/CHAT_ID`(PROGRESS A3), Healthchecks.io 무료 계정 → 체크 1개(스케줄: cron `30 8 * * 1-5` ~ 16:00, 시간대 Asia/Seoul, grace 3분 — 휴장일은 수동 일시정지) + Telegram 통합([공식](https://healthchecks.io/integrations/telegram/)) → ping URL을 `.env`의 `MONITOR_HEARTBEAT_URL`로.
+- **사용자 작업**: BotFather로 봇 생성 → `.env`에 `TELEGRAM_BOT_TOKEN/CHAT_ID`(PROGRESS A3), Healthchecks.io 무료 계정 → 체크 1개(스케줄: Cron `* 9-15 * * 1-5`, 시간대 Asia/Seoul, grace 3분 — 휴장일은 전날 Pause, 다음 핑에 자동 재개. 2026-10-01 Healthchecks 문법으로 정정) + Telegram 통합([공식](https://healthchecks.io/integrations/telegram/)) → ping URL을 `.env`의 `MONITOR_HEARTBEAT_URL`로.
 - **변경**:
   1. `monitor.HeartbeatPinger`: `@Scheduled(fixedDelay = 60s)`, `MarketSession`이 ACTIVE이고 URL이 있을 때만 GET(본문 없음 — 외부로 나가는 정보는 "살아 있음"뿐). 실패는 WARN 1줄(재시도 없음 — 다음 주기).
   2. `TelegramCommandPoller`: `/resume`에 2단계 확인(무작위 4자리 코드 응답 → 60초 안에 `/resume 1234`) — PLAN A3 "위험 명령 2단계 확인". `/stop`은 1단계 유지. `fixedRate` → `fixedDelay`(BE-P2-7, 절전 복귀 폭주 방지 — 9/23 결정과 같은 이유).
