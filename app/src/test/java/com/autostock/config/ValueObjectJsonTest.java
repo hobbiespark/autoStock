@@ -53,6 +53,21 @@ class ValueObjectJsonTest {
     }
 
     @Test
+    void Fill_이벤트_JSON의_주문번호와_종목코드는_예전처럼_문자열이다() {
+        runner.run(context -> {
+            ObjectMapper mapper = context.getBean(ObjectMapper.class);
+
+            String json = mapper.writeValueAsString(new com.autostock.common.event.Fill(
+                    "20260930-C3-005930-BUY-001", new BrokerOrderId("0119433"), new StockCode("005930"),
+                    com.autostock.common.event.Side.BUY, 1, new java.math.BigDecimal("258000"),
+                    java.time.Instant.parse("2026-09-30T01:00:00Z")));
+
+            org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"brokerOrderId\":\"0119433\""), json);
+            org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"symbol\":\"005930\""), json);
+        });
+    }
+
+    @Test
     void Signal_이벤트_JSON의_종목코드는_예전처럼_문자열이고_과거_JSON도_읽힌다() {
         runner.run(context -> {
             ObjectMapper mapper = context.getBean(ObjectMapper.class);

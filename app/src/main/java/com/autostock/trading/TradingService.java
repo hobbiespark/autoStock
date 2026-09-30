@@ -155,7 +155,7 @@ public class TradingService {
 
         publisher.publishEvent(new Fill(
                 request.idempotencyKey(),   // Fill을 원래 주문과 연결하는 열쇠
-                brokerOrderId.value(),
+                brokerOrderId,
                 request.symbol(),
                 request.side(),
                 request.quantity(),

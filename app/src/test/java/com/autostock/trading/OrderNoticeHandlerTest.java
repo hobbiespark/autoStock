@@ -131,7 +131,7 @@ class OrderNoticeHandlerTest {
         assertEquals(1, published.size());
         Fill fill = (Fill) published.get(0);
         assertEquals("key-1", fill.orderIdempotencyKey());
-        assertEquals(BROKER_ORDER_ID, fill.brokerOrderId());
+        assertEquals(new BrokerOrderId(BROKER_ORDER_ID), fill.brokerOrderId());
         assertEquals(new StockCode("005930"), fill.symbol());
         assertEquals(Side.BUY, fill.side());
         assertEquals(10, fill.filledQuantity());
