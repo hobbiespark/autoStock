@@ -6,7 +6,6 @@ import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
-import com.autostock.common.util.StockCode;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.portfolio.PositionBook;
 import org.slf4j.Logger;
@@ -172,7 +171,7 @@ public class RiskGate {
         String clientOrderId = ClientOrderId.generate(
                 LocalDate.now(clock.withZone(MarketConstants.KST)),
                 signal.strategyId(),
-                signal.symbol(),
+                signal.symbol().value(),
                 signal.side(),
                 dailyLimits.todayOrderCount()
         ).value();
@@ -188,7 +187,7 @@ public class RiskGate {
         publisher.publishEvent(new OrderRequest(
                 clientOrderId,
                 signal.strategyId(),
-                new StockCode(signal.symbol()),
+                signal.symbol(),
                 signal.side(),
                 quantity,
                 limitPrice,
@@ -219,12 +218,12 @@ public class RiskGate {
             return 0;
         }
         // ── DART 공시 배제(PLAN 5절, 골격) ─────────────────────────────────
-        if (disclosureBlacklist.isBlacklisted(signal.symbol())) {
+        if (disclosureBlacklist.isBlacklisted(signal.symbol().value())) {
             log.info("공시 블랙리스트 종목 — 매수 거부: {}", signal.symbol());
             publishRejected(signal, "공시 블랙리스트 종목 — 매수 거부", Map.of());
             return 0;
         }
-        if (positionBook.holds(signal.symbol())) {
+        if (positionBook.holds(signal.symbol().value())) {
             log.info("이미 보유 중 — 추가 매수 차단: {}", signal.symbol());
             publishRejected(signal, "이미 보유 중 — 추가 매수 차단", Map.of());
             return 0;
@@ -285,7 +284,7 @@ public class RiskGate {
             return 0;
         }
         if (signal.side() == Side.SELL) {
-            PositionBook.Position position = positionBook.get(signal.symbol());
+            PositionBook.Position position = positionBook.get(signal.symbol().value());
             if (position == null) {
                 log.info("미보유 종목 수동 매도 무시: {}", signal.symbol());
                 publishRejected(signal, "미보유 종목 매도 시그널 무시", Map.of());
@@ -303,7 +302,7 @@ public class RiskGate {
             publishRejected(signal, "보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부", Map.of());
             return 0;
         }
-        if (disclosureBlacklist.isBlacklisted(signal.symbol())) {
+        if (disclosureBlacklist.isBlacklisted(signal.symbol().value())) {
             log.info("공시 블랙리스트 종목 — 수동 매수도 거부: {}", signal.symbol());
             publishRejected(signal, "공시 블랙리스트 종목 — 매수 거부", Map.of());
             return 0;
@@ -325,7 +324,7 @@ public class RiskGate {
      * 보유하지 않은 종목의 매도 시그널은 무시한다(공매도 미지원).
      */
     private long sizeSell(Signal signal) {
-        PositionBook.Position position = positionBook.get(signal.symbol());
+        PositionBook.Position position = positionBook.get(signal.symbol().value());
         if (position == null) {
             log.info("미보유 종목 매도 시그널 무시: {}", signal.symbol());
             publishRejected(signal, "미보유 종목 매도 시그널 무시", Map.of());
@@ -356,7 +355,7 @@ public class RiskGate {
         publisher.publishEvent(new SignalDecision(
                 horizonFor(signal.strategyId()),
                 signal.strategyId(),
-                signal.symbol(),
+                signal.symbol().value(),
                 "REJECTED",
                 reason,
                 metrics,

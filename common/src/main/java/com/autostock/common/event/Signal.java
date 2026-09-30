@@ -1,5 +1,7 @@
 package com.autostock.common.event;
 
+import com.autostock.common.util.StockCode;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 
@@ -12,10 +14,13 @@ import java.time.Instant;
  * RiskGate가 기존대로 자동 사이징한다. 값이 있어도 RiskGate의 상한(예산 캡·보유량 캡)을
  * 넘을 수 없다 — 수동 지정은 "자동 산정치 이하로 줄이는" 용도이지 리스크 한도를 우회하는
  * 수단이 아니다. 과거 이벤트(v1, 필드 없음)는 역직렬화 시 null로 채워져 하위호환된다.
+ *
+ * <p><b>symbol</b>: {@link StockCode} 값 객체다. JSON에서는 기존과 같은 문자열로
+ * 직렬화되므로(JacksonConfig) event_store 형식은 바뀌지 않는다.
  */
 public record Signal(
         String strategyId,
-        String symbol,
+        StockCode symbol,
         Side side,
         BigDecimal refPrice,
         double confidence,
@@ -24,7 +29,7 @@ public record Signal(
 ) {
 
     /** v1 호환 생성자 — 기존 호출부(전략·테스트)는 fixedQuantity 없이 그대로 컴파일된다. */
-    public Signal(String strategyId, String symbol, Side side, BigDecimal refPrice,
+    public Signal(String strategyId, StockCode symbol, Side side, BigDecimal refPrice,
                   double confidence, Instant timestamp) {
         this(strategyId, symbol, side, refPrice, confidence, null, timestamp);
     }

@@ -121,7 +121,7 @@ public class DashboardController {
         Long fixedQuantity = parseQuantity(request.quantity());
         publisher.publishEvent(new Signal(
                 "dashboard-manual",
-                request.symbol(),
+                new StockCode(request.symbol()),
                 Side.valueOf(request.side()),
                 new BigDecimal(request.price()),
                 1.0,

@@ -5,6 +5,7 @@ import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockCode;
 import com.autostock.market.KiwoomDailyChartService;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.monitor.TradingSystemManager;
@@ -318,11 +319,11 @@ public class C3LiveStrategy {
      * 없이 그대로 전달하며, RiskGate가 사이징에 곱한다.
      */
     private void publishBuy(String symbol, BigDecimal refPrice, double fraction) {
-        publisher.publishEvent(new Signal(STRATEGY_ID, symbol, Side.BUY, refPrice, fraction, clock.instant()));
+        publisher.publishEvent(new Signal(STRATEGY_ID, new StockCode(symbol), Side.BUY, refPrice, fraction, clock.instant()));
     }
 
     /** 매도는 항상 전량 청산(RiskGate 정책)이라 confidence는 의미가 없다 — 1.0 고정. */
     private void publishSell(String symbol, BigDecimal refPrice) {
-        publisher.publishEvent(new Signal(STRATEGY_ID, symbol, Side.SELL, refPrice, 1.0, clock.instant()));
+        publisher.publishEvent(new Signal(STRATEGY_ID, new StockCode(symbol), Side.SELL, refPrice, 1.0, clock.instant()));
     }
 }
