@@ -43,7 +43,7 @@ public final class BacktestExecutionHandler {
         return new Fill(
                 order.idempotencyKey(),
                 "BACKTEST",   // 브로커 주문번호가 없으므로 고정 표식 사용
-                order.symbol(),
+                order.symbol().value(),
                 order.side(),
                 order.quantity(),
                 execPrice,

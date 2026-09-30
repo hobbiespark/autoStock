@@ -34,7 +34,7 @@ class KiwoomBrokerAdapterTest {
     private final KiwoomBrokerAdapter adapter = new KiwoomBrokerAdapter(client);
 
     private static OrderRequest buy() {
-        return new OrderRequest("20260930-C3-005930-BUY-001", "C3", "005930", Side.BUY,
+        return new OrderRequest("20260930-C3-005930-BUY-001", "C3", new StockCode("005930"), Side.BUY,
                 1, new BigDecimal("258000"), Instant.parse("2026-09-30T01:00:00Z"));
     }
 

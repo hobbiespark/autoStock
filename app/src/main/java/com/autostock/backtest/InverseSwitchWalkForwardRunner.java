@@ -4,6 +4,7 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.StockCode;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -378,7 +379,7 @@ public final class InverseSwitchWalkForwardRunner {
         return new OrderRequest(
                 UUID.randomUUID().toString(),
                 "backtest-c4",
-                candle.symbol(),
+                new StockCode(candle.symbol()),
                 side,
                 qty,
                 candle.open(),

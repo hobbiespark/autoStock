@@ -72,7 +72,7 @@ class BacktestRunnerTest {
     }
 
     private Candle candle(LocalDate date, String open, String high, String low, String close) {
-        return new Candle("TEST", date, new BigDecimal(open), new BigDecimal(high),
+        return new Candle("TEST01", date, new BigDecimal(open), new BigDecimal(high),
                 new BigDecimal(low), new BigDecimal(close), 1000L);
     }
 

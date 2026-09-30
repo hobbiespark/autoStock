@@ -6,6 +6,7 @@ import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockCode;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.portfolio.PositionBook;
 import org.slf4j.Logger;
@@ -187,7 +188,7 @@ public class RiskGate {
         publisher.publishEvent(new OrderRequest(
                 clientOrderId,
                 signal.strategyId(),
-                signal.symbol(),
+                new StockCode(signal.symbol()),
                 signal.side(),
                 quantity,
                 limitPrice,
