@@ -86,9 +86,15 @@ strategy.c3.enabled: true
 autostock.ws.enabled: true
 ```
 
-- **원클릭/자동 시작 (2026-09-11)**: `scripts\start_autostock.bat` — .env 로드→Docker 대기→postgres→bootRun(LIVE+C3+WS+auto-start)을 한 번에. 종료는 `scripts\stop_autostock.bat`(graceful, POST /actuator/shutdown). **Windows 로그인 시 자동 시작**: `scripts\install_autostart.bat` 1회 실행(+ Docker Desktop 설정에서 "Start when you sign in" 켜기, PC 절전 해제 필수). `autostock.trading.auto-start=true`가 [시작] 클릭까지 자동화 — 킬스위치가 켜진 채 재시작해도 RiskGate가 주문을 차단하므로 안전(해제는 수동 원칙 유지)
+- **원클릭/자동 시작 (2026-09-11)**: `scripts\start_autostock.bat` — .env 로드→Docker 대기→postgres→bootRun(LIVE+C3+WS+auto-start)을 한 번에. 종료는 `scripts\stop_autostock.bat`(graceful, POST /actuator/shutdown). **Windows 로그인 시 자동 시작**: `scripts\install_autostart.bat` 1회 실행(+ Docker Desktop 설정에서 "Start when you sign in" 켜기, PC 절전 해제 필수). `autostock.trading.auto-start=true`가 [시작] 클릭까지 자동화. **킬스위치·일 손실은 재기동해도 유지된다**(2026-10-01 Phase 0.2, `risk_state`) — 켜진 채 재시작하면 DEGRADED로 시작하고 "재기동 복원: 원 사유" 알림, 해제는 사람만(대시보드 [해제…] 또는 텔레그램 `/resume` 2단계)
 - **장외 대기 (2026-09-29)**: 앱은 24시간 켜 두면 된다. 거래일 **08:30~16:00(KST)만 ACTIVE**, 그 외(16:00~익거래일 08:30, 주말·휴장일 종일)는 **STANDBY** — WS 연결 해제, 5분 주기 대사·1분 미체결 취소 점검 중지. 운영 상태기계(RUNNING)는 그대로라 아침에 [시작]을 다시 누를 필요 없음. 로그: `시장 세션 ACTIVE → STANDBY — 장외 대기 … 다음 활성화: …` / `WS 장외 대기 해제 — 연결 시작`. 설정 `autostock.session.{enabled,wake-time,sleep-time}`(NXT 대응 시 07:30/20:30). 장외에 WS·대사를 직접 검증하려면 `--autostock.session.enabled=false`. 텔레그램 명령·DART/매크로/IPO 배치·기동 시 대사는 대기와 무관하게 동작
 - **장중 절전 방지 (2026-09-30)**: ACTIVE(거래일 08:30~16:00) 동안 앱이 Windows **유휴 절전**을 막는다(`autostock.session.keep-awake`, 기본 true). 수동 절전·노트북 덮개 닫기는 못 막으니 장중엔 하지 말 것. 확인: 장중 관리자 PowerShell `powercfg /requests` → SYSTEM에 java.exe. 절전에서 깨어나면 `절전 복귀 감지 — A ~ B (N시간 M분)` 로그(장중 구간이 걸리면 WARN 알림). 키움이 만료 전 토큰을 `8005`로 거부하면 자동 재발급 후 1회 재시도 — 근거 `aiDoc/sleep-resume.md`
+- **외부 감시·알림 (2026-10-01 Phase 0.7, D-09)** — 앱이 죽거나 PC가 잠들면 앱 스스로는 알릴 수 없다. 두 가지를 켠다:
+  1. **텔레그램**: BotFather로 봇 생성 → 봇에게 아무 말이나 보낸 뒤 `https://api.telegram.org/bot<토큰>/getUpdates`에서 `chat.id` 확인 → `.env`에 `TELEGRAM_BOT_TOKEN`·`TELEGRAM_CHAT_ID`. `start_autostock.bat`가 두 값이 있으면 `--monitor.telegram.enabled=true`로 켠다(기동 창에 `[O] telegram on`). 명령: `/stop`(즉시 정지), `/resume`(4자리 확인 코드 답장 → 60초 안에 `/resume 1234`), `/status`
+  2. **Healthchecks.io**(무료): 체크 1개 생성 → Schedule **Cron** `* 9-15 * * 1-5`, Time zone **Asia/Seoul**, Grace **3분** → Integrations에서 **Telegram** 연결 → ping URL을 `.env`의 `MONITOR_HEARTBEAT_URL`로. 앱이 장중(ACTIVE) 1분마다 핑한다(`monitor.HeartbeatPinger`). **휴장일 전날 체크를 Pause**(다음 핑이 오면 자동 재개) — 안 하면 휴장일 09시에 오탐 알림
+  - 실측(1회): 장중 앱을 일부러 3분 이상 멈춰 텔레그램 알림이 오는지 확인 → 8절 점검 기록에 남긴다
+- **Windows 전원·업데이트 (Phase 0.9, 관리자 PowerShell 1회)**: `powercfg /change standby-timeout-ac 0` · `powercfg /change hibernate-timeout-ac 0` · 장치 관리자 → 네트워크 어댑터 → 전원 관리 → "전원을 절약하기 위해 컴퓨터가 이 장치를 끌 수 있음" 해제 · 설정 → Windows 업데이트 → 사용 시간 06:00~24:00, 업데이트는 주말에 수동 설치. 확인: 장중 `powercfg /requests`에 java.exe, `powercfg /a`로 대기 상태 확인. 앱의 JNA 절전 차단(`SleepGuard`)은 그대로 둔다
+- **DB 백업 (Phase 0.8)**: `scripts\backup_db.ps1` — 컨테이너 안 `pg_dump -Fc` → `D:\backup\autostock\autostock_yyyyMMdd_HHmm.dump`, 목차 확인, 보존(최근 14개 + 월별 마지막 12개), 로그 `backup.log`. **작업 스케줄러 등록(1회)**: 동작 `powershell.exe`, 인수 `-NoProfile -ExecutionPolicy Bypass -File D:\myApp\autoStock\scripts\backup_db.ps1`, 트리거 평일 16:30(15:45 분봉·15:50 리포트 뒤). 오프사이트 복사는 `-OffsiteDir <OneDrive 폴더>`(선택). 복원 리허설은 8절(월 1회)
 - 사전(수동 기동 시): 새 창이면 위 2절의 .env 로더를 먼저 실행(미로드 시 KiwoomProperties 바인딩 실패로 기동 불가)
 - [ ] 앱 시작 → Reconciliation 로그(잔고 대사) 정상 → RUNNING
 - [ ] **WS 로그인 성공(sor_yn=Y) — 재구독 N종목** 로그 확인 (LOGIN→REG 순서 실전 검증 포인트)
@@ -105,17 +111,62 @@ autostock.ws.enabled: true
 
 | 증상 | 원인 후보 | 조치 |
 |---|---|---|
+| 텔레그램 "키움 인증 실패 [코드]" 긴급 알림 (2026-10-01~) | 아래 8001·8010·8040 행 | 알림의 코드별 안내대로 조치 후 앱 재기동. 같은 코드는 10분에 한 번만 온다(`aiDoc/kiwoom-error-codes.md`) |
 | 토큰 발급 실패 return_code≠0 (8001/8002) | 키 오타/재발급됨/`.env` 미로드 | `.env` 재확인, 키움 앱키 상태 확인. 점검: `& scripts\load_env.ps1` 후 `$b=@{grant_type="client_credentials";appkey=$env:KIWOOM_MOCK_G_APP_KEY;secretkey=$env:KIWOOM_MOCK_G_APP_SECRET}|ConvertTo-Json -Compress; Invoke-RestMethod -Method Post -Uri https://mockapi.kiwoom.com/oauth2/token -ContentType "application/json;charset=UTF-8" -Body $b | Select return_code,return_msg` — 키 길이 0이면 로더 미실행(8002), 43자인데 8001이면 키 무효→재발급 |
+| 8001이 반복되고 키·`.env`는 정상 | **서비스 해지**(3개월 실서버 미접속 시 매월 첫 영업일 자동 해지 — 모의만 쓰면 해지될 수 있음) | openapi.kiwoom.com → App Key 관리에서 서비스 상태 확인 → 재신청. 예방은 8절 월 1회 실서버 토큰 점검(D-02) |
+| `8010` (토큰 발급 IP ≠ 요청 IP) | 공인 IP 변경(가정용 회선) | 앱이 재발급 1회로 자동 복구를 시도한다. 알림이 오면 openapi.kiwoom.com → 허용 IP 관리에 **현재 공인 IP 등록**(최대 10개) 후 재기동 |
+| `8040`/`8050`/`8103` (단말기 인증 실패) | 허용 IP 미등록·단말기 미지정 | 허용 IP 목록에 현재 공인 IP 등록, App Key 상태 확인 |
+| `8030`/`8031` (실전·모의 구분 불일치) | 모의 키로 실서버(또는 반대) 호출 | 실행 프로필(`paper`/`live`)과 키 종류 확인 — `live`는 게이트 ② 전 금지(7절) |
+| `1700`/`1701`/`1702` (유량 초과) | TR·전체·그룹 호출 한도 | 정상 — 앱이 1.1초 간격 최대 3회 재시도. 계속 나면 동시 호출 스케줄 겹침 확인 |
 | 토큰 발급 실패 "응답 없음" / UnsupportedMediaType | 주말·공휴일 모의 서버 점검(HTML 응답) | 정상 — 앱 백오프로 대기, 평일 재확인 |
 | WS 연결 후 시세 없음 | REG 미등록/재구독 누락 | ws_probe로 REG 응답 확인, KiwoomWebSocketClient 로그 |
-| 주문 UNKNOWN 발생 | 타임아웃 | 정상 설계 — Reconciliation 로그 확인, 자동 해소 안 되면 미체결 조회로 수동 확정 |
+| 주문 UNKNOWN 발생 | 타임아웃(15초 무응답 — 2026-10-01부터 거부로 단정하지 않는다) | 정상 설계 — Reconciliation 로그 확인, 자동 해소 안 되면 미체결 조회로 수동 확정 |
+| 미체결 주문이 5분 뒤 취소됨 | 미체결 타임아웃 취소(`execution.stale-order-timeout` 5분, SUBMITTED·ACCEPTED·부분체결 대상) | 정상 — 로그 `미체결 타임아웃 취소 처리`·`취소 완료(stale-timeout)`. 부분체결은 체결분 보존·잔량만 취소(`aiDoc/stale-cancel.md`) |
 | 08:30 이후에도 WS 미연결 | 휴장일 판정(market_holidays) 오류 또는 session 설정 | 로그 `시장 세션 … STANDBY … 다음 활성화` 시각 확인, 휴장일 DB 점검. 급하면 `autostock.session.enabled=false`로 재기동 |
-| 킬스위치가 저절로 켜짐 | WS 180초 단절 or 일 손실 -2% or VIX≥35 | 원인 로그 확인 후 해소 → 수동 해제(`/resume` 또는 대시보드) |
+| 킬스위치가 저절로 켜짐 | WS 180초 단절 or 일 손실 -2% or VIX≥35 | 원인 로그 확인 후 해소 → 수동 해제(대시보드 [해제…] 확인 창, 또는 텔레그램 `/resume` → 받은 코드로 `/resume 1234`). **재기동해도 풀리지 않는다**(Phase 0.2) |
+| 재기동 직후 "재기동 복원: …" 알림·DEGRADED | 끄기 전에 킬스위치가 켜져 있었음 | 의도된 동작 — 원 사유 확인 후 사람이 해제. 앱이 뜨지 않아 DB에서 풀어야 하면 `UPDATE risk_state SET kill_switch_engaged=false, changed_by='manual-sql', changed_at=now();` 후 재기동 |
+| Healthchecks "DOWN" 알림 | 앱 중단·PC 절전/재부팅·네트워크 단절 | PC·Docker·앱 상태 확인 → `start_autostock.bat`. 휴장일이면 체크 Pause를 잊은 것 |
 | 보수 모드 ON | VIX≥25 or 환율≥1450 | 정상 동작(매수만 금지) — 임계치는 macrointel.* 설정 |
-| Flyway 마이그레이션 실패 | DB 초기화 필요 | `docker compose down -v` 후 재기동(모의 데이터라 소실 무방) |
+| Flyway 마이그레이션 실패 | DB 초기화 필요 | **먼저 `scripts\backup_db.ps1`로 백업**(주문·판단 근거·일별 성과·킬스위치 상태가 사라진다) → `docker compose down -v` 후 재기동 |
 
 ## 7. 절대 금지
 
 - `live` 프로필(실전 도메인) 사용 — 게이트 ② 통과 + 키 전량 재발급 전 금지
 - 키/토큰의 커밋·로그 출력
 - UNKNOWN 주문의 수동 재주문 — 반드시 브로커 조회로 확정 후
+
+## 8. 정기 점검 (2026-10-01 Phase 0.8·0.10)
+
+| 주기 | 항목 | 방법 | 통과 기준 |
+|---|---|---|---|
+| 매일(자동) | DB 백업 | 작업 스케줄러 16:30 → `scripts\backup_db.ps1` | `D:\backup\autostock\backup.log`에 `[O] 백업 완료` |
+| 월 1회 | 복원 리허설 | `scripts\restore_check.ps1`(최신 덤프를 임시 컨테이너 `postgres:16-alpine`에 복원 → 주요 테이블 행 수 대조) | `[O] 결과: 복원 가능`, 테이블 누락 0 |
+| 월 1회(매월 1영업일 **전**) | 키움 실서버 접속 기록(D-02) | **키움 고객센터에 "토큰 발급만으로 접속 인정되는지" 확인한 뒤 시작.** 실전 키 파일로 토큰 발급(au10001) → 즉시 폐기(au10002), **주문 없음**. 아래 스니펫 | `return_code 0` 두 번 |
+| 월 1회 | 키움 포털 | openapi.kiwoom.com → App Key 관리: 서비스 상태, 허용 IP 목록에 현재 공인 IP(최대 10개) | 해지 아님, 현재 IP 등록됨 |
+| 휴장일 전날 | Healthchecks 체크 Pause | healthchecks.io → 체크 → Pause | 다음 거래일 첫 핑에서 자동 재개 |
+| 12월 | 2027 휴장일·연말휴장(12/31) | KRX 공지 확인 → `scripts\sql`에 MANUAL 등록(예: `20261001_holidays_2026q4.sql` 형식) | `market_holidays`에 반영 |
+
+실서버 토큰 점검 스니펫(PowerShell, 키 값은 화면에 찍지 않는다 — 실전 키는 `.env`에 넣지 않고 키 파일 경로만 쓴다):
+
+```powershell
+$k = (Get-Content D:\keys\live_appkey.txt -Raw).Trim(); $s = (Get-Content D:\keys\live_secretkey.txt -Raw).Trim()
+$h = @{ "api-id" = "au10001" }
+$r = Invoke-RestMethod -Method Post -Uri https://api.kiwoom.com/oauth2/token -Headers $h -ContentType "application/json;charset=UTF-8" `
+      -Body (@{ grant_type = "client_credentials"; appkey = $k; secretkey = $s } | ConvertTo-Json -Compress)
+$r | Select-Object return_code, return_msg, expires_dt
+$h = @{ "api-id" = "au10002" }
+Invoke-RestMethod -Method Post -Uri https://api.kiwoom.com/oauth2/revoke -Headers $h -ContentType "application/json;charset=UTF-8" `
+      -Body (@{ appkey = $k; secretkey = $s; token = $r.token } | ConvertTo-Json -Compress) | Select-Object return_code, return_msg
+Remove-Variable k, s, r, h
+```
+
+- 폐기 요청 형식은 키움 스펙(au10002)으로 한 번 확인한 뒤 쓴다. 폐기에 실패해도 토큰은 24시간 뒤 만료된다.
+- 실전 키 사용은 이 점검으로만 한정한다(PROGRESS 5절 보안 메모, D-02). 주문 TR은 절대 호출하지 않는다.
+
+점검 기록(날짜 · 항목 · 결과 · 비고):
+
+| 날짜 | 항목 | 결과 | 비고 |
+|---|---|---|---|
+| | 복원 리허설 1회차 | | Phase 0 완료 기준 |
+| | Healthchecks 의도적 중단 알림 | | Phase 0 완료 기준 |
+| | 키움 포털 상태 확인 | | Phase 0 완료 기준 |
