@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -40,7 +41,7 @@ class TelegramCommandPollerPollTest {
 
     @BeforeEach
     void setUp() {
-        killSwitch = new KillSwitch(published::add);
+        killSwitch = new KillSwitch(published::add, Clock.systemUTC());
         positionBook = new PositionBook();
     }
 

@@ -4,6 +4,7 @@ import com.autostock.common.event.MarketDataStale;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.time.Clock;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -18,7 +19,7 @@ class MarketDataStaleListenerTest {
 
     @BeforeEach
     void setUp() {
-        killSwitch = new KillSwitch(event -> { });
+        killSwitch = new KillSwitch(event -> { }, Clock.systemUTC());
         listener = new MarketDataStaleListener(killSwitch);
     }
 

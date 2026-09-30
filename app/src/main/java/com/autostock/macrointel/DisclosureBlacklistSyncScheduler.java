@@ -125,7 +125,7 @@ public class DisclosureBlacklistSyncScheduler {
         LocalDate expiresOn = notice.rceptDt().plusDays(properties.retentionDays());
         publisher.publishEvent(new DisclosureRisk(
                 stockCode, notice.corpName(), notice.type().name(), notice.rceptNo(),
-                notice.rceptDt(), expiresOn, Instant.now()));
+                notice.rceptDt(), expiresOn, clock.instant()));
         log.info("공시 리스크 이벤트 발행: {}({}) — {}, 만료 {}",
                 notice.corpName(), stockCode, notice.type().label(), expiresOn);
     }

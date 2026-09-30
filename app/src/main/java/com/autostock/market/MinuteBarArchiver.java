@@ -16,6 +16,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -57,11 +58,13 @@ public class MinuteBarArchiver {
     private final boolean enabled;
     private final List<String> symbols;
     private final Path outDir;
+    private final Clock clock;
 
     public MinuteBarArchiver(KiwoomRestClient client,
                              @Value("${autostock.minute-archive.enabled:false}") boolean enabled,
                              @Value("${autostock.minute-archive.symbols:005930,000660,035420,035720,069500}") String symbolsCsv,
-                             @Value("${autostock.minute-archive.dir:../data/minutes}") String dir) {
+                             @Value("${autostock.minute-archive.dir:../data/minutes}") String dir, Clock clock) {
+        this.clock = clock;
         this.client = client;
         this.enabled = enabled;
         this.symbols = List.of(symbolsCsv.split(","));
@@ -74,7 +77,7 @@ public class MinuteBarArchiver {
         if (!enabled) {
             return;
         }
-        String today = LocalDate.now(MarketConstants.KST).format(DAY);
+        String today = LocalDate.now(clock.withZone(MarketConstants.KST)).format(DAY);
         try {
             Files.createDirectories(outDir);
         } catch (IOException e) {

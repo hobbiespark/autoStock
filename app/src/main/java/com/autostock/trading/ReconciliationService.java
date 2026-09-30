@@ -10,6 +10,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -38,9 +39,11 @@ public class ReconciliationService {
     private final BrokerPort brokerPort;
     private final TradingProperties properties;
     private final MarketSessionService marketSession;
+    private final Clock clock;
 
     public ReconciliationService(OrderRepository orderRepository, BrokerPort brokerPort,
-                                 TradingProperties properties, MarketSessionService marketSession) {
+                                 TradingProperties properties, MarketSessionService marketSession, Clock clock) {
+        this.clock = clock;
         this.orderRepository = orderRepository;
         this.brokerPort = brokerPort;
         this.properties = properties;
@@ -104,7 +107,7 @@ public class ReconciliationService {
      * 직전 실행 후 10초 이내 재호출은 스킵한다(기동 시 이중 호출 가드 — 필드 Javadoc 참고).
      */
     public void reconcile() {
-        long now = System.currentTimeMillis();
+        long now = clock.millis();
         if (now - lastFullReconcileMs < MIN_INTERVAL_MS) {
             log.debug("직전 대사 후 {}ms — 중복 실행 스킵", now - lastFullReconcileMs);
             return;

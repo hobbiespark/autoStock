@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
@@ -69,7 +70,7 @@ class EcosClientTest {
         private boolean shouldFail;
 
         FakeEcosClient() {
-            super(WebClient.builder(), PROPERTIES);
+            super(WebClient.builder(), PROPERTIES, Clock.systemUTC());
         }
 
         void stub(Map<String, Object> response) {

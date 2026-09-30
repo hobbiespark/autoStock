@@ -6,6 +6,7 @@ import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -64,8 +65,10 @@ public class TokenManager {
 
     /** issue() 동시 호출을 한 번의 실제 발급으로 합치기 위한 락(single-flight). 클래스 Javadoc 참고. */
     private final ReentrantLock issueLock = new ReentrantLock();
+    private final Clock clock;
 
-    public TokenManager(WebClient.Builder builder, KiwoomProperties properties) {
+    public TokenManager(WebClient.Builder builder, KiwoomProperties properties, Clock clock) {
+        this.clock = clock;
         this.properties = properties;
         this.webClient = builder.baseUrl(properties.restBaseUrl()).build();
     }
@@ -76,14 +79,14 @@ public class TokenManager {
      */
     public String accessToken() {
         CachedToken token = cached.get();
-        if (token == null || token.expiresSoon()) {
+        if (token == null || token.expiresSoon(clock.instant())) {
             // 캐시가 없거나 곧 만료 — 락을 잡고 발급한다(single-flight). 락을 기다리는 동안
             // 다른 스레드가 이미 발급을 끝냈을 수 있으므로, 락 획득 직후 캐시를 다시 확인한다
             // (더블체크) — 그렇지 않으면 락이 풀릴 때마다 스레드 수만큼 중복 발급(429 원인)된다.
             issueLock.lock();
             try {
                 token = cached.get();
-                if (token == null || token.expiresSoon()) {
+                if (token == null || token.expiresSoon(clock.instant())) {
                     token = issue();
                     cached.set(token);
                 }
@@ -138,7 +141,7 @@ public class TokenManager {
         Object expiresDt = response.get("expires_dt");
         if (expiresDt == null || String.valueOf(expiresDt).isBlank()) {
             log.warn("토큰 응답에 expires_dt가 없어 23시간 유효로 보수적 가정함");
-            return Instant.now().plusSeconds(23 * 3600);
+            return clock.instant().plusSeconds(23 * 3600);
         }
         return LocalDateTime.parse(String.valueOf(expiresDt), EXPIRES_DT_FORMAT)
                 .atZone(KST)
@@ -154,8 +157,8 @@ public class TokenManager {
     private record CachedToken(String value, Instant expiresAt) {
 
         /** 만료 5분 전부터 true — 선제 갱신 트리거. */
-        boolean expiresSoon() {
-            return Instant.now().plusSeconds(300).isAfter(expiresAt);
+        boolean expiresSoon(Instant now) {
+            return now.plusSeconds(300).isAfter(expiresAt);
         }
     }
 }

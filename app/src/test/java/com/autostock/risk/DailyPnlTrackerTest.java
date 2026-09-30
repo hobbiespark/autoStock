@@ -46,7 +46,7 @@ class DailyPnlTrackerTest {
         // dailyMaxLossPct=-0.02, paperEquity=10,000,000 → 한도 = -200,000원
         properties = new RiskProperties(0.10, 5, -0.03, 0.05, -0.02, 30,
                 10_000_000, FEE_RATE, SELL_TAX_RATE, false);
-        killSwitch = new KillSwitch(killSwitchEvents::add);
+        killSwitch = new KillSwitch(killSwitchEvents::add, Clock.systemUTC());
         equitySource = new PaperEquitySource(properties);
         clock = Clock.fixed(DAY1, ZoneOffset.UTC);
         tracker = new DailyPnlTracker(properties, equitySource, killSwitch, clock);

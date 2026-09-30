@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -102,13 +103,15 @@ public class C3LiveStrategy {
      * 클래스 설명 "21일 주기 카운터" 절 참고(영속화 TODO).
      */
     private final Map<String, LocalDate> lastDecisionDate = new ConcurrentHashMap<>();
+    private final Clock clock;
 
     public C3LiveStrategy(C3StrategyProperties properties,
                           KiwoomDailyChartService chartService,
                           PositionBook positionBook,
                           ApplicationEventPublisher publisher,
                           MarketCalendarService marketCalendarService,
-                          TradingSystemManager tradingSystemManager) {
+                          TradingSystemManager tradingSystemManager, Clock clock) {
+        this.clock = clock;
         this.properties = properties;
         this.chartService = chartService;
         this.positionBook = positionBook;
@@ -131,7 +134,7 @@ public class C3LiveStrategy {
             return;
         }
 
-        LocalDate today = LocalDate.now(MarketConstants.KST);
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
         if (!marketCalendarService.isTradingDay(today)) {
             // cron은 MON-FRI만 걸지만 평일 중 공휴일(신정·설·추석 등)은 별도로 걸러야 한다 —
             // 휴장일에 일봉을 조회하면 "어제 종가"가 아니라 더 예전 데이터를 오늘 것으로
@@ -174,7 +177,7 @@ public class C3LiveStrategy {
      */
     private RegimeSnapshot judgeRegime() {
         List<Candle> candles = chartService.fetchDaily(
-                properties.regimeIndexSymbol(), LocalDate.now(MarketConstants.KST), properties.regimeSmaDays() + 1);
+                properties.regimeIndexSymbol(), LocalDate.now(clock.withZone(MarketConstants.KST)), properties.regimeSmaDays() + 1);
         List<BigDecimal> closes = candles.stream().map(Candle::close).toList();
         boolean on = RegimeMath.isOn(closes);
         // FE-6 판단 근거용 표시값 — RegimeMath.isOn()과 같은 입력(closes)을 받아 같은
@@ -300,7 +303,7 @@ public class C3LiveStrategy {
     /** SignalDecision 발행 — RegimeSnapshot이 없는(=국면 판단과 무관한) 호출 편의 오버로드는 두지 않는다: 항상 국면 지표를 함께 남긴다(FE-6, "왜"를 재구성하려면 국면도 필요). */
     private void publishDecision(String symbol, String conclusion, String reason, Map<String, String> metrics) {
         publisher.publishEvent(new SignalDecision(
-                HORIZON, STRATEGY_ID, symbol, conclusion, reason, metrics, Instant.now()));
+                HORIZON, STRATEGY_ID, symbol, conclusion, reason, metrics, clock.instant()));
     }
 
     /** decisionIntervalDays 주기 판정 — 마지막 판단일이 없거나(첫 판단) 주기가 지났으면 true. */
@@ -315,11 +318,11 @@ public class C3LiveStrategy {
      * 없이 그대로 전달하며, RiskGate가 사이징에 곱한다.
      */
     private void publishBuy(String symbol, BigDecimal refPrice, double fraction) {
-        publisher.publishEvent(new Signal(STRATEGY_ID, symbol, Side.BUY, refPrice, fraction, Instant.now()));
+        publisher.publishEvent(new Signal(STRATEGY_ID, symbol, Side.BUY, refPrice, fraction, clock.instant()));
     }
 
     /** 매도는 항상 전량 청산(RiskGate 정책)이라 confidence는 의미가 없다 — 1.0 고정. */
     private void publishSell(String symbol, BigDecimal refPrice) {
-        publisher.publishEvent(new Signal(STRATEGY_ID, symbol, Side.SELL, refPrice, 1.0, Instant.now()));
+        publisher.publishEvent(new Signal(STRATEGY_ID, symbol, Side.SELL, refPrice, 1.0, clock.instant()));
     }
 }

@@ -169,7 +169,7 @@ public class RiskGate {
         // tryAcquireOrderSlot()이 이미 카운터를 증가시켰으므로, 이 시점의 값이 곧
         // "이 주문이 오늘 몇 번째인지"와 같다(다시 증가시키지 않는다).
         String clientOrderId = ClientOrderId.generate(
-                LocalDate.now(MarketConstants.KST),
+                LocalDate.now(clock.withZone(MarketConstants.KST)),
                 signal.strategyId(),
                 signal.symbol(),
                 signal.side(),
@@ -191,7 +191,7 @@ public class RiskGate {
                 signal.side(),
                 quantity,
                 limitPrice,
-                Instant.now()));
+                clock.instant()));
     }
 
     /**
@@ -359,7 +359,7 @@ public class RiskGate {
                 "REJECTED",
                 reason,
                 metrics,
-                Instant.now()));
+                clock.instant()));
     }
 
     /** strategyId → 보유기간 지평(ADR-11) 매핑. C3 계열만 "MID", 그 외는 "TEST". */

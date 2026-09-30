@@ -428,7 +428,7 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         if ("REAL".equals(trnm)) {
             for (JsonNode data : root.path("data")) {
                 // type에 따라 MarketTick(0B) 또는 OrderNotice(00)로 변환됨. 그 외 타입은 null.
-                Object event = RealMessageParser.parse(data);
+                Object event = RealMessageParser.parse(data, clock);
                 if (event != null) {
                     publisher.publishEvent(event);
                 }

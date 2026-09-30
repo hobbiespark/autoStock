@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -35,8 +36,10 @@ public class KillSwitch {
 
     private final ApplicationEventPublisher publisher;
     private final AtomicBoolean engaged = new AtomicBoolean(false);
+    private final Clock clock;
 
-    public KillSwitch(ApplicationEventPublisher publisher) {
+    public KillSwitch(ApplicationEventPublisher publisher, Clock clock) {
+        this.clock = clock;
         this.publisher = publisher;
     }
 
@@ -47,14 +50,14 @@ public class KillSwitch {
     public void engage(String reason) {
         if (engaged.compareAndSet(false, true)) {
             log.warn("킬스위치 작동: {}", reason);
-            publisher.publishEvent(new KillSwitchChanged(true, reason, Instant.now()));
+            publisher.publishEvent(new KillSwitchChanged(true, reason, clock.instant()));
         }
     }
 
     public void release(String operator) {
         if (engaged.compareAndSet(true, false)) {
             log.warn("킬스위치 해제 by {}", operator);
-            publisher.publishEvent(new KillSwitchChanged(false, operator, Instant.now()));
+            publisher.publishEvent(new KillSwitchChanged(false, operator, clock.instant()));
         }
     }
 }

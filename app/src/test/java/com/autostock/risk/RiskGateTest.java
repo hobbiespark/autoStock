@@ -56,13 +56,13 @@ class RiskGateTest {
         // killSwitch 전용 publisher는 이 테스트의 published 리스트와 분리한다 —
         // KillSwitchChanged 이벤트가 여기 섞이면 "주문이 published에 없다"를 검증하는
         // 기존 단언들이 killSwitch.engage() 한 번에 깨진다(이 테스트는 OrderRequest만 관심 대상).
-        killSwitch = new KillSwitch(event -> { });
+        killSwitch = new KillSwitch(event -> { }, Clock.systemUTC());
         positionBook = new PositionBook();
         macroGuard = new MacroGuard(defaultMacroIntelProperties(), killSwitch);
         disclosureBlacklist = new DisclosureBlacklist(
                 mock(DisclosureBlacklistRepository.class), publisher, ANY_CLOCK);
         gate = new RiskGate(publisher, killSwitch, properties,
-                new PositionSizer(properties), positionBook, new DailyLimitTracker(properties),
+                new PositionSizer(properties), positionBook, new DailyLimitTracker(properties, ANY_CLOCK),
                 new PaperEquitySource(properties), ANY_CLOCK, marketCalendarService,
                 macroGuard, disclosureBlacklist);
     }
@@ -186,7 +186,7 @@ class RiskGateTest {
         RiskProperties guardedProperties = new RiskProperties(0.10, 5, -0.03, 0.05, -0.02, 30,
                 10_000_000, 0.00015, 0.0015, true);
         return new RiskGate(publisher, killSwitch, guardedProperties,
-                new PositionSizer(guardedProperties), positionBook, new DailyLimitTracker(guardedProperties),
+                new PositionSizer(guardedProperties), positionBook, new DailyLimitTracker(guardedProperties, clock),
                 new PaperEquitySource(guardedProperties), clock, marketCalendarService,
                 macroGuard, disclosureBlacklist);
     }

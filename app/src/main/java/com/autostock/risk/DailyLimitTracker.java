@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -30,12 +31,14 @@ public class DailyLimitTracker {
     private static final Logger log = LoggerFactory.getLogger(DailyLimitTracker.class);
 
     private final RiskProperties properties;
-    private final AtomicReference<LocalDate> currentDay =
-            new AtomicReference<>(LocalDate.now(MarketConstants.KST));
+    private final AtomicReference<LocalDate> currentDay;
     private final AtomicInteger orderCount = new AtomicInteger(0);
+    private final Clock clock;
 
-    public DailyLimitTracker(RiskProperties properties) {
+    public DailyLimitTracker(RiskProperties properties, Clock clock) {
+        this.clock = clock;
         this.properties = properties;
+        this.currentDay = new AtomicReference<>(LocalDate.now(clock.withZone(MarketConstants.KST)));
     }
 
     /** 주문 슬롯 획득 시도. 한도 초과면 false. */
@@ -66,7 +69,7 @@ public class DailyLimitTracker {
     }
 
     private void rollDayIfNeeded() {
-        LocalDate today = LocalDate.now(MarketConstants.KST);
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
         LocalDate known = currentDay.get();
         if (!today.equals(known) && currentDay.compareAndSet(known, today)) {
             orderCount.set(0);

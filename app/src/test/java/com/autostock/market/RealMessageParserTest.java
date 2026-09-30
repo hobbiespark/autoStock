@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -31,13 +32,39 @@ class RealMessageParserTest {
                 {"type":"0B","item":"005930","values":{"10":"+70100","15":"12345"}}
                 """);
 
-        Object result = RealMessageParser.parse(data);
+        Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         MarketTick tick = assertInstanceOf(MarketTick.class, result);
         assertEquals("005930", tick.symbol());
         assertEquals(new BigDecimal("70100"), tick.price());
         assertEquals(12345L, tick.volume());
         assertEquals(MarketTick.Source.LIVE, tick.source());
+    }
+
+    @Test
+    void 체결시간은_UTC와_날짜가_다른_시각에도_KST_당일_기준으로_변환된다() throws Exception {
+        // UTC 09-29 23:30 = KST 09-30 08:30 — "오늘"을 UTC로 잡으면 하루 어긋난다(§9 날짜 경계)
+        Clock clock = Clock.fixed(Instant.parse("2026-09-29T23:30:00Z"), java.time.ZoneOffset.UTC);
+        JsonNode data = mapper.readTree("""
+                {"type":"0B","item":"005930","values":{"10":"+70100","15":"1","20":"090000"}}
+                """);
+
+        MarketTick tick = assertInstanceOf(MarketTick.class, RealMessageParser.parse(data, clock));
+
+        assertEquals(Instant.parse("2026-09-30T00:00:00Z"), tick.timestamp()); // KST 09-30 09:00
+    }
+
+    @Test
+    void 체결시간이_없으면_주입된_시계의_현재_시각을_쓴다() throws Exception {
+        Instant now = Instant.parse("2026-09-30T01:02:03Z");
+        JsonNode data = mapper.readTree("""
+                {"type":"0B","item":"005930","values":{"10":"+70100","15":"1"}}
+                """);
+
+        MarketTick tick = assertInstanceOf(MarketTick.class,
+                RealMessageParser.parse(data, Clock.fixed(now, java.time.ZoneOffset.UTC)));
+
+        assertEquals(now, tick.timestamp());
     }
 
     @Test
@@ -49,7 +76,7 @@ class RealMessageParserTest {
                 }}
                 """);
 
-        Object result = RealMessageParser.parse(data);
+        Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
         assertEquals("0000123", notice.brokerOrderId());
@@ -66,7 +93,7 @@ class RealMessageParserTest {
                 {"type":"00","item":"","values":{"913":"접수"}}
                 """);
 
-        assertNull(RealMessageParser.parse(data));
+        assertNull(RealMessageParser.parse(data, Clock.systemUTC()));
     }
 
     @Test
@@ -75,7 +102,7 @@ class RealMessageParserTest {
                 {"type":"XX","item":"005930","values":{}}
                 """);
 
-        assertNull(RealMessageParser.parse(data));
+        assertNull(RealMessageParser.parse(data, Clock.systemUTC()));
     }
 
     // ── 실측 전문 재생 (docs/measured/ws_probe_20260911_intraday.txt, 마스킹 없음) ──
@@ -87,7 +114,7 @@ class RealMessageParserTest {
                 {"values":{"20":"115618","10":"-257750","11":"-11250","12":"-4.18","27":"-258000","28":"-257500","15":"-19","13":"7198927","14":"1860588","16":"-258000","17":"-261000","18":"-257000","25":"5","26":"-15318148","29":"-4167722708811","30":"-31.97","31":"0.12","32":"595","228":"89.62","311":"15068783","290":"2","691":"0","567":"000000","568":"000000","851":"10379","1890":"090016","1891":"053039","1892":"114556","1030":"3645181","1031":"3266718","1032":"-47.26","1071":"63318","1072":"96320","1313":"-4897","1315":"-19","1316":" 0","1314":"-19","1497":"103100","1498":"82480","620":"258453","732":"1294","852":"1035","9081":"KRX"},"type":"0B","name":"주식체결","item":"005930"}
                 """);
 
-        Object result = RealMessageParser.parse(data);
+        Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         MarketTick tick = assertInstanceOf(MarketTick.class, result);
         assertEquals("005930", tick.symbol());
@@ -105,7 +132,7 @@ class RealMessageParserTest {
                 {"values":{"9201":"8132527211","9203":"0119433","9205":"","9001":"005930","912":"JJ","913":"접수","302":"삼성전자","900":"1","901":"0","902":"1","903":"0","904":"0000000","905":"+매수","906":"시장가","907":"2","908":"115639","909":"","910":"","911":"","10":"-258000","27":"-258000","28":"-257500","914":"","915":"","938":"0","939":"0","919":"0","920":"","921":"6801005","922":"00","923":"","10010":" 269000","2134":"1","2135":"KRX","2136":"N"},"type":"00","name":"주문체결","item":"005930"}
                 """);
 
-        Object result = RealMessageParser.parse(data);
+        Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
         assertEquals("0119433", notice.brokerOrderId());
@@ -123,7 +150,7 @@ class RealMessageParserTest {
                 {"values":{"9201":"8132527211","9203":"0119433","9205":"","9001":"005930","912":"JJ","913":"체결","302":"삼성전자","900":"1","901":"0","902":"0","903":"258000","904":"0000000","905":"+매수","906":"시장가","907":"2","908":"115640","909":"847463","910":"258000","911":"1","10":"-258000","27":"-258000","28":"-257500","914":"258000","915":"1","938":"900","939":"0","919":"0","920":"","921":"6801005","922":"00","923":"","10010":" 269000","2134":"1","2135":"KRX","2136":"N"},"type":"00","name":"주문체결","item":"005930"}
                 """);
 
-        Object result = RealMessageParser.parse(data);
+        Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
         assertEquals("0119433", notice.brokerOrderId());
@@ -140,7 +167,7 @@ class RealMessageParserTest {
                 {"values":{"9201":"8132527211","9203":"0119574","9205":"","9001":"005930","912":"JJ","913":"접수","302":"삼성전자","900":"1","901":"0","902":"1","903":"0","904":"0000000","905":"-매도","906":"시장가","907":"1","908":"115707","909":"","910":"","911":"","10":"-257750","27":"-258000","28":"-257500","914":"","915":"","938":"0","939":"0","919":"0","920":"","921":"7501001","922":"00","923":"","10010":" 269000","2134":"1","2135":"KRX","2136":"N"},"type":"00","name":"주문체결","item":"005930"}
                 """);
 
-        Object result = RealMessageParser.parse(data);
+        Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
         assertEquals("0119574", notice.brokerOrderId());
@@ -155,7 +182,7 @@ class RealMessageParserTest {
                 {"values":{"9201":"8132527211","9203":"0119574","9205":"","9001":"005930","912":"JJ","913":"체결","302":"삼성전자","900":"1","901":"0","902":"0","903":"258000","904":"0000000","905":"-매도","906":"시장가","907":"1","908":"115708","909":"848966","910":"258000","911":"1","10":"-258000","27":"-258000","28":"-257500","914":"258000","915":"1","938":"900","939":"516","919":"0","920":"","921":"7501001","922":"00","923":"","10010":" 269000","2134":"1","2135":"KRX","2136":"N"},"type":"00","name":"주문체결","item":"005930"}
                 """);
 
-        Object result = RealMessageParser.parse(data);
+        Object result = RealMessageParser.parse(data, Clock.systemUTC());
 
         OrderNotice notice = assertInstanceOf(OrderNotice.class, result);
         assertEquals("0119574", notice.brokerOrderId());

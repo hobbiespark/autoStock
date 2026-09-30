@@ -118,7 +118,7 @@ public class DisclosureBlacklist {
                 event.symbol(), event.disclosureType(), event.rceptNo(), event.expiresOn());
         publisher.publishEvent(new DisclosureBlacklisted(
                 event.symbol(), event.corpName(), labelOf(event.disclosureType()),
-                event.rceptNo(), event.expiresOn(), Instant.now()));
+                event.rceptNo(), event.expiresOn(), clock.instant()));
     }
 
     /** 만료된 공시 자동 등록을 DB·메모리에서 정리한다 — {@link DisclosureBlacklistExpiryScheduler}가 매일 호출. */

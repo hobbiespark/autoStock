@@ -7,6 +7,7 @@ import com.autostock.common.util.MarketConstants;
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -45,11 +46,11 @@ final class RealMessageParser {
      *
      * @return type이 0B면 MarketTick, 00이면 OrderNotice, 그 외/필수값 누락이면 null
      */
-    static Object parse(JsonNode data) {
+    static Object parse(JsonNode data, Clock clock) {
         String type = data.path("type").asText("");
         return switch (type) {
-            case TYPE_TICK -> parseTick(data);
-            case TYPE_ORDER_NOTICE -> parseOrderNotice(data);
+            case TYPE_TICK -> parseTick(data, clock);
+            case TYPE_ORDER_NOTICE -> parseOrderNotice(data, clock);
             default -> null; // 아직 다루지 않는 실시간 타입 — 조용히 무시
         };
     }
@@ -61,7 +62,7 @@ final class RealMessageParser {
      * 실측으로 확정됐으나 MarketTick에는 누적치를 담을 필드가 없어 아직 사용하지 않는다
      * (필요해지면 MarketTick 확장 또는 별도 이벤트로 다룰 것).
      */
-    private static MarketTick parseTick(JsonNode data) {
+    private static MarketTick parseTick(JsonNode data, Clock clock) {
         String symbol = data.path("item").asText("");
         JsonNode values = data.path("values");
         String priceRaw = values.path("10").asText("");
@@ -74,27 +75,27 @@ final class RealMessageParser {
         // FID 15(체결량)도 같은 이유로 부호가 붙는다(+매수 주도/-매도 주도) — MarketTick.volume은
         // 방향이 아니라 크기만 의미하므로 부호를 벗긴다.
         long volume = KiwoomNumbers.toLongOrZero(values.path("15").asText(""));
-        Instant timestamp = parseTickTimestamp(values.path("20").asText(""));
+        Instant timestamp = parseTickTimestamp(values.path("20").asText(""), clock);
         return new MarketTick(symbol, price, volume, timestamp, MarketTick.Source.LIVE);
     }
 
     /**
      * FID 20(체결시간, HHMMSS)을 당일 KST 자정 기준 Instant로 변환한다.
      * 형식이 없거나 깨진 경우(테스트 픽스처 등 FID 20을 안 보내는 경우 포함)는
-     * 수신 시각(Instant.now())으로 방어적으로 대체한다.
+     * 수신 시각으로 방어적으로 대체한다.
      */
-    private static Instant parseTickTimestamp(String hhmmss) {
+    private static Instant parseTickTimestamp(String hhmmss, Clock clock) {
         if (hhmmss == null || hhmmss.length() != 6) {
-            return Instant.now();
+            return clock.instant();
         }
         try {
             int hour = Integer.parseInt(hhmmss.substring(0, 2));
             int minute = Integer.parseInt(hhmmss.substring(2, 4));
             int second = Integer.parseInt(hhmmss.substring(4, 6));
-            LocalDate today = LocalDate.now(MarketConstants.KST);
+            LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
             return today.atTime(hour, minute, second).atZone(MarketConstants.KST).toInstant();
         } catch (NumberFormatException | java.time.DateTimeException e) {
-            return Instant.now();
+            return clock.instant();
         }
     }
 
@@ -105,7 +106,7 @@ final class RealMessageParser {
      * 이번 실측에서 관측되지 않아 여전히 TODO 실측(미확정) — 원문 그대로 보관하고 소비자
      * (OrderNoticeHandler)가 방어적으로 처리한다.
      */
-    private static OrderNotice parseOrderNotice(JsonNode data) {
+    private static OrderNotice parseOrderNotice(JsonNode data, Clock clock) {
         JsonNode values = data.path("values");
         String brokerOrderId = values.path("9203").asText("");
         if (brokerOrderId.isEmpty()) {
@@ -122,6 +123,6 @@ final class RealMessageParser {
         String remainingRaw = values.path("902").asText("");
         long remainingQuantity = remainingRaw.isEmpty() ? -1L : KiwoomNumbers.toLongOrZero(remainingRaw);
         return new OrderNotice(brokerOrderId, symbol, status, filledQuantity, fillPrice,
-                remainingQuantity, TYPE_ORDER_NOTICE, Instant.now());
+                remainingQuantity, TYPE_ORDER_NOTICE, clock.instant());
     }
 }
