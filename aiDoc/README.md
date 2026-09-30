@@ -28,3 +28,4 @@
 - 여전히 리포에 없는 것(직접 옮긴다):
   - `.env` — 비밀값, 커밋 금지
   - `.claude/settings.local.json` — 개인 권한 설정
+- [sleep-resume.md](sleep-resume.md) — 2026-09-30 로그: 장중 PC 절전 방지·복귀 감지, 토큰 거부(8005) 재발급, 로그 소음 정리

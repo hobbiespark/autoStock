@@ -126,6 +126,7 @@ autostock:
     enabled: true               # false면 24시간 ACTIVE(기존 동작) — 장외에 WS·대사를 직접 검증할 때만 끈다
     wake-time: "08:30"          # 거래일 장 대응 시작(정규장 09:00 − 30분). NXT(08:00~20:00) 대응 시 07:30
     sleep-time: "16:00"         # 장외 대기 진입(정규장 15:30 + 30분, 15:45 분봉·15:50 리포트 이후). NXT 대응 시 20:30
+    keep-awake: true            # ACTIVE 동안 Windows 유휴 절전 차단(monitor.SleepGuard, 2026-09-30 장중 절전 사고). 수동 절전·덮개 닫기는 못 막음
 
 monitor:
   telegram:

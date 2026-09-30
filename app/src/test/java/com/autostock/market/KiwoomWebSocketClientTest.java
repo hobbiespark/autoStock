@@ -35,11 +35,12 @@ class KiwoomWebSocketClientTest {
     private MutableClock clock;
     private KiwoomWebSocketClient client;
     private MarketSessionService marketSession;
+    private TokenManager tokenManager;
 
     @BeforeEach
     void setUp() {
         clock = new MutableClock(T0);
-        TokenManager tokenManager = mock(TokenManager.class);
+        tokenManager = mock(TokenManager.class);
         // afterConnectionEstablished가 LOGIN 전문에 토큰을 담는다 — null이면 Map.of가 NPE.
         org.mockito.Mockito.when(tokenManager.accessToken()).thenReturn("test-token");
         // 기본은 장중(ACTIVE) — 기존 테스트는 장외 대기와 무관한 동작을 검증한다.
@@ -179,6 +180,18 @@ class KiwoomWebSocketClientTest {
                 "{\"trnm\":\"LOGIN\",\"return_code\":8005,\"return_msg\":\"인증 실패\"}"));
 
         org.mockito.Mockito.verify(s).close();
+    }
+
+    @Test
+    void LOGIN_실패면_로그인에_쓴_토큰을_폐기해_재연결이_새_토큰을_쓰게_한다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        client.afterConnectionEstablished(s);
+
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(
+                "{\"trnm\":\"LOGIN\",\"return_code\":8005,\"return_msg\":\"인증 실패\"}"));
+
+        org.mockito.Mockito.verify(tokenManager).invalidate("test-token");
     }
 
     @Test

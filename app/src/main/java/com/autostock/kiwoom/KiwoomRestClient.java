@@ -92,40 +92,66 @@ public class KiwoomRestClient {
      * @return 응답 JSON을 Map으로 (타입 매핑은 각 서비스에서 TR별 DTO로 발전시킬 것)
      * @throws KiwoomApiException 4xx/5xx 오류 응답 시
      */
-    @SuppressWarnings("unchecked")
     public Map<String, Object> call(TrId trId, String path, Map<String, Object> body) {
         // kiwoom.api.latency: TR(api_id)별 지연 분포를 태그로 나눠 기록한다. rate limiter 대기
         // 시간까지 포함해서 재는데(의도적) — "얼마나 기다렸는지"가 rate limit 튜닝의 원천이고,
         // 체결까지 걸린 총 시간은 슬리피지 분석의 기초 데이터이기 때문이다 (PLAN ADR-5).
         Timer.Sample sample = Timer.start(meterRegistry);
         try {
-            // 바깥: rate limiter (통과할 때까지 대기) → 안쪽: 429 재시도 → 최심부: 실제 HTTP 호출
-            return rateLimiter.execute(trId, () ->
-                    Retry.decorateSupplier(retry, () -> {
-                        Map<String, Object> response = (Map<String, Object>) webClient.post()
-                                .uri(path)
-                                .header("authorization", "Bearer " + tokenManager.accessToken())
-                                .header("api-id", trId.apiId())
-                                .contentType(MediaType.valueOf("application/json;charset=UTF-8"))
-                                .bodyValue(body)
-                                .retrieve()
-                                // 오류 응답이면 본문을 읽어 예외 메시지에 포함 — 디버깅 편의
-                                .onStatus(HttpStatusCode::isError, resp ->
-                                        resp.bodyToMono(String.class).map(msg ->
-                                                new KiwoomApiException("키움 API 오류 [" + trId.apiId() + "] " + msg)))
-                                .bodyToMono(Map.class)
-                                .timeout(REQUEST_TIMEOUT, Mono.error(() -> new KiwoomApiException(
-                                        "키움 API 응답 없음 [" + trId.apiId() + "] " + REQUEST_TIMEOUT.toSeconds()
-                                                + "초 내 응답 없음 — 망 단절/절전 복귀 여부 확인")))
-                                .block();
-                        return checkReturnCode(trId, response);
-                    }).get());
+            // 바깥: rate limiter (통과할 때까지 대기) → 토큰 거부 시 1회 재발급 → 429 재시도 → 최심부: 실제 HTTP 호출
+            return rateLimiter.execute(trId, () -> callRefreshingRejectedToken(trId, path, body));
         } finally {
             sample.stop(Timer.builder("kiwoom.api.latency")
                     .description("TR(api_id)별 키움 REST API 호출 지연(rate limit 대기 포함)")
                     .tag("api_id", trId.apiId())
                     .register(meterRegistry));
         }
+    }
+
+    /**
+     * 토큰이 거부되면({@code [8005:Token이 유효하지 않습니다]}) 캐시를 버리고 새 토큰으로 딱 한 번 더 보낸다.
+     * 서버가 인증 단계에서 거절해 요청을 처리하지 않았으므로 주문 TR이어도 중복 위험이 없다(1700 재시도와 같은 근거).
+     * 실측 2026-09-30: 절전 복귀 직후 만료 전 토큰이 8005로 거부돼 리포트·분봉 적재가 전부 실패했다.
+     */
+    private Map<String, Object> callRefreshingRejectedToken(TrId trId, String path, Map<String, Object> body) {
+        String token = tokenManager.accessToken();
+        try {
+            return callWithRateLimitRetry(trId, path, body, token);
+        } catch (KiwoomApiException e) {
+            if (!isTokenRejected(e)) {
+                throw e;
+            }
+            tokenManager.invalidate(token);
+            return callWithRateLimitRetry(trId, path, body, tokenManager.accessToken());
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> callWithRateLimitRetry(TrId trId, String path, Map<String, Object> body, String token) {
+        return Retry.decorateSupplier(retry, () -> {
+            Map<String, Object> response = (Map<String, Object>) webClient.post()
+                    .uri(path)
+                    .header("authorization", "Bearer " + token)
+                    .header("api-id", trId.apiId())
+                    .contentType(MediaType.valueOf("application/json;charset=UTF-8"))
+                    .bodyValue(body)
+                    .retrieve()
+                    // 오류 응답이면 본문을 읽어 예외 메시지에 포함 — 디버깅 편의
+                    .onStatus(HttpStatusCode::isError, resp ->
+                            resp.bodyToMono(String.class).map(msg ->
+                                    new KiwoomApiException("키움 API 오류 [" + trId.apiId() + "] " + msg)))
+                    .bodyToMono(Map.class)
+                    .timeout(REQUEST_TIMEOUT, Mono.error(() -> new KiwoomApiException(
+                            "키움 API 응답 없음 [" + trId.apiId() + "] " + REQUEST_TIMEOUT.toSeconds()
+                                    + "초 내 응답 없음 — 망 단절/절전 복귀 여부 확인")))
+                    .block();
+            return checkReturnCode(trId, response);
+        }).get();
+    }
+
+    /** 키움이 접근토큰을 거부했는가 — 실측 메시지 {@code 인증에 실패했습니다[8005:Token이 유효하지 않습니다]}. */
+    static boolean isTokenRejected(Throwable e) {
+        return e instanceof KiwoomApiException && e.getMessage() != null && e.getMessage().contains("[8005");
     }
 
     /** 키움이 HTTP 200으로 돌려주는 유량 초과 논리 오류(return_code 5, 메시지 [1700:...])인가. */
