@@ -57,6 +57,16 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void market에서_브로커_모듈을_아는_것은_어댑터뿐이다() {
+        // 설계 규칙 5·7: Kiwoom은 Adapter로만 — 시세는 MarketDataPort, 실시간은 WS 클라이언트가 번역한다
+        noClasses().that().resideInAPackage("com.autostock.market..")
+                .and().doNotHaveSimpleName("KiwoomMarketDataAdapter")
+                .and().doNotHaveSimpleName("KiwoomWebSocketClient")
+                .should().dependOnClassesThat().resideInAPackage("com.autostock.kiwoom..")
+                .check(classes);
+    }
+
+    @Test
     void risk는_브로커_어댑터를_모른다() {
         noClasses().that().resideInAPackage("com.autostock.risk..")
                 .should().dependOnClassesThat().resideInAPackage("com.autostock.kiwoom..")
