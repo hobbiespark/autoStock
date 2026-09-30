@@ -1,9 +1,6 @@
 package com.autostock.market;
 
-import com.autostock.common.util.KiwoomNumbers;
 import com.autostock.common.util.MarketConstants;
-import com.autostock.kiwoom.KiwoomRestClient;
-import com.autostock.kiwoom.TrId;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,7 +19,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 분봉 일일 적재 잡 (2026-09-11 신설 — ka10080 깊이 실측의 직접 후속).
@@ -38,11 +34,7 @@ import java.util.Map;
  * 파일의 마지막 시각 이하 행은 건너뛰므로 재실행·중복 실행에 멱등이다. 휴장일은 오늘
  * 행이 0건이라 자연히 아무것도 쓰지 않는다.
  *
- * <p><b>실측 확정 필드 (2026-09-11, scripts/probe_ka10080_depth.ps1)</b>: 배열 키
- * {@code stk_min_pole_chart_qry}, 원소 {@code cntr_tm}(yyyyMMddHHmmss) /
- * {@code open_pric, high_pric, low_pric, cur_prc}(분 종가, ± 전일대비 부호 접두 가능
- * — {@link KiwoomNumbers}로 정규화) / {@code trde_qty}(분 거래량) /
- * {@code acc_trde_qty}(누적 거래량).
+ * <p>분봉 조회와 브로커 응답 번역(ka10080, 실측 2026-09-11)은 {@link MarketDataPort} 구현체가 맡는다.
  *
  * <p>출력: {@code data/minutes/{symbol}.csv} — 헤더
  * {@code time,open,high,low,close,volume,acc_volume}. data/는 gitignore.
@@ -52,20 +44,22 @@ public class MinuteBarArchiver {
 
     private static final Logger log = LoggerFactory.getLogger(MinuteBarArchiver.class);
     private static final DateTimeFormatter DAY = DateTimeFormatter.BASIC_ISO_DATE; // yyyyMMdd
+    /** CSV 첫 컬럼 형식 — 적재 파일과의 호환 때문에 바꾸지 않는다. */
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final String HEADER = "time,open,high,low,close,volume,acc_volume";
 
-    private final KiwoomRestClient client;
+    private final MarketDataPort marketData;
     private final boolean enabled;
     private final List<String> symbols;
     private final Path outDir;
     private final Clock clock;
 
-    public MinuteBarArchiver(KiwoomRestClient client,
+    public MinuteBarArchiver(MarketDataPort marketData,
                              @Value("${autostock.minute-archive.enabled:false}") boolean enabled,
                              @Value("${autostock.minute-archive.symbols:005930,000660,035420,035720,069500}") String symbolsCsv,
                              @Value("${autostock.minute-archive.dir:../data/minutes}") String dir, Clock clock) {
         this.clock = clock;
-        this.client = client;
+        this.marketData = marketData;
         this.enabled = enabled;
         this.symbols = List.of(symbolsCsv.split(","));
         this.outDir = Paths.get(dir);
@@ -96,26 +90,13 @@ public class MinuteBarArchiver {
     }
 
     /** @return 새로 추가된 행 수 */
-    @SuppressWarnings("unchecked")
     int archiveSymbol(String symbol, String day) throws IOException {
-        Map<String, Object> response = client.call(TrId.MINUTE_CHART, "/api/dostk/chart",
-                Map.of("stk_cd", symbol, "tic_scope", "1", "upd_stkpc_tp", "1"));
-        Object list = response.get("stk_min_pole_chart_qry"); // 실측 확정 키
-        if (!(list instanceof List<?> rows)) {
-            log.warn("분봉 응답에 배열 없음({}): 키={}", symbol, response.keySet());
-            return 0;
-        }
-
         Path file = outDir.resolve(symbol + ".csv");
         String lastTime = lastArchivedTime(file);
 
         List<String[]> todays = new ArrayList<>();
-        for (Object element : rows) {
-            if (!(element instanceof Map<?, ?> raw)) {
-                continue;
-            }
-            Map<String, Object> bar = (Map<String, Object>) raw;
-            String time = String.valueOf(bar.getOrDefault("cntr_tm", ""));
+        for (MarketDataPort.MinuteBar bar : marketData.minuteBars(symbol)) {
+            String time = TIME.format(bar.time());
             if (!time.startsWith(day)) {
                 continue; // 오늘 행만 — 어제 행은 어제 실행이 이미 적재했다
             }
@@ -124,12 +105,12 @@ public class MinuteBarArchiver {
             }
             todays.add(new String[]{
                     time,
-                    KiwoomNumbers.toBigDecimal(bar.get("open_pric")).abs().toPlainString(),
-                    KiwoomNumbers.toBigDecimal(bar.get("high_pric")).abs().toPlainString(),
-                    KiwoomNumbers.toBigDecimal(bar.get("low_pric")).abs().toPlainString(),
-                    KiwoomNumbers.toBigDecimal(bar.get("cur_prc")).abs().toPlainString(),
-                    String.valueOf(KiwoomNumbers.toLongOrZero(bar.get("trde_qty"))),
-                    String.valueOf(KiwoomNumbers.toLongOrZero(bar.get("acc_trde_qty")))
+                    bar.open().toPlainString(),
+                    bar.high().toPlainString(),
+                    bar.low().toPlainString(),
+                    bar.close().toPlainString(),
+                    String.valueOf(bar.volume()),
+                    String.valueOf(bar.accumulatedVolume())
             });
         }
         if (todays.isEmpty()) {

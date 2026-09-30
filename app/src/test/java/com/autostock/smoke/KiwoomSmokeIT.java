@@ -7,7 +7,7 @@ import com.autostock.kiwoom.TokenManager;
 import com.autostock.kiwoom.TrId;
 import com.autostock.kiwoom.TrRateLimiter;
 import com.autostock.market.KiwoomDailyChartService;
-import com.autostock.market.MarketQueryService;
+import com.autostock.market.KiwoomMarketDataAdapter;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -84,8 +84,8 @@ class KiwoomSmokeIT {
                 "잔고 조회 return_code는 0(정상)이어야 함: " + balance.get("return_msg"));
 
         // ── 3) 일봉 조회(ka10081) — 20봉 이상, 시간순 정렬 검증 ────────────────
-        MarketQueryService marketQueryService = new MarketQueryService(restClient);
-        KiwoomDailyChartService dailyChartService = new KiwoomDailyChartService(marketQueryService);
+        KiwoomMarketDataAdapter marketData = new KiwoomMarketDataAdapter(restClient);
+        KiwoomDailyChartService dailyChartService = new KiwoomDailyChartService(marketData);
         LocalDate baseDate = LocalDate.now(ZoneId.of("Asia/Seoul"));
 
         List<Candle> candles = dailyChartService.fetchDaily("005930", baseDate, 20);

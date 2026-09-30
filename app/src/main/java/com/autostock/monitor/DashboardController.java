@@ -3,8 +3,7 @@ package com.autostock.monitor;
 import com.autostock.common.event.CancelRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
-import com.autostock.common.util.KiwoomNumbers;
-import com.autostock.market.MarketQueryService;
+import com.autostock.market.MarketDataPort;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
 import com.autostock.risk.KillSwitch;
@@ -37,8 +36,8 @@ import java.util.Map;
  * 주문 취소(운영 1일차 ⑤)는 {@link CancelRequest} 이벤트를 발행할 뿐이며 RiskGate·
  * TradingService를 우회하지 않는다.
  *
- * <p>시세(quote, 운영 1일차 ⑧)는 market.MarketQueryService(공개 API)를 통해 조회한다 —
- * Kiwoom 응답 Map은 이 컨트롤러 안에서만 다루고 밖에는 {@link QuoteView}만 내보낸다.
+ * <p>시세(quote, 운영 1일차 ⑧)는 market.MarketDataPort로 조회한다 — 브로커 응답 형식은
+ * 포트 구현체가 번역하고, 이 컨트롤러는 {@link QuoteView}로 옮겨 담기만 한다.
  */
 @RestController
 @RequestMapping("/api/dashboard")
@@ -49,18 +48,18 @@ public class DashboardController {
     private final DashboardFacade facade;
     private final KillSwitch killSwitch;
     private final ApplicationEventPublisher publisher;
-    private final MarketQueryService marketQueryService;
+    private final MarketDataPort marketData;
     private final Clock clock;
 
     public DashboardController(DashboardFacade facade,
                                KillSwitch killSwitch,
                                ApplicationEventPublisher publisher,
-                               MarketQueryService marketQueryService, Clock clock) {
+                               MarketDataPort marketData, Clock clock) {
         this.clock = clock;
         this.facade = facade;
         this.killSwitch = killSwitch;
         this.publisher = publisher;
-        this.marketQueryService = marketQueryService;
+        this.marketData = marketData;
     }
 
     /**
@@ -141,10 +140,7 @@ public class DashboardController {
      * 매수/매도 호가(ka10004). 폼에서 종목 입력 시 표시하고, 기준가 기본값(현재가)에도 쓴다.
      *
      * <p><b>실측 확정 (2026-09-18, mockapi — docs/measured/tr_probe_20260918_ka10001/ka10004.json)</b>:
-     * ka10001 = stk_nm / cur_prc / open_pric / high_pric / low_pric (부호 접두 "+258500" 형식),
-     * ka10004 = sel_fpr_bid(최우선 매도호가) / buy_fpr_bid(최우선 매수호가), 잔량은 sel_fpr_req /
-     * buy_fpr_req, 2~10차는 sel_2th_pre_bid…/buy_2th_pre_bid…, 총잔량 tot_sel_req / tot_buy_req,
-     * 기준시각 bid_req_base_tm(HHmmss). 값이 비면 null(FE는 "-" 표시).
+     * 필드 번역은 market.KiwoomMarketDataAdapter가 맡는다. 값이 비면 null(FE는 "-" 표시).
      *
      * <p>ka10001 실패도 500이 아니라 빈 QuoteView로 응답한다(2026-09-23 실측: 장전 07:53에
      * 키움이 {@code [1631]/[1632] 서비스를 처리하는 중에 오류}를 30회 돌려줘 스택 30개가 로그를
@@ -153,58 +149,23 @@ public class DashboardController {
      */
     @GetMapping("/quote/{symbol}")
     public QuoteView quote(@PathVariable String symbol) {
-        Map<String, Object> price;
+        MarketDataPort.StockQuote price;
         try {
-            price = marketQueryService.stockPrice(symbol);
+            price = marketData.stockQuote(symbol);
         } catch (Exception e) {
             log.warn("기본정보(ka10001) 조회 실패 — 빈 시세 반환: {} ({})", symbol, e.getMessage());
-            price = Map.of();
+            price = MarketDataPort.StockQuote.EMPTY;
         }
-        Map<String, Object> book;
+        MarketDataPort.BestQuote book;
         try {
-            book = marketQueryService.orderBook(symbol);
+            book = marketData.bestQuote(symbol);
         } catch (Exception e) {
             // 호가 TR 실패(rate limit 등)해도 기본정보만으로 응답한다(방어)
             log.warn("호가(ka10004) 조회 실패 — 기본정보만 반환: {} ({})", symbol, e.getMessage());
-            book = Map.of();
+            book = MarketDataPort.BestQuote.EMPTY;
         }
-        return new QuoteView(
-                symbol,
-                firstText(price, "stk_nm"),
-                firstPrice(price, "cur_prc"),
-                firstPrice(price, "open_pric"),
-                firstPrice(price, "high_pric"),
-                firstPrice(price, "low_pric"),
-                firstPrice(book, "sel_fpr_bid"),
-                firstPrice(book, "buy_fpr_bid"));
-    }
-
-    /**
-     * 후보 키를 순서대로 찾아 가격으로 파싱한다. 키움 시세값은 "+258000"/"-257500"처럼
-     * 전일대비 부호가 접두로 붙는다(WS FID 10 실측과 동일 규약) — 절대값으로 정규화한다.
-     */
-    private static BigDecimal firstPrice(Map<String, Object> map, String... keys) {
-        for (String key : keys) {
-            Object raw = map.get(key);
-            if (raw != null && !String.valueOf(raw).isBlank()) {
-                BigDecimal value = KiwoomNumbers.toBigDecimal(raw).abs();
-                if (value.signum() > 0) {
-                    return value;
-                }
-            }
-        }
-        return null;
-    }
-
-    /** 후보 키를 순서대로 찾아 문자열로 반환한다(종목명 등). 없으면 null. */
-    private static String firstText(Map<String, Object> map, String... keys) {
-        for (String key : keys) {
-            Object raw = map.get(key);
-            if (raw != null && !String.valueOf(raw).isBlank()) {
-                return String.valueOf(raw).trim();
-            }
-        }
-        return null;
+        return new QuoteView(symbol, price.name(), price.current(), price.open(), price.high(), price.low(),
+                book.bestAsk(), book.bestBid());
     }
 
     /** 수량 문자열 파싱 — 빈 값/미지정은 null(자동 사이징), 숫자 오류는 400 대신 null 처리하지 않고 예외. */

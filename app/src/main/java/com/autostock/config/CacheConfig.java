@@ -31,13 +31,13 @@ import java.util.concurrent.TimeUnit;
 @EnableCaching
 public class CacheConfig {
 
-    /** 현재가 캐시 이름 — MarketQueryService#stockPrice에서 참조. */
+    /** 현재가 캐시 이름 — market.KiwoomMarketDataAdapter#stockQuote에서 참조. */
     public static final String STOCK_PRICE_CACHE = "stockPrice";
 
-    /** 일봉 캐시 이름 — MarketQueryService#dailyChart에서 참조. */
+    /** 일봉 캐시 이름 — market.KiwoomMarketDataAdapter#dailyCandles에서 참조. */
     public static final String DAILY_CHART_CACHE = "dailyChart";
 
-    /** 호가 캐시 이름 — MarketQueryService#orderBook에서 참조(운영 1일차 ⑧). */
+    /** 호가 캐시 이름 — market.KiwoomMarketDataAdapter#bestQuote에서 참조(운영 1일차 ⑧). */
     public static final String ORDERBOOK_CACHE = "orderBook";
 
     @Bean
