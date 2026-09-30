@@ -30,9 +30,16 @@ spring:
         # 이벤트 스토어 append가 다건일 때 INSERT를 모아 보내 왕복을 줄인다 (PLAN ADR-5).
         jdbc:
           batch_size: 50
+          # 시간대 명시(A5, 2026-09-30) — 저장은 UTC. 지금 스키마는 TIMESTAMPTZ(Instant)와 DATE(LocalDate)뿐이라
+          # 이 값으로 바뀌는 동작은 없다(실측: JVM KST·PG 서버 UTC에서 설정 유무 모두 값 동일, aiDoc/time.md).
+          # 나중에 시간대 없는 TIMESTAMP 컬럼이 생겨도 JVM 시간대(운영 PC KST)에 따라 달라지지 않게 한다.
+          time_zone: UTC
         order_inserts: true
   flyway:
     enabled: true
+  jackson:
+    # 시간대 명시(A5) — 응답의 Instant는 원래 UTC(ISO-8601 'Z')라 결과가 같다. JVM 기본 시간대에 기대지 않게 적는다.
+    time-zone: UTC
   http:
     reactiveclient:
       # 모든 외부 HTTP(WebClient) 호출의 공통 상한 — Reactor Netty 기본은 응답 타임아웃이 없어

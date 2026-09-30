@@ -4,7 +4,12 @@ import com.autostock.common.event.CancelRequest;
 import com.autostock.common.event.OrderRequest;
 import com.tngtech.archunit.core.domain.JavaClasses;
 import com.tngtech.archunit.core.importer.ClassFileImporter;
+import com.tngtech.archunit.core.domain.JavaMethod;
 import com.tngtech.archunit.core.importer.ImportOption;
+import com.tngtech.archunit.lang.ArchCondition;
+import com.tngtech.archunit.lang.ConditionEvents;
+import com.tngtech.archunit.lang.SimpleConditionEvent;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
@@ -14,6 +19,7 @@ import static com.tngtech.archunit.core.domain.JavaCall.Predicates.target;
 import static com.tngtech.archunit.core.domain.JavaClass.Predicates.assignableTo;
 import static com.tngtech.archunit.core.domain.properties.HasOwner.Predicates.With.owner;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.classes;
+import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.methods;
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
@@ -102,6 +108,22 @@ class ArchitectureRulesTest {
         noClasses().that().haveSimpleNameEndingWith("Math").and().resideInAPackage("com.autostock.strategy..")
                 .or().haveSimpleName("KrxTickSize")
                 .should().dependOnClassesThat().areAssignableTo(Clock.class)
+                .check(classes);
+    }
+
+    @Test
+    void cron_스케줄은_시간대를_명시한다() {
+        // A5(2026-09-30): zone이 없으면 JVM 기본 시간대를 따른다. 운영 PC(KST)와 다른 시간대에서 돌면 장 시간 배치가 어긋난다.
+        methods().that().areAnnotatedWith(Scheduled.class)
+                .should(new ArchCondition<JavaMethod>("cron이면 zone을 명시한다") {
+                    @Override
+                    public void check(JavaMethod method, ConditionEvents events) {
+                        Scheduled scheduled = method.getAnnotationOfType(Scheduled.class);
+                        boolean ok = scheduled.cron().isEmpty() || !scheduled.zone().isEmpty();
+                        events.add(new SimpleConditionEvent(method, ok,
+                                method.getFullName() + " cron=\"" + scheduled.cron() + "\" zone=\"" + scheduled.zone() + "\""));
+                    }
+                })
                 .check(classes);
     }
 }
