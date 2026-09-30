@@ -3,6 +3,7 @@ package com.autostock.monitor;
 import com.autostock.common.event.CancelRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
+import com.autostock.common.util.StockCode;
 import com.autostock.market.MarketDataPort;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
@@ -48,8 +49,6 @@ public class DashboardController {
 
     private static final Logger log = LoggerFactory.getLogger(DashboardController.class);
 
-    /** 종목코드 6자리(영숫자 — 2024년 이후 영문 포함 코드). */
-    private static final String SYMBOL = "[0-9A-Z]{6}";
     private static final String POSITIVE_PRICE = "[1-9]\\d{0,8}(\\.\\d{1,4})?";
     private static final String POSITIVE_QUANTITY = "[1-9]\\d{0,8}";
 
@@ -185,7 +184,7 @@ public class DashboardController {
 
     /** 테스트 시그널 입력값. side: "BUY" | "SELL", quantity: 선택(빈 값 = 자동 사이징) */
     public record TestSignalRequest(
-            @NotBlank @Pattern(regexp = SYMBOL) String symbol,
+            @NotBlank @Pattern(regexp = StockCode.PATTERN) String symbol,
             @NotBlank @Pattern(regexp = "BUY|SELL") String side,
             @NotBlank @Pattern(regexp = POSITIVE_PRICE) String price,
             @Pattern(regexp = "|" + POSITIVE_QUANTITY) String quantity) {
