@@ -1,9 +1,9 @@
 package com.autostock.common.event;
 
 import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
@@ -35,8 +35,9 @@ import java.time.Instant;
  * @param filledQuantity   이번 통보 1건의 체결 수량 (FID 911, 실측 확정) — 부분체결이
  *                         통보마다 "이번에 체결된 분"만 담기는지는 이번 실측(수량 1주
  *                         단건 체결)으로는 검증되지 않았다(TODO 실측 — 부분체결 시나리오).
- * @param fillPrice        이번 통보의 체결가 (FID 910, 실측 확정) — 접수 통보처럼 체결이
- *                         아닌 경우 빈 문자열로 와서 null로 정규화된다.
+ * @param fillPrice        이번 통보의 체결가 (FID 910, 실측 확정 — 누적 평균가) — <b>null일 수
+ *                         있다</b>. 접수 통보처럼 체결이 아니면 빈 문자열로 온다. 파서가 빈 값·0·형식
+ *                         오류를 null로 번역한다(통보는 살린다).
  * @param remainingQuantity 미체결 잔량 (FID 902, 실측 확정) — 접수 시 주문수량과 동일하게
  *                         시작해 체결 시 0으로 내려온다("902 미체결=0이면 FILLED"로 쓰인다).
  *                         FID가 아예 없는 메시지(과거 테스트 픽스처 등)는 -1(알 수 없음)로
@@ -49,7 +50,7 @@ public record OrderNotice(
         StockCode symbol,
         String status,
         long filledQuantity,
-        BigDecimal fillPrice,
+        Price fillPrice,
         long remainingQuantity,
         String rawType,
         Instant timestamp

@@ -541,10 +541,10 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 |---|---|---|
 | `OrderRequest.limitPrice` | null 가능(`KrxTickSize.align`이 null·0 이하를 그대로 반환) | **조각 16에서 처리** — `RiskGate`가 거부 |
 | `Signal.refPrice` | 생성처(C3, StrategyEngine, 대시보드 테스트 신호)별 확인 필요 | `RiskGate`가 `limitPrice`로 넘긴다 |
-| `OrderNotice.fillPrice` | 빈 값이면 null(`RealMessageParser`). 실측(조각 17): 접수 통보는 빈 값, 체결은 양수 | 0이면 파서에서 null로 번역해야 한다 |
+| `OrderNotice.fillPrice` | 빈 값이면 null(`RealMessageParser`). 실측(조각 17): 접수 통보는 빈 값, 체결은 양수 | **조각 18에서 처리** — 파서가 빈 값·0·형식 오류를 null로 |
 | `Fill.fillPrice` | LIVE는 910이 비면 null·0이 나갈 수 있었다 | **조각 17에서 처리** — 지정가 근사 |
 | `PositionRestored.avgPrice` | 잔고 필드가 없으면 null 가능(`PositionRestorer.firstPrice`) | |
-| `MarketTick.price` | 빈 값은 파서가 버림. 0은 **미확인** | |
+| `MarketTick.price` | 빈 값은 파서가 버림 | **조각 18에서 처리** — 0도 버림 |
 | `Candle` OHLC | — | 종목코드와 함께 **보류**(조각 13 사용자 결정) |
 
 ## 조각 16 — `Price`: `OrderRequest.limitPrice` (2026-09-30)
@@ -629,6 +629,43 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - `.\gradlew.bat test` 전체 통과(2026-09-30, 551건, 건너뜀 16).
 - **미검증:** 장중 실제 체결의 포지션·손익·슬리피지 반영, event_store의 Fill JSON.
 
+## 조각 18 — `Price`: `MarketTick.price`·`OrderNotice.fillPrice` (2026-09-30)
+
+### 1. 사전 조사
+
+- 둘 다 만드는 곳은 `market/RealMessageParser`(키움 WS ACL) 하나다.
+- `MarketTick.price`를 읽는 곳은 없다. 감사 JSON 저장(`EventAuditListener`)뿐이다.
+- `OrderNotice.fillPrice`는 `OrderNoticeHandler`만 읽는다. 누적 평균가(FID 910)로 증분 단가를 역산한다. 이미 null·0 이하를 "평균가 없음"으로 다루고 있었다.
+- 실측(`ws_probe_20260911_intraday.txt`): 접수 통보는 910이 빈 값, 체결 통보는 `"258000"`. 시세 FID 10은 부호 접두(`+70100`, `-258000`)가 붙는다.
+- 910 형식 오류는 `KiwoomNumbers.toBigDecimal`이 `NumberFormatException`을 던져 **통보 전체**가 사라졌다(파서 호출부로 전파).
+
+### 2. 결정
+
+- 두 필드를 `Price`로 바꿨다. JSON은 숫자 그대로다.
+- 시세: 가격이 0이면 틱을 버리고 DEBUG로 남긴다. 종목코드 형식 오류(조각 13)와 같은 판단이다(소비자는 감사 기록뿐, 초당 여러 건).
+- 체결 통보: `fillPriceOf`가 빈 값·0·**형식 오류**를 null로 번역한다. 형식 오류는 WARN을 남기고 통보는 살린다. 종목코드(조각 11)와 같은 원칙이다 — 체결 통보를 잃으면 포지션·손익이 틀어지고, 체결가가 없으면 핸들러가 지정가로 근사한다(조각 17).
+- `OrderNoticeHandler`는 `averagePriceOf`로 `BigDecimal`을 꺼내 기존 역산 산술을 그대로 쓴다. 0 이하 검사는 파서가 맡으므로 null 검사만 남겼다.
+
+### 3. 함정 점검
+
+- `RealMessageParserTest`의 `assertEquals(new BigDecimal(..), tick.price()/notice.fillPrice())` 5곳은 컴파일되지만 항상 실패한다. `Price` 비교로 고쳤다.
+- `OrderNoticeHandlerTest.notice(...)` 도우미는 파서와 같은 번역(빈 값·0 → null)을 하도록 바꿨다. 조각 17의 "체결가 0" 테스트는 이제 파서 번역을 거친 null로 핸들러 근사를 검증한다.
+
+### 4. 동작 변화
+
+- 가격 0 시세: 이전에는 0원 `MarketTick` 발행(감사 기록). 이제 버림.
+- 910 형식 오류 체결 통보: 이전에는 통보 유실. 이제 체결가 없이 전달되고 지정가 근사 Fill.
+
+### 5. 변경 파일
+
+- 수정(main 4): `common/event/MarketTick`, `OrderNotice`, `market/RealMessageParser`, `trading/OrderNoticeHandler`
+- 테스트: `RealMessageParserTest` 단언 5 + 신규 2(가격 0 시세 버림, 체결가 0·형식 오류 → null로 살림), `OrderNoticeHandlerTest` 도우미·생성부 3
+
+### 6. 검증 상태
+
+- `.\gradlew.bat test` 전체 통과(2026-09-30, 553건, 건너뜀 16). `RealMessageParserTest` 17.
+- **미검증:** 장중 WS 시세·체결 통보의 실제 수신과 event_store의 MarketTick JSON.
+
 ### 10. 변경 이력
 
 - 2026-09-30: 조각 1
@@ -648,3 +685,4 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - 2026-09-30: 조각 15(Price 1단계: 타입과 JSON)
 - 2026-09-30: 조각 16(Price: OrderRequest.limitPrice)
 - 2026-09-30: 조각 17(Price: Fill.fillPrice)
+- 2026-09-30: 조각 18(Price: MarketTick·OrderNotice)

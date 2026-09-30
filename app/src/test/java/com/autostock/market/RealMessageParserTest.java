@@ -4,6 +4,7 @@ import com.autostock.common.event.MarketTick;
 import com.autostock.common.event.OrderNotice;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -38,7 +39,7 @@ class RealMessageParserTest {
 
         MarketTick tick = assertInstanceOf(MarketTick.class, result);
         assertEquals(new StockCode("005930"), tick.symbol());
-        assertEquals(new BigDecimal("70100"), tick.price());
+        assertEquals(new Price(new BigDecimal("70100")), tick.price());
         assertEquals(12345L, tick.volume());
         assertEquals(MarketTick.Source.LIVE, tick.source());
     }
@@ -96,7 +97,7 @@ class RealMessageParserTest {
         assertEquals(new StockCode("005930"), notice.symbol());
         assertEquals("체결", notice.status());
         assertEquals(10L, notice.filledQuantity());
-        assertEquals(new BigDecimal("70100"), notice.fillPrice());
+        assertEquals(new Price(new BigDecimal("70100")), notice.fillPrice());
         assertEquals("00", notice.rawType());
     }
 
@@ -143,6 +144,31 @@ class RealMessageParserTest {
     }
 
     @Test
+    void 가격이_0인_시세는_버린다() throws Exception {
+        for (String price : new String[]{"0", "+0", "-0"}) {
+            JsonNode data = mapper.readTree("""
+                    {"type":"0B","item":"005930","values":{"10":"%s","15":"1"}}
+                    """.formatted(price));
+
+            assertNull(RealMessageParser.parse(data, Clock.systemUTC()), price);
+        }
+    }
+
+    @Test
+    void 체결가가_0이거나_형식이_틀린_통보는_살리고_체결가만_null() throws Exception {
+        // 체결 통보를 잃으면 포지션·손익이 틀어진다 — 체결가가 없으면 OrderNoticeHandler가 지정가로 근사한다(조각 17)
+        for (String price : new String[]{"0", "+0", "abc"}) {
+            JsonNode data = mapper.readTree("""
+                    {"type":"00","values":{"9203":"0119433","9001":"005930","913":"체결","911":"1","910":"%s","902":"0"}}
+                    """.formatted(price));
+
+            OrderNotice notice = assertInstanceOf(OrderNotice.class, RealMessageParser.parse(data, Clock.systemUTC()), price);
+            assertNull(notice.fillPrice(), price);
+            assertEquals(1L, notice.filledQuantity(), price);
+        }
+    }
+
+    @Test
     void 알수없는_type은_null() throws Exception {
         JsonNode data = mapper.readTree("""
                 {"type":"XX","item":"005930","values":{}}
@@ -164,7 +190,7 @@ class RealMessageParserTest {
 
         MarketTick tick = assertInstanceOf(MarketTick.class, result);
         assertEquals(new StockCode("005930"), tick.symbol());
-        assertEquals(new BigDecimal("257750"), tick.price());
+        assertEquals(new Price(new BigDecimal("257750")), tick.price());
         assertEquals(19L, tick.volume()); // FID 15 "-19" → 부호 벗긴 크기
         Instant expectedTimestamp = LocalDate.now(MarketConstants.KST)
                 .atTime(11, 56, 18).atZone(MarketConstants.KST).toInstant();
@@ -202,7 +228,7 @@ class RealMessageParserTest {
         assertEquals(new BrokerOrderId("0119433"), notice.brokerOrderId());
         assertEquals("체결", notice.status());
         assertEquals(1L, notice.filledQuantity());
-        assertEquals(new BigDecimal("258000"), notice.fillPrice());
+        assertEquals(new Price(new BigDecimal("258000")), notice.fillPrice());
         assertEquals(0L, notice.remainingQuantity()); // FID 902 = "0" → 완전 소진
     }
 
@@ -234,7 +260,7 @@ class RealMessageParserTest {
         assertEquals(new BrokerOrderId("0119574"), notice.brokerOrderId());
         assertEquals("체결", notice.status());
         assertEquals(1L, notice.filledQuantity());
-        assertEquals(new BigDecimal("258000"), notice.fillPrice());
+        assertEquals(new Price(new BigDecimal("258000")), notice.fillPrice());
         assertEquals(0L, notice.remainingQuantity());
     }
 }
