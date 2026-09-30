@@ -36,6 +36,8 @@ export interface SystemInfo {
   executionMode: string;
   c3Enabled: boolean;
   wsEnabled: boolean;
+  // 대시보드 수동 매수 1건 금액 상한(원) — 발행 전 확인 창이 같은 값으로 미리 막는다(판정은 RiskGate, Phase 0.4)
+  manualOrderMaxKrw: number;
 }
 
 export interface SlippageInfo {
@@ -54,6 +56,12 @@ export interface DashboardView {
 }
 
 export type Side = 'BUY' | 'SELL';
+
+// POST /api/dashboard/test-signal·취소 응답 — accepted는 "이벤트를 발행했다"는 뜻(RiskGate 판정은 판단 근거 탭).
+export interface TestSignalResponse {
+  accepted: boolean;
+  executionMode: string;
+}
 
 // 종목 시세(운영 1일차 ⑧) — GET /api/dashboard/quote/{symbol}. TR 필드 실측 전에는
 // 일부(특히 호가)가 null일 수 있다 — 화면은 "-"로 표시한다.

@@ -32,7 +32,13 @@ export default function App() {
 
   return (
     <>
-      <Header status={view?.trading.status} isError={query.isError} isFetching={query.isFetching} dataUpdatedAt={query.dataUpdatedAt} />
+      <Header
+        status={view?.trading.status}
+        executionMode={view?.system.executionMode}
+        isError={query.isError}
+        isFetching={query.isFetching}
+        dataUpdatedAt={query.dataUpdatedAt}
+      />
       <TabNav active={tab} onChange={setTab} />
 
       {tab === 'dashboard' && (
@@ -44,12 +50,12 @@ export default function App() {
           )}
 
           <div className="grid">
-            <OperationCard status={view?.trading.status} />
+            <OperationCard status={view?.trading.status} executionMode={view?.system.executionMode} />
             <KillSwitchCard killSwitchEngaged={view?.trading.killSwitchEngaged} />
             <PerformanceCard trading={view?.trading} />
             <SlippageCard slippage={view?.slippage} />
             <SystemCard system={view?.system} />
-            <TestSignalCard />
+            <TestSignalCard system={view?.system} />
             <PositionsCard positions={view?.positions} />
             <EventFeedCard events={view?.recentEvents} />
           </div>

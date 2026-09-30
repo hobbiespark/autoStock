@@ -618,3 +618,84 @@ select {
 .ipo-section .row input {
   min-width: 120px;
 }
+
+/* ── Phase 0.5: 위험 동작 UX (aiDoc/manual-order-guard.md) ───────────────── */
+
+/* LIVE 모드 상단 띠 — 어느 탭에서든 보이게 헤더 맨 위 */
+.live-band {
+  background: #5a1616;
+  color: #ffd0d0;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  padding: 8px 14px;
+  margin-bottom: 12px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.live-inline {
+  color: #ff9d9d;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+/* 명령 실패 표시(role="alert") */
+.error-text {
+  color: #ff8a8a;
+  font-size: 13px;
+  margin-top: 8px;
+}
+
+/* 확인 창 — 브라우저 기본 <dialog> */
+.confirm-dialog {
+  margin: auto; /* 전역 * { margin: 0 }이 브라우저 기본 가운데 정렬을 지우므로 되살린다 */
+  background: var(--card);
+  color: var(--text);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 20px;
+  width: min(440px, calc(100vw - 32px));
+}
+.confirm-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+.confirm-dialog h3 {
+  font-size: 16px;
+  margin-bottom: 12px;
+}
+.confirm-body {
+  font-size: 13px;
+  line-height: 1.6;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.confirm-actions button + button {
+  margin-left: 0;
+}
+.confirm-summary {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 4px 12px;
+}
+.confirm-summary dt {
+  color: var(--dim);
+}
+.confirm-summary dd {
+  margin: 0;
+  font-weight: 700;
+}
+.live-confirm {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--danger);
+  border-radius: 8px;
+  color: #ffd0d0;
+}
+.live-confirm input {
+  margin-top: 8px;
+}
