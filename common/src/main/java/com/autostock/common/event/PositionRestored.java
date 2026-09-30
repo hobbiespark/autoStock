@@ -1,5 +1,7 @@
 package com.autostock.common.event;
 
+import com.autostock.common.util.StockCode;
+
 import java.math.BigDecimal;
 
 /**
@@ -11,6 +13,8 @@ import java.math.BigDecimal;
  * execution.PositionRestorer가 기동 시 kt00018 잔고의 보유 배열을 읽어 종목당
  * 하나씩 이 이벤트를 발행하고, portfolio.PositionBook이 수신해 시드한다 —
  * Fill을 위조하지 않으므로 슬리피지·실현손익 집계를 오염시키지 않는다.
+ *
+ * <p>symbol은 {@link StockCode}다. JSON에서는 기존과 같은 문자열이다(JacksonConfig).
  */
-public record PositionRestored(String symbol, long quantity, BigDecimal avgPrice) {
+public record PositionRestored(StockCode symbol, long quantity, BigDecimal avgPrice) {
 }

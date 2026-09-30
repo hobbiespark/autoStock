@@ -2,6 +2,7 @@ package com.autostock.execution;
 
 import com.autostock.common.event.PositionRestored;
 import com.autostock.common.util.KiwoomNumbers;
+import com.autostock.common.util.StockCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -99,12 +100,12 @@ public class PositionRestorer {
             String symbol = normalizeSymbol(firstText(holding, "stk_cd", "stock_cd"));
             long quantity = firstLong(holding, "rmnd_qty", "evlt_rmnd_qty", "hldg_qty", "qty");
             BigDecimal avgPrice = firstPrice(holding, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric");
-            if (symbol.isEmpty() || quantity <= 0) {
+            if (!symbol.matches(StockCode.PATTERN) || quantity <= 0) {
                 log.warn("포지션 복원 원소 해석 실패(TODO 실측 — 위 키 로그 참고): symbol={}, qty={}",
                         symbol, quantity);
                 continue;
             }
-            publisher.publishEvent(new PositionRestored(symbol, quantity, avgPrice));
+            publisher.publishEvent(new PositionRestored(new StockCode(symbol), quantity, avgPrice));
         }
     }
 

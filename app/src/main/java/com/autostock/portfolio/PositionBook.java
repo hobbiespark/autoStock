@@ -54,7 +54,7 @@ public class PositionBook {
      */
     @EventListener
     public void onFill(Fill fill) {
-        // 맵 키는 아직 문자열이다 — Signal·PositionRestored 조회도 문자열로 들어오므로 전부 바뀔 때까지 값으로 꺼낸다
+        // 맵 키는 아직 문자열이다 — get/holds/snapshot 호출부가 문자열이라 키 전환은 별도 조각에서 한다
         positions.compute(fill.symbol().value(), (symbol, current) -> {
             // 매수는 +수량, 매도는 -수량으로 부호를 통일해 한 곳에서 처리
             long signed = fill.side() == Side.BUY ? fill.filledQuantity() : -fill.filledQuantity();
@@ -91,7 +91,7 @@ public class PositionBook {
         if (restored.quantity() <= 0) {
             return;
         }
-        Position previous = positions.putIfAbsent(restored.symbol(),
+        Position previous = positions.putIfAbsent(restored.symbol().value(),
                 new Position(restored.quantity(), restored.avgPrice()));
         if (previous == null) {
             log.info("포지션 복원(브로커 잔고): {} {}주 @ {}", restored.symbol(),
