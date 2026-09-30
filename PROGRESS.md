@@ -191,6 +191,8 @@ C2-5. **장중 절전·토큰 거부 대응(2026-09-30 로그)** — 10:08 WS �
    - ✅ 로그 소음: 대기 해제 직후 `WS 단절 감지` 경고 제거, 공시 블랙리스트 건별 발행 로그 DEBUG + 요약 1줄
    - ✅ 테스트 신규 12건(KiwoomRestClientTest 3, TokenManagerTest 3, SleepGuardTest 5, WS 1) — 전체 543건 통과(skip 16). 근거 `aiDoc/sleep-resume.md`
    - [ ] 다음 장중 `powercfg /requests`로 절전 차단 실측 확인
+C2-6. **C3 국면 OFF 강제 청산 기준가 변경(2026-09-30, 사용자 결정)** — 평균매입가 → 주문 시점 최우선 매수호가(ka10004), 없으면 현재가, 둘 다 없으면 RiskGate 거부. 손실 구간 청산 미체결 방지. 근거 `aiDoc/value-objects.md` 조각 20
+   - [ ] 판단일 매수·매도가 전일 종가 기준가인 것(같은 미체결 위험)은 사용자 판단 대기
 C3. 복구 훈련(재시작·Reconciliation·킬스위치 발동/해제), 21일 vs 5일 판단주기 paper A/B
 C4. 게이트 ② 판정 → 실계좌 소액. **실전 전환 전 키 전량 재발급(5절)**
 

@@ -8,6 +8,7 @@ import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.StockCode;
 import com.autostock.market.KiwoomDailyChartService;
 import com.autostock.market.MarketCalendarService;
+import com.autostock.market.MarketDataPort;
 import com.autostock.monitor.TradingSystemManager;
 import com.autostock.monitor.TradingSystemStatus;
 import com.autostock.portfolio.PositionBook;
@@ -94,6 +95,7 @@ public class C3LiveStrategy {
 
     private final C3StrategyProperties properties;
     private final KiwoomDailyChartService chartService;
+    private final MarketDataPort marketData;
     private final PositionBook positionBook;
     private final ApplicationEventPublisher publisher;
     private final MarketCalendarService marketCalendarService;
@@ -108,6 +110,7 @@ public class C3LiveStrategy {
 
     public C3LiveStrategy(C3StrategyProperties properties,
                           KiwoomDailyChartService chartService,
+                          MarketDataPort marketData,
                           PositionBook positionBook,
                           ApplicationEventPublisher publisher,
                           MarketCalendarService marketCalendarService,
@@ -115,6 +118,7 @@ public class C3LiveStrategy {
         this.clock = clock;
         this.properties = properties;
         this.chartService = chartService;
+        this.marketData = marketData;
         this.positionBook = positionBook;
         this.publisher = publisher;
         this.marketCalendarService = marketCalendarService;
@@ -217,14 +221,52 @@ public class C3LiveStrategy {
     private record RegimeSnapshot(boolean on, String indexSymbol, BigDecimal indexClose, BigDecimal sma) {
     }
 
-    /** 국면 OFF — 이 전략이 관리하는 종목 중 보유 중인 것 전부 SELL Signal 발행. */
+    /**
+     * 국면 OFF — 이 전략이 관리하는 종목 중 보유 중인 것 전부 SELL Signal 발행. 종목 단위로 격리한다
+     * (호가 조회 실패가 다른 종목 청산을 막지 않게).
+     */
     private void liquidateAll() {
         for (String symbol : properties.symbols()) {
-            PositionBook.Position position = positionBook.get(new StockCode(symbol));
-            if (position != null) {
-                log.info("C3: 국면 OFF — 강제 청산: {}", symbol);
-                publishSell(symbol, position.avgPrice());
+            if (positionBook.get(new StockCode(symbol)) == null) {
+                continue;
             }
+            try {
+                BigDecimal price = liquidationPrice(symbol);
+                log.info("C3: 국면 OFF — 강제 청산: {} 기준가 {}", symbol, price);
+                publishSell(symbol, price);
+            } catch (RuntimeException e) {
+                log.error("C3: 종목 {} 강제 청산 신호 발행 중 오류 — 이 종목만 스킵하고 계속 진행", symbol, e);
+            }
+        }
+    }
+
+    /**
+     * 강제 청산 기준가 — 주문 시점의 최우선 매수호가(바로 체결되는 매도 지정가). 사용자 결정(2026-09-30): 예전에는
+     * 평균매입가를 썼는데, 손실 구간에서는 매도 지정가가 시장가보다 높아 체결되지 않고 미체결 취소로 끝날 수 있었다.
+     * 호가가 없으면 현재가, 둘 다 없으면 null — RiskGate가 "기준가 없음"으로 거부하고 판단 기록을 남긴다.
+     */
+    private BigDecimal liquidationPrice(String symbol) {
+        BigDecimal bestBid = positiveOrNull(() -> marketData.bestQuote(symbol).bestBid(), symbol, "최우선 매수호가(ka10004)");
+        if (bestBid != null) {
+            return bestBid;
+        }
+        BigDecimal current = positiveOrNull(() -> marketData.stockQuote(symbol).current(), symbol, "현재가(ka10001)");
+        if (current != null) {
+            log.warn("C3: {} 최우선 매수호가 없음 — 현재가 {}로 청산 신호(체결되지 않으면 미체결 취소로 끝날 수 있다)", symbol, current);
+            return current;
+        }
+        log.error("C3: {} 호가·현재가 모두 없음 — 기준가 없이 청산 신호(RiskGate가 거부하고 판단 기록을 남긴다)", symbol);
+        return null;
+    }
+
+    /** 시세 조회 결과가 양수면 그 값, 조회 실패·빈 값·0 이하면 null. */
+    private static BigDecimal positiveOrNull(java.util.function.Supplier<BigDecimal> query, String symbol, String what) {
+        try {
+            BigDecimal value = query.get();
+            return value != null && value.signum() > 0 ? value : null;
+        } catch (RuntimeException e) {
+            log.warn("C3: {} {} 조회 실패: {}", symbol, what, e.getMessage());
+            return null;
         }
     }
 
