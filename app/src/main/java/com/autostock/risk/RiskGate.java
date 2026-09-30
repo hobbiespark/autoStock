@@ -158,7 +158,7 @@ public class RiskGate {
         // — 브로커 거부 후 재시도보다 주문 전 보정이 슬롯·대사 부담이 없다.
         // 기준가가 없거나 0이면 지정가 주문을 낼 수 없다(매수는 사이징에서 이미 걸러지고, 매도만 여기 온다 —
         // 예: 잔고 복원에서 매입가를 못 찾아 평균단가가 0인 포지션의 강제 청산). 슬롯을 쓰기 전에 거부한다.
-        BigDecimal aligned = KrxTickSize.align(signal.refPrice());
+        BigDecimal aligned = KrxTickSize.align(refPriceOf(signal));
         if (aligned == null || aligned.signum() <= 0) {
             log.warn("기준가 없음 — 지정가를 정할 수 없어 거부: {} {} refPrice={}",
                     signal.symbol(), signal.side(), signal.refPrice());
@@ -167,9 +167,9 @@ public class RiskGate {
             return;
         }
         Price limitPrice = new Price(aligned);
-        if (aligned.compareTo(signal.refPrice()) != 0) {
+        if (aligned.compareTo(refPriceOf(signal)) != 0) {
             log.info("호가단위 보정: {} {} 기준가 {} → 지정가 {}", signal.symbol(), signal.side(),
-                    signal.refPrice().toPlainString(), limitPrice);
+                    signal.refPrice(), limitPrice);
         }
 
         // ── 3단계: 일 주문 한도 ─────────────────────────────────────────
@@ -205,6 +205,11 @@ public class RiskGate {
                 new Quantity(quantity),
                 limitPrice,
                 clock.instant()));
+    }
+
+    /** 시그널 기준가(원). 없으면 null — 사이징(매수)과 지정가 산출(매도)이 각각 거부 사유로 다룬다. */
+    private static BigDecimal refPriceOf(Signal signal) {
+        return signal.refPrice() == null ? null : signal.refPrice().value();
     }
 
     /**
@@ -253,7 +258,7 @@ public class RiskGate {
         // 조건부로 갈린다(RiskGate는 둘 중 무엇이 떠 있는지 모른다).
         BigDecimal equity = equitySource.equity();
         double confidence = clampConfidence(signal);
-        long qty = sizer.sizeBuy(equity, signal.refPrice(), confidence);
+        long qty = sizer.sizeBuy(equity, refPriceOf(signal), confidence);
         if (qty <= 0) {
             log.info("사이징 결과 0주 — 매수 불가: {} (equity={}, price={}, confidence={})",
                     signal.symbol(), equity, signal.refPrice(), confidence);
@@ -320,7 +325,7 @@ public class RiskGate {
             publishRejected(signal, "공시 블랙리스트 종목 — 매수 거부", Map.of());
             return 0;
         }
-        long cap = sizer.sizeBuy(equitySource.equity(), signal.refPrice(), clampConfidence(signal));
+        long cap = sizer.sizeBuy(equitySource.equity(), refPriceOf(signal), clampConfidence(signal));
         if (cap <= 0) {
             publishRejected(signal, "예산 캡 0주 — 수동 매수 불가", Map.of());
             return 0;

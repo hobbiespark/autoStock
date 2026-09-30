@@ -3,6 +3,7 @@ package com.autostock.monitor;
 import com.autostock.common.event.CancelRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
 import com.autostock.market.MarketDataPort;
 import com.autostock.monitor.view.DashboardView;
@@ -123,7 +124,7 @@ public class DashboardController {
                 "dashboard-manual",
                 new StockCode(request.symbol()),
                 Side.valueOf(request.side()),
-                new BigDecimal(request.price()),
+                new Price(new BigDecimal(request.price())), // 형식은 POSITIVE_PRICE가 검증(1 이상)
                 1.0,
                 fixedQuantity,
                 clock.instant()));

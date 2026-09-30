@@ -1,8 +1,8 @@
 package com.autostock.common.event;
 
+import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
 
-import java.math.BigDecimal;
 import java.time.Instant;
 
 /**
@@ -17,19 +17,22 @@ import java.time.Instant;
  *
  * <p><b>symbol</b>: {@link StockCode} 값 객체다. JSON에서는 기존과 같은 문자열로
  * 직렬화되므로(JacksonConfig) event_store 형식은 바뀌지 않는다.
+ *
+ * <p><b>refPrice</b>: {@link Price} 값 객체이고 <b>null일 수 있다</b>(기준가 없음 — 예: 평단 미상 포지션, 호가 조회
+ * 실패). 매수는 사이징에서, 매도는 지정가 산출에서 RiskGate가 거부한다. JSON은 기존과 같은 숫자다.
  */
 public record Signal(
         String strategyId,
         StockCode symbol,
         Side side,
-        BigDecimal refPrice,
+        Price refPrice,
         double confidence,
         Long fixedQuantity,
         Instant timestamp
 ) {
 
     /** v1 호환 생성자 — 기존 호출부(전략·테스트)는 fixedQuantity 없이 그대로 컴파일된다. */
-    public Signal(String strategyId, StockCode symbol, Side side, BigDecimal refPrice,
+    public Signal(String strategyId, StockCode symbol, Side side, Price refPrice,
                   double confidence, Instant timestamp) {
         this(strategyId, symbol, side, refPrice, confidence, null, timestamp);
     }

@@ -215,7 +215,7 @@ class C3LiveStrategyTest {
         assertEquals(Side.SELL, signal.side());
         assertEquals("C3-MOMENTUM", signal.strategyId());
         // 기준가는 평균매입가(50000)가 아니라 주문 시점 최우선 매수호가 — 손실 구간에서도 체결되는 매도 지정가(조각 20)
-        assertEquals(0, new BigDecimal("49500").compareTo(signal.refPrice()));
+        assertEquals(new Price(new BigDecimal("49500")), signal.refPrice());
     }
 
     @Test
@@ -239,7 +239,7 @@ class C3LiveStrategyTest {
 
         List<Signal> signals = onlySignals(published);
         assertEquals(2, signals.size());
-        assertEquals(0, new BigDecimal("68000").compareTo(signals.get(0).refPrice()), "호가 조회 실패 → 현재가");
+        assertEquals(new Price(new BigDecimal("68000")), signals.get(0).refPrice(), "호가 조회 실패 → 현재가");
         assertNull(signals.get(1).refPrice(), "호가·현재가 모두 없음 → 기준가 없음(RiskGate가 거부)");
     }
 

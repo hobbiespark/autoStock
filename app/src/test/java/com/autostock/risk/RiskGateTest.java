@@ -77,7 +77,7 @@ class RiskGateTest {
     }
 
     private Signal buySignal(String symbol, String price) {
-        return new Signal("test-strategy", new StockCode(symbol), Side.BUY, new BigDecimal(price), 1.0, Instant.now());
+        return new Signal("test-strategy", new StockCode(symbol), Side.BUY, new Price(new BigDecimal(price)), 1.0, Instant.now());
     }
 
     /**
@@ -124,7 +124,7 @@ class RiskGateTest {
     @Test
     void 미보유_종목_매도_시그널_무시() {
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
-                new BigDecimal("70000"), 1.0, Instant.now()));
+                new Price(new BigDecimal("70000")), 1.0, Instant.now()));
         assertTrue(onlyOrders(published).isEmpty());
     }
 
@@ -133,7 +133,7 @@ class RiskGateTest {
         positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(14),
                 new Price(new BigDecimal("70000")), Instant.now()));
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
-                new BigDecimal("71000"), 1.0, Instant.now()));
+                new Price(new BigDecimal("71000")), 1.0, Instant.now()));
 
         assertEquals(1, published.size());
         assertEquals(new Quantity(14), ((OrderRequest) published.get(0)).quantity());
@@ -142,12 +142,11 @@ class RiskGateTest {
     // ── 지정가(조각 16, 2026-09-30): OrderRequest.limitPrice는 Price — 0·null이면 주문을 만들지 않는다 ──
 
     @Test
-    void 기준가가_0이거나_없는_매도는_거부하고_주문_슬롯을_쓰지_않는다() {
-        // 잔고 복원에서 매입가를 못 찾으면 평균단가가 0이 되고, C3 국면 OFF 청산은 그 값을 기준가로 쓴다.
+    void 기준가_없는_매도는_거부하고_주문_슬롯을_쓰지_않는다() {
+        // 기준가 없음(null)은 평단 미상 포지션·호가 조회 실패에서 온다(조각 19·20). 0은 Signal 생산자가 null로 번역한다(조각 21).
         positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(14),
                 new Price(new BigDecimal("70000")), Instant.now()));
 
-        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL, BigDecimal.ZERO, 1.0, Instant.now()));
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL, null, 1.0, Instant.now()));
 
         assertTrue(onlyOrders(published).isEmpty());
@@ -156,9 +155,9 @@ class RiskGateTest {
         assertEquals("기준가 없음 — 지정가를 정할 수 없어 거부", decision.reason());
 
         gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
-                new BigDecimal("71000"), 1.0, Instant.now()));
+                new Price(new BigDecimal("71000")), 1.0, Instant.now()));
         OrderRequest order = onlyOrders(published).get(0);
-        assertTrue(order.idempotencyKey().endsWith("-001"), "거부된 두 신호는 일 주문 슬롯을 쓰지 않는다: " + order.idempotencyKey());
+        assertTrue(order.idempotencyKey().endsWith("-001"), "거부된 신호는 일 주문 슬롯을 쓰지 않는다: " + order.idempotencyKey());
     }
 
     @Test
@@ -170,7 +169,7 @@ class RiskGateTest {
 
     @Test
     void confidence가_0_5면_매수_수량이_절반이다() {
-        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new BigDecimal("70000"), 0.5, Instant.now()));
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new Price(new BigDecimal("70000")), 0.5, Instant.now()));
 
         assertEquals(1, published.size());
         OrderRequest order = (OrderRequest) published.get(0);
@@ -180,7 +179,7 @@ class RiskGateTest {
 
     @Test
     void confidence가_1_초과면_1_0으로_클램프돼_원래_수량과_같다() {
-        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new BigDecimal("70000"), 1.5, Instant.now()));
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new Price(new BigDecimal("70000")), 1.5, Instant.now()));
 
         assertEquals(1, published.size());
         assertEquals(new Quantity(14), ((OrderRequest) published.get(0)).quantity());
@@ -188,7 +187,7 @@ class RiskGateTest {
 
     @Test
     void confidence가_0이하면_1_0으로_클램프돼_원래_수량과_같다() {
-        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new BigDecimal("70000"), 0.0, Instant.now()));
+        gate.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.BUY, new Price(new BigDecimal("70000")), 0.0, Instant.now()));
 
         assertEquals(1, published.size());
         assertEquals(new Quantity(14), ((OrderRequest) published.get(0)).quantity());
