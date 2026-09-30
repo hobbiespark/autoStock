@@ -1,5 +1,10 @@
 package com.autostock.monitor;
 
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
+import jakarta.validation.constraints.Digits;
+import jakarta.validation.constraints.PositiveOrZero;
+
 import java.math.BigDecimal;
 import java.time.LocalDate;
 
@@ -16,8 +21,8 @@ import java.time.LocalDate;
  *                                     상장일 도래 시 상태가 LISTED로 바뀐다.
  */
 public record IpoMetricsRequest(
-        BigDecimal institutionalCompetitionRate,
-        BigDecimal lockupCommitRate,
+        @PositiveOrZero @Digits(integer = 8, fraction = 2) BigDecimal institutionalCompetitionRate, // NUMERIC(10,2)
+        @DecimalMin("0") @DecimalMax("1") @Digits(integer = 2, fraction = 4) BigDecimal lockupCommitRate, // NUMERIC(6,4)
         LocalDate listingDate
 ) {
 }

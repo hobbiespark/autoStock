@@ -5,6 +5,7 @@ import com.autostock.ipo.IpoDealEntity;
 import com.autostock.ipo.IpoDealRepository;
 import com.autostock.ipo.IpoStatus;
 import com.autostock.monitor.view.IpoDealView;
+import jakarta.validation.Valid;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -52,7 +53,7 @@ public class IpoController {
 
     /** 내 청약/배정/매도 기록 upsert — 부분 갱신(null 필드는 기존 값 유지). */
     @PostMapping("/{id}/record")
-    public ResponseEntity<IpoDealView> record(@PathVariable Long id, @RequestBody IpoRecordRequest request) {
+    public ResponseEntity<IpoDealView> record(@PathVariable Long id, @Valid @RequestBody IpoRecordRequest request) {
         return toResponse(() -> commandService.recordMyDeal(id, new IpoDealCommandService.RecordCommand(
                 request.appliedQty(), request.deposit(), request.allocatedQty(),
                 request.sellPrice(), request.sellDate(), request.memo())));
@@ -64,7 +65,7 @@ public class IpoController {
      * (다음 배치까지 기다리지 않음).
      */
     @PostMapping("/{id}/metrics")
-    public ResponseEntity<IpoDealView> metrics(@PathVariable Long id, @RequestBody IpoMetricsRequest request) {
+    public ResponseEntity<IpoDealView> metrics(@PathVariable Long id, @Valid @RequestBody IpoMetricsRequest request) {
         return toResponse(() -> commandService.updateMetrics(id, new IpoDealCommandService.MetricsCommand(
                 request.institutionalCompetitionRate(), request.lockupCommitRate(), request.listingDate())));
     }

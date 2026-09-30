@@ -7,6 +7,10 @@ import com.autostock.market.MarketDataPort;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
 import com.autostock.risk.KillSwitch;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Pattern;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -21,7 +25,6 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 대시보드 REST API (경량 FE 백엔드, PLAN 4-1절 / ARCHITECTURE.md 10절 CQRS Lite).
@@ -44,6 +47,11 @@ import java.util.Map;
 public class DashboardController {
 
     private static final Logger log = LoggerFactory.getLogger(DashboardController.class);
+
+    /** 종목코드 6자리(영숫자 — 2024년 이후 영문 포함 코드). */
+    private static final String SYMBOL = "[0-9A-Z]{6}";
+    private static final String POSITIVE_PRICE = "[1-9]\\d{0,8}(\\.\\d{1,4})?";
+    private static final String POSITIVE_QUANTITY = "[1-9]\\d{0,8}";
 
     private final DashboardFacade facade;
     private final KillSwitch killSwitch;
@@ -92,9 +100,8 @@ public class DashboardController {
 
     /** 킬스위치 토글 — engage=true: 비상 정지, false: 해제. */
     @PostMapping("/killswitch")
-    public KillSwitchView toggleKillSwitch(@RequestBody Map<String, Object> body) {
-        boolean engage = Boolean.TRUE.equals(body.get("engage"));
-        if (engage) {
+    public KillSwitchView toggleKillSwitch(@Valid @RequestBody KillSwitchRequest request) {
+        if (request.engage()) {
             killSwitch.engage("대시보드 수동 조작");
         } else {
             killSwitch.release("dashboard");
@@ -111,7 +118,7 @@ public class DashboardController {
      * 매도: 전량 청산), 지정하면 RiskGate가 상한(예산 캡·보유량 캡) 안에서 그 수량을 쓴다.
      */
     @PostMapping("/test-signal")
-    public TestSignalResponse testSignal(@RequestBody TestSignalRequest request) {
+    public TestSignalResponse testSignal(@Valid @RequestBody TestSignalRequest request) {
         Long fixedQuantity = parseQuantity(request.quantity());
         publisher.publishEvent(new Signal(
                 "dashboard-manual",
@@ -177,7 +184,18 @@ public class DashboardController {
     }
 
     /** 테스트 시그널 입력값. side: "BUY" | "SELL", quantity: 선택(빈 값 = 자동 사이징) */
-    public record TestSignalRequest(String symbol, String side, String price, String quantity) {
+    public record TestSignalRequest(
+            @NotBlank @Pattern(regexp = SYMBOL) String symbol,
+            @NotBlank @Pattern(regexp = "BUY|SELL") String side,
+            @NotBlank @Pattern(regexp = POSITIVE_PRICE) String price,
+            @Pattern(regexp = "|" + POSITIVE_QUANTITY) String quantity) {
+    }
+
+    /**
+     * 킬스위치 조작 입력. engage가 없거나 불리언이 아니면 400 — 잘못된 요청이 "해제"로 떨어지지 않게 한다
+     * (예전 Map 본문은 키 오타·문자열 값을 해제로 처리했다, fail-closed §5.1).
+     */
+    public record KillSwitchRequest(@NotNull Boolean engage) {
     }
 
     /** 테스트 시그널 응답. */
