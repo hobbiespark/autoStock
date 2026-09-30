@@ -82,7 +82,7 @@ public class DashboardFacade {
     /** 포지션 View 목록. */
     public List<PositionView> positions() {
         return positionBook.snapshot().entrySet().stream()
-                .map(e -> new PositionView(e.getKey(), e.getValue().quantity(), e.getValue().avgPrice()))
+                .map(e -> new PositionView(e.getKey().value(), e.getValue().quantity(), e.getValue().avgPrice()))
                 .toList();
     }
 

@@ -3,6 +3,7 @@ package com.autostock.risk;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -69,7 +70,7 @@ public class DailyPnlTracker {
     private final Clock clock;
 
     /** 종목별 평단·수량 자체 장부 — PositionBook과 별개(클래스 설명 참고). */
-    private final Map<String, Lot> lots = new ConcurrentHashMap<>();
+    private final Map<StockCode, Lot> lots = new ConcurrentHashMap<>();
 
     private final ReentrantLock lock = new ReentrantLock();
     private LocalDate currentDay;
@@ -95,7 +96,7 @@ public class DailyPnlTracker {
 
     /** 매수 체결 반영 — PositionBook.onFill의 매수 가지와 동일한 가중평균 로직. */
     private void recordBuy(Fill fill) {
-        lots.compute(fill.symbol().value(), (symbol, current) -> {
+        lots.compute(fill.symbol(), (symbol, current) -> {
             if (current == null) {
                 return new Lot(fill.filledQuantity(), fill.fillPrice());
             }
@@ -113,8 +114,7 @@ public class DailyPnlTracker {
      * 손익 계산을 스킵하고 경고만 남긴다 — 잘못된 평단으로 왜곡된 값을 누적시키는 것보다 낫다.
      */
     private void recordSell(Fill fill) {
-        // 장부 키는 문자열 — Map.get/remove는 Object를 받아 StockCode를 넘겨도 컴파일되지만 항상 못 찾는다
-        String symbol = fill.symbol().value();
+        StockCode symbol = fill.symbol();
         Lot current = lots.get(symbol);
         if (current == null) {
             log.warn("DailyPnlTracker: 자체 장부에 없는 종목의 매도 체결 — 실현손익 계산 스킵(재시작 등으로 장부 유실 가능): {}",

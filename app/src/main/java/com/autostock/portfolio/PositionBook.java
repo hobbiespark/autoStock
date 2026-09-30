@@ -3,6 +3,7 @@ package com.autostock.portfolio;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.PositionRestored;
 import com.autostock.common.event.Side;
+import com.autostock.common.util.StockCode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -47,15 +48,14 @@ public class PositionBook {
     }
 
     /** key: 종목코드(예: "005930"), value: 보유 상태. 미보유 종목은 키 자체가 없다. */
-    private final Map<String, Position> positions = new ConcurrentHashMap<>();
+    private final Map<StockCode, Position> positions = new ConcurrentHashMap<>();
 
     /**
      * 체결 이벤트 반영. 매수는 수량 증가(+평단 재계산), 매도는 수량 감소.
      */
     @EventListener
     public void onFill(Fill fill) {
-        // 맵 키는 아직 문자열이다 — get/holds/snapshot 호출부가 문자열이라 키 전환은 별도 조각에서 한다
-        positions.compute(fill.symbol().value(), (symbol, current) -> {
+        positions.compute(fill.symbol(), (symbol, current) -> {
             // 매수는 +수량, 매도는 -수량으로 부호를 통일해 한 곳에서 처리
             long signed = fill.side() == Side.BUY ? fill.filledQuantity() : -fill.filledQuantity();
 
@@ -91,7 +91,7 @@ public class PositionBook {
         if (restored.quantity() <= 0) {
             return;
         }
-        Position previous = positions.putIfAbsent(restored.symbol().value(),
+        Position previous = positions.putIfAbsent(restored.symbol(),
                 new Position(restored.quantity(), restored.avgPrice()));
         if (previous == null) {
             log.info("포지션 복원(브로커 잔고): {} {}주 @ {}", restored.symbol(),
@@ -100,11 +100,11 @@ public class PositionBook {
     }
 
     /** @return 보유 상태, 미보유면 null */
-    public Position get(String symbol) {
+    public Position get(StockCode symbol) {
         return positions.get(symbol);
     }
 
-    public boolean holds(String symbol) {
+    public boolean holds(StockCode symbol) {
         return positions.containsKey(symbol);
     }
 
@@ -114,7 +114,7 @@ public class PositionBook {
     }
 
     /** 전체 포지션 읽기 전용 스냅샷 — 대시보드 조회용. */
-    public Map<String, Position> snapshot() {
+    public Map<StockCode, Position> snapshot() {
         return Map.copyOf(positions);
     }
 }
