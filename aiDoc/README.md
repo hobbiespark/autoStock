@@ -34,3 +34,4 @@
 - [db-integration-test.md](db-integration-test.md) — P3: DB 통합 테스트(Docker면 postgres:16-alpine, 없으면 내장 PG 16.15), 첫 검증 4건
 - [time.md](time.md) — A5: 시간대 명시(저장 UTC·업무 날짜 KST 변환 층 표, DATE 영향 실측, cron zone 규칙 테스트)
 - [sleep-resume.md](sleep-resume.md) — 2026-09-30 로그: 장중 PC 절전 방지·복귀 감지, 토큰 거부(8005) 재발급, 로그 소음 정리
+- [upgrade-2026-10/](upgrade-2026-10/00-README.md) — 2026-10-01 고도화 조사(FE·BE·기획·디자인·인프라·주식거래 6관점)·코드 감사(BE·FE)·실행 계획(Phase 0~6, 충돌 방지 규약)·사용자 결정 목록(D-01~D-14)
