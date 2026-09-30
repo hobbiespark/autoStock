@@ -82,7 +82,7 @@ public class StaleOrderCanceller {
                                     current.getStatus(), current.getClientOrderId());
                             return null;
                         }
-                        current.transitionTo(OrderStatus.CANCEL_REQUESTED);
+                        current.transitionTo(OrderStatus.CANCEL_REQUESTED, clock.instant());
                         return orderRepository.save(current);
                     });
             if (requested == null) {

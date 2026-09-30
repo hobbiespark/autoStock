@@ -146,11 +146,11 @@ public class TradingService {
                 request.symbol(), request.side(), request.quantity(), request.limitPrice());
 
         OrderEntity entity = new OrderEntity(request.idempotencyKey(), request.symbol(), request.side(),
-                request.quantity(), request.limitPrice(), request.strategyId());
-        entity.transitionTo(OrderStatus.VALIDATED);
-        entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted(brokerOrderId);
-        entity.applyFill(request.quantity()); // SIM은 항상 전량 즉시 체결 가정 → FILLED
+                request.quantity(), request.limitPrice(), request.strategyId(), clock.instant());
+        entity.transitionTo(OrderStatus.VALIDATED, clock.instant());
+        entity.transitionTo(OrderStatus.SUBMITTING, clock.instant());
+        entity.markSubmitted(brokerOrderId, clock.instant());
+        entity.applyFill(request.quantity(), clock.instant()); // SIM은 항상 전량 즉시 체결 가정 → FILLED
         orderRepository.save(entity);
 
         publisher.publishEvent(new Fill(
@@ -169,8 +169,8 @@ public class TradingService {
      */
     private void executeLive(OrderRequest request) {
         OrderEntity entity = new OrderEntity(request.idempotencyKey(), request.symbol(), request.side(),
-                request.quantity(), request.limitPrice(), request.strategyId());
-        entity.transitionTo(OrderStatus.VALIDATED);
+                request.quantity(), request.limitPrice(), request.strategyId(), clock.instant());
+        entity.transitionTo(OrderStatus.VALIDATED, clock.instant());
 
         try {
             orderRepository.save(entity); // 전송보다 저장이 먼저 — DB UNIQUE가 2차 방어선
@@ -180,13 +180,13 @@ public class TradingService {
             return;
         }
 
-        entity.transitionTo(OrderStatus.SUBMITTING);
+        entity.transitionTo(OrderStatus.SUBMITTING, clock.instant());
         entity = save(entity);
 
         try {
             BrokerOrderResult result = brokerPort.placeOrder(request);
             BrokerOrderId brokerOrderId = result.brokerOrderId();
-            entity.markSubmitted(brokerOrderId);
+            entity.markSubmitted(brokerOrderId, clock.instant());
             entity = save(entity);
             brokerOrderIdToRequest.put(brokerOrderId, request);
             log.info("[LIVE] 주문 접수: {} → 주문번호 {}", request.symbol(), result.brokerOrderId());
@@ -195,7 +195,7 @@ public class TradingService {
             // 경우는 결과가 "불명"이 아니라 "거부 확정"이다 — REJECTED(종결)로 분류하고
             // Reconciliation을 걸지 않는다(브로커에 존재하지 않는 주문이므로 대사 불필요).
             log.warn("[LIVE] 브로커 명시 거부 → REJECTED: {} ({})", request.idempotencyKey(), e.getMessage());
-            entity.transitionTo(OrderStatus.REJECTED);
+            entity.transitionTo(OrderStatus.REJECTED, clock.instant());
             orderRepository.save(entity);
         } catch (Exception e) {
             // 주문 API에는 무조건적 자동 Retry를 적용하지 않는다(ARCHITECTURE.md 6절) —
@@ -203,7 +203,7 @@ public class TradingService {
             // Reconciliation이 브로커 조회로 실제 상태를 확정하게 한다.
             log.error("[LIVE] 주문 전송 중 예외(타임아웃/네트워크 등으로 결과 불명) — UNKNOWN 처리: {}",
                     request.idempotencyKey(), e);
-            entity.transitionTo(OrderStatus.UNKNOWN);
+            entity.transitionTo(OrderStatus.UNKNOWN, clock.instant());
             orderRepository.save(entity);
             reconciliationService.requestReconcile(request.idempotencyKey());
         }
@@ -237,7 +237,7 @@ public class TradingService {
                                 entity.getStatus(), entity.getBrokerOrderId(), clientOrderId);
                         return null;
                     }
-                    entity.transitionTo(OrderStatus.CANCEL_REQUESTED);
+                    entity.transitionTo(OrderStatus.CANCEL_REQUESTED, clock.instant());
                     return save(entity);
                 });
         if (requested == null) {
@@ -282,14 +282,14 @@ public class TradingService {
                     OrderStatus target = cancelled ? OrderStatus.CANCELLED : OrderStatus.UNKNOWN;
                     if (cancelled && entity.getStatus() != OrderStatus.CANCEL_REQUESTED
                             && entity.getStatus().canTransitionTo(OrderStatus.CANCEL_REQUESTED)) {
-                        entity.transitionTo(OrderStatus.CANCEL_REQUESTED);
+                        entity.transitionTo(OrderStatus.CANCEL_REQUESTED, clock.instant());
                     }
                     if (!entity.getStatus().canTransitionTo(target)) {
                         log.warn("취소 결과({}) 반영 생략 — 그 사이 {}로 진행됨: {}",
                                 target, entity.getStatus(), clientOrderId);
                         return entity;
                     }
-                    entity.transitionTo(target);
+                    entity.transitionTo(target, clock.instant());
                     return save(entity);
                 });
     }

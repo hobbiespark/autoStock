@@ -38,12 +38,12 @@ public class EventRecord {
     protected EventRecord() {
     }
 
-    public EventRecord(String eventType, int schemaVersion, String payload, Instant occurredAt) {
+    public EventRecord(String eventType, int schemaVersion, String payload, Instant occurredAt, Instant recordedAt) {
         this.eventType = eventType;
         this.schemaVersion = schemaVersion;
         this.payload = payload;
         this.occurredAt = occurredAt;
-        this.recordedAt = Instant.now();
+        this.recordedAt = recordedAt;   // 시각은 호출부가 주입 Clock에서 넘긴다(A4 ③, aiDoc/clock-injection.md) — 엔티티는 시계에 직접 접근하지 않는다.
     }
 
     public Long getId() { return id; }

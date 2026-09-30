@@ -677,8 +677,7 @@ ARCHITECTURE.md 3절의 "이벤트는 스키마 v2로 단계 도입, 한 번에 
 - `PositionBook.Position.avgPrice`(`BigDecimal`)도 null을 허용한다. 모르는 평단에 추가 매수를 섞어도 여전히 모른다. 부분 매도는 수량만 줄인다(기존과 같음).
 - 문구는 `Position.avgPriceText()` 한 곳에서 만든다("평단 미상"). 일일 리포트(`DailyReportScheduler`)와 텔레그램 상태(`TelegramCommandPoller`)가 쓴다 — 이전에는 `null`이 그대로 찍힐 뻔했다.
 - 대시보드 FE: `PositionsCard`가 `Number(null)`로 **0**을 보여 줄 것이라 `—`로 표시하게 고쳤다(`types.ts`의 `avgPrice`에 `null` 추가). `tsc --noEmit` 통과.
-  - **빌드 산출물(`app/src/main/resources/static`)은 다시 만들지 않았다.** Windows용 esbuild 바이너리라 작업 환경에서 `vite build`가 돌지 않는다. `frontend`에서 `npm run build` 후 커밋해야 화면에 반영된다.
-- `DailyPnlTracker`는 `PositionRestored`를 받지 않는다(자체 장부는 체결로만 만든다). 영향 없음.
+  - 빌드 산출물은 2026-09-30 `da75348`에서 반영했다(작업 환경에서 `npm ci` + `vite build`, CSS 해시가 기존과 같아 재현 확인).
 
 ### 2. 변경 파일
 

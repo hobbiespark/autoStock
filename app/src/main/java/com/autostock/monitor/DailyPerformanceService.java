@@ -4,6 +4,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 
 /**
@@ -14,9 +15,11 @@ import java.time.LocalDate;
 public class DailyPerformanceService implements DailyPerformanceRecorder {
 
     private final DailyPerformanceRepository repository;
+    private final Clock clock;
 
-    public DailyPerformanceService(DailyPerformanceRepository repository) {
+    public DailyPerformanceService(DailyPerformanceRepository repository, Clock clock) {
         this.repository = repository;
+        this.clock = clock;
     }
 
     @Override
@@ -25,7 +28,7 @@ public class DailyPerformanceService implements DailyPerformanceRecorder {
                              double avgSlippageBps, double maxSlippageBps,
                              boolean conservativeMode, boolean killSwitchEngaged) {
         DailyPerformanceEntity entity = repository.findByTradeDate(tradeDate)
-                .orElseGet(() -> new DailyPerformanceEntity(tradeDate));
+                .orElseGet(() -> new DailyPerformanceEntity(tradeDate, clock.instant()));
         entity.update(realizedPnl, orderCount, fillCount, avgSlippageBps, maxSlippageBps,
                 conservativeMode, killSwitchEngaged);
         repository.save(entity);

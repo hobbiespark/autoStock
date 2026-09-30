@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import java.time.Clock;
 import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.StockCode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,7 +30,7 @@ class SignalDecisionListenerTest {
 
     private final SignalDecisionRepository repository = mock(SignalDecisionRepository.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
-    private final SignalDecisionListener listener = new SignalDecisionListener(repository, objectMapper);
+    private final SignalDecisionListener listener = new SignalDecisionListener(repository, objectMapper, Clock.systemUTC());
 
     // 2026-09-11T00:05:00Z = KST 2026-09-11 09:05 (C3의 09:05 스케줄과 동일 시각대)
     private static final Instant DECIDED_AT = Instant.parse("2026-09-11T00:05:00Z");

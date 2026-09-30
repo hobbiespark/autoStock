@@ -1,5 +1,7 @@
 package com.autostock.monitor;
 
+import java.time.Clock;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -21,7 +23,7 @@ import static org.mockito.Mockito.when;
 class DailyPerformanceServiceTest {
 
     private final DailyPerformanceRepository repository = mock(DailyPerformanceRepository.class);
-    private final DailyPerformanceService service = new DailyPerformanceService(repository);
+    private final DailyPerformanceService service = new DailyPerformanceService(repository, Clock.systemUTC());
 
     @Test
     void 해당_날짜에_행이_없으면_새로_생성해서_저장한다() {
@@ -46,7 +48,7 @@ class DailyPerformanceServiceTest {
     @Test
     void 해당_날짜에_기존_행이_있으면_같은_엔티티를_갱신해서_저장한다_새로_생성하지_않는다() {
         LocalDate tradeDate = LocalDate.of(2026, 9, 11);
-        DailyPerformanceEntity existing = new DailyPerformanceEntity(tradeDate);
+        DailyPerformanceEntity existing = new DailyPerformanceEntity(tradeDate, Instant.now());
         existing.update(new BigDecimal("1000"), 1, 1, 1.0, 1.0, false, false);
         when(repository.findByTradeDate(tradeDate)).thenReturn(Optional.of(existing));
         when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));

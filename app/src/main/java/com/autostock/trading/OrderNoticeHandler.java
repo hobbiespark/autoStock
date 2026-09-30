@@ -229,11 +229,11 @@ public class OrderNoticeHandler {
 
         OrderEntity saved = order;
         try {
-            order.applyFill(new Quantity(delta));
+            order.applyFill(new Quantity(delta), clock.instant());
             // 실측 확정 2026-09-11(FID 902): 미체결 잔량 0 = 브로커 기준 완전 소진 확정.
             // remainingQuantity == -1은 "필드 자체가 없던 통보"(과거 픽스처 등)이므로 무시.
             if (notice.remainingQuantity() == 0 && order.getStatus() != OrderStatus.FILLED) {
-                order.transitionTo(OrderStatus.FILLED);
+                order.transitionTo(OrderStatus.FILLED, clock.instant());
             }
             saved = orderRepository.save(order);
         } catch (IllegalStateException e) {
@@ -294,7 +294,7 @@ public class OrderNoticeHandler {
                 () -> orderRepository.findByBrokerOrderId(notice.brokerOrderId()),
                 order -> {
                     try {
-                        order.transitionTo(OrderStatus.ACCEPTED);
+                        order.transitionTo(OrderStatus.ACCEPTED, clock.instant());
                         orderRepository.save(order);
                     } catch (IllegalStateException e) {
                         // 이미 ACCEPTED를 지나 체결/취소 등으로 넘어간 뒤 접수 통보가 뒤늦게 도착한

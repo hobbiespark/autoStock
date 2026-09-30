@@ -64,7 +64,7 @@ class DecisionControllerTest {
         SignalDecisionEntity entity = new SignalDecisionEntity(
                 Instant.parse("2026-09-11T00:05:00Z"), LocalDate.of(2026, 9, 11),
                 "MID", "C3-MOMENTUM", "005930", "BUY",
-                "모멘텀 상승 전환 + 국면 ON + 미보유 — 매수 시그널 발행", metricsJson);
+                "모멘텀 상승 전환 + 국면 ON + 미보유 — 매수 시그널 발행", metricsJson, Instant.now());
         when(repository.findByTradeDateOrderByHorizonAscSymbolAsc(any())).thenReturn(List.of(entity));
 
         List<SignalDecisionView> result = controller.decisions(LocalDate.of(2026, 9, 11));
@@ -83,7 +83,7 @@ class DecisionControllerTest {
     void metrics_json이_손상돼도_전체_목록_조회는_실패하지_않고_빈_맵으로_대체한다() {
         SignalDecisionEntity entity = new SignalDecisionEntity(
                 Instant.parse("2026-09-11T00:05:00Z"), LocalDate.of(2026, 9, 11),
-                "MID", "C3-MOMENTUM", "005930", "SKIP", "테스트 사유", "{손상된 json");
+                "MID", "C3-MOMENTUM", "005930", "SKIP", "테스트 사유", "{손상된 json", Instant.now());
         when(repository.findByTradeDateOrderByHorizonAscSymbolAsc(any())).thenReturn(List.of(entity));
 
         List<SignalDecisionView> result = controller.decisions(LocalDate.of(2026, 9, 11));

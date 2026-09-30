@@ -27,7 +27,7 @@
 
 ## 3. 버린 대안과 보류
 
-- **③ JPA 엔티티 시각(보류, 사용자 결정 대기)**
+- **③ JPA 엔티티 시각(→ 2026-09-30 사용자 결정으로 진행, 10절)**
   - 대상: `OrderEntity`, `IpoDealEntity`, `EventRecord`, `SignalDecisionEntity`, `DailyPerformanceEntity`, `DisclosureBlacklistEntity`
   - 엔티티는 `Clock`을 주입받을 수 없다. 생성자와 변경 메서드(`transitionTo`, `markSubmitted`, `applyFill`, `apply*`)가 시각을 인자로 받아야 한다.
   - 실측 파급: 운영 약 25곳, 테스트 약 110곳.
@@ -71,8 +71,36 @@
 
 ## 8. 남은 일
 
-- ③ 엔티티 시각 주입 여부 결정
+- ~~③ 엔티티 시각 주입 여부 결정~~ → 10절에서 완료
 
 ## 9. 변경 이력
 
 - 2026-09-30: 최초 작성
+
+## 10. ③ 엔티티 시각 주입 (2026-09-30, 사용자 결정)
+
+### 결정
+
+- 엔티티 6개의 생성자와 변경 메서드가 시각을 인자로 받는다. 엔티티는 시계에 직접 접근하지 않는다(규칙 §9, ARCH §5).
+  - `OrderEntity(…, Instant now)`, `transitionTo(status, now)`, `markSubmitted(id, now)`, `applyFill(qty, now)`
+  - `IpoDealEntity(…, now)`, `applyOfferingDetail`·`updateStatus`·`applyRecommendation`·`applyMetrics`(2종)·`applyRecord`(…, now)
+  - `EventRecord(…, occurredAt, recordedAt)`, `SignalDecisionEntity(…, createdAt)`, `DailyPerformanceEntity(tradeDate, createdAt)`, `DisclosureBlacklistEntity(…, createdAt)`
+- 호출부는 주입 `Clock`에서 `clock.instant()`를 넘긴다. `Clock`이 없던 빈 4개는 ②와 같은 관례(생성자 마지막 인자)로 받는다: `EventAuditListener`, `DailyPerformanceService`, `SignalDecisionListener`, `IpoDealCommandService`.
+- `IpoSyncScheduler`의 메서드 참조(`entity::applyOfferingDetail`)는 시각 인자 때문에 람다로 바꿨다.
+- **규칙 테스트 추가:** `ArchitectureRulesTest.운영_코드는_시계를_직접_읽지_않는다` — 인자 없는 `Instant/LocalDate/LocalDateTime/LocalTime/ZonedDateTime/OffsetDateTime.now()`와 `System.currentTimeMillis()`를 운영 코드에서 금지한다. `now(clock)`은 허용. 엔티티에 `Instant.now()`를 되살리면 실패함을 확인했다.
+
+### 얻은 것
+
+- `StaleOrderCancellerTest`가 `updatedAt`을 리플렉션으로 강제하던 도우미를 없앴다. 원하는 과거 시각에 접수된 주문을 생성자·전이 메서드로 그대로 만든다.
+- 운영 코드의 직접 시계 호출이 0이 됐고, 규칙 테스트가 이를 지킨다.
+
+### 변경 규모
+
+- 운영: 엔티티 6, 호출부 10(`TradingService`, `OrderNoticeHandler`, `ReconciliationService`, `StaleOrderCanceller`, `IpoSyncScheduler`, `IpoDealCommandService`, `DisclosureBlacklist`, `EventAuditListener`, `DailyPerformanceService`, `SignalDecisionListener`)
+- 테스트 14개 파일(생성자·메서드 호출에 `Instant.now()`/`Clock.systemUTC()` 추가 — 컴파일 오류 위치만 스크립트로 변환), `ArchitectureRulesTest` +1
+- 스키마·JSON 변경 없음. 동작 변경 없음(운영 `Clock`은 `systemUTC()`).
+
+### 검증
+
+- `.\gradlew.bat test` 전체 통과(2026-09-30, 567건, 건너뜀 16). DB 테스트(`OrderRepositoryDbTest`, `SchemaAndTimeZoneDbTest`) 포함.
+

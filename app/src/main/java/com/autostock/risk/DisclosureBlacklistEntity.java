@@ -54,14 +54,14 @@ public class DisclosureBlacklistEntity {
     }
 
     public DisclosureBlacklistEntity(String symbol, String corpName, String disclosureType,
-                                      String rceptNo, LocalDate rceptDt, LocalDate expiresOn) {
+                                      String rceptNo, LocalDate rceptDt, LocalDate expiresOn, Instant createdAt) {
         this.symbol = symbol;
         this.corpName = corpName;
         this.disclosureType = disclosureType;
         this.rceptNo = rceptNo;
         this.rceptDt = rceptDt;
         this.expiresOn = expiresOn;
-        this.createdAt = Instant.now();
+        this.createdAt = createdAt;   // 시각은 호출부가 주입 Clock에서 넘긴다(A4 ③, aiDoc/clock-injection.md) — 엔티티는 시계에 직접 접근하지 않는다.
     }
 
     public Long getId() { return id; }

@@ -68,10 +68,10 @@ class OrderHistoryControllerTest {
     @Test
     void OrderEntity를_View_DTO로_변환해서_반환한다() {
         OrderEntity order = new OrderEntity("20260911-C3-005930-BUY-001", new StockCode("005930"), Side.BUY, new Quantity(10),
-                new Price(new BigDecimal("70000")), "C3");
-        order.transitionTo(OrderStatus.VALIDATED);
-        order.transitionTo(OrderStatus.SUBMITTING);
-        order.markSubmitted(new BrokerOrderId("broker-1"));
+                new Price(new BigDecimal("70000")), "C3", Instant.now());
+        order.transitionTo(OrderStatus.VALIDATED, Instant.now());
+        order.transitionTo(OrderStatus.SUBMITTING, Instant.now());
+        order.markSubmitted(new BrokerOrderId("broker-1"), Instant.now());
         when(repository.findBySubmittedAtGreaterThanEqualOrderBySubmittedAtDesc(any()))
                 .thenReturn(List.of(order));
 

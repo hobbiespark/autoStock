@@ -126,4 +126,18 @@ class ArchitectureRulesTest {
                 })
                 .check(classes);
     }
+
+    @Test
+    void 운영_코드는_시계를_직접_읽지_않는다() {
+        // A4(aiDoc/clock-injection.md): 현재 시각은 주입 Clock에서만 — 엔티티(③)까지 끝나 예외가 없다.
+        // 인자 없는 now()만 막는다. now(clock)·now(clock.withZone(KST))는 허용.
+        noClasses().should().callMethod(java.time.Instant.class, "now")
+                .orShould().callMethod(java.time.LocalDate.class, "now")
+                .orShould().callMethod(java.time.LocalDateTime.class, "now")
+                .orShould().callMethod(java.time.LocalTime.class, "now")
+                .orShould().callMethod(java.time.ZonedDateTime.class, "now")
+                .orShould().callMethod(java.time.OffsetDateTime.class, "now")
+                .orShould().callMethod(System.class, "currentTimeMillis")
+                .check(classes);
+    }
 }

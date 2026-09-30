@@ -3,6 +3,7 @@ package com.autostock.ipo;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Optional;
@@ -16,10 +17,12 @@ public class IpoDealCommandService {
 
     private final IpoDealRepository repository;
     private final IpoSyncScheduler syncScheduler;
+    private final Clock clock;
 
-    public IpoDealCommandService(IpoDealRepository repository, IpoSyncScheduler syncScheduler) {
+    public IpoDealCommandService(IpoDealRepository repository, IpoSyncScheduler syncScheduler, Clock clock) {
         this.repository = repository;
         this.syncScheduler = syncScheduler;
+        this.clock = clock;
     }
 
     /** 내 청약/배정/매도 기록 부분 갱신 — null 필드는 기존 값 유지. */
@@ -27,7 +30,7 @@ public class IpoDealCommandService {
     public Optional<IpoDealEntity> recordMyDeal(Long id, RecordCommand command) {
         return repository.findById(id).map(entity -> {
             entity.applyRecord(command.appliedQty(), command.deposit(), command.allocatedQty(),
-                    command.sellPrice(), command.sellDate(), command.memo());
+                    command.sellPrice(), command.sellDate(), command.memo(), clock.instant());
             repository.save(entity);
             return entity;
         });
@@ -38,7 +41,7 @@ public class IpoDealCommandService {
     public Optional<IpoDealEntity> updateMetrics(Long id, MetricsCommand command) {
         return repository.findById(id).map(entity -> {
             entity.applyMetrics(command.institutionalCompetitionRate(), command.lockupCommitRate(),
-                    command.listingDate());
+                    command.listingDate(), clock.instant());
             syncScheduler.evaluateFilter(entity);
             syncScheduler.refreshStatus(entity);
             repository.save(entity);

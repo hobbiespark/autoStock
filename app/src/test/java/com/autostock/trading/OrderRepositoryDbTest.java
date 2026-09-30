@@ -1,5 +1,7 @@
 package com.autostock.trading;
 
+import java.time.Clock;
+import java.time.Instant;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Price;
@@ -39,15 +41,15 @@ class OrderRepositoryDbTest extends PostgresDataJpaTest {
 
     private static OrderEntity newOrder(String clientOrderId) {
         return new OrderEntity(clientOrderId, new StockCode("005930"), Side.BUY,
-                new Quantity(10), new Price(new BigDecimal("259500")), "C3-MOMENTUM");
+                new Quantity(10), new Price(new BigDecimal("259500")), "C3-MOMENTUM", Instant.now());
     }
 
     @Test
     void 값_객체는_기존_문자열_컬럼으로_저장되고_주문번호로_조회된다() {
         OrderEntity order = newOrder("20260930-C3-005930-BUY-001");
-        order.transitionTo(OrderStatus.VALIDATED);
-        order.transitionTo(OrderStatus.SUBMITTING);
-        order.markSubmitted(new BrokerOrderId("0119433"));
+        order.transitionTo(OrderStatus.VALIDATED, Instant.now());
+        order.transitionTo(OrderStatus.SUBMITTING, Instant.now());
+        order.markSubmitted(new BrokerOrderId("0119433"), Instant.now());
         orders.saveAndFlush(order);
 
         Map<String, Object> row = jdbc.queryForMap(
@@ -73,10 +75,10 @@ class OrderRepositoryDbTest extends PostgresDataJpaTest {
             OrderEntity first = tx.execute(s -> orders.findById(id).orElseThrow());
             OrderEntity second = tx.execute(s -> orders.findById(id).orElseThrow());
 
-            second.transitionTo(OrderStatus.VALIDATED);
+            second.transitionTo(OrderStatus.VALIDATED, Instant.now());
             tx.executeWithoutResult(s -> orders.saveAndFlush(second));
 
-            first.transitionTo(OrderStatus.VALIDATED);
+            first.transitionTo(OrderStatus.VALIDATED, Instant.now());
             assertThrows(ObjectOptimisticLockingFailureException.class,
                     () -> tx.executeWithoutResult(s -> orders.saveAndFlush(first)));
         } finally {
