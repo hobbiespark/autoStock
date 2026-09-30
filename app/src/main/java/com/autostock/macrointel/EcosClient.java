@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -59,15 +60,17 @@ public class EcosClient {
 
     private final WebClient webClient;
     private final MacroIntelProperties properties;
+    private final Clock clock;
 
-    public EcosClient(WebClient.Builder webClientBuilder, MacroIntelProperties properties) {
+    public EcosClient(WebClient.Builder webClientBuilder, MacroIntelProperties properties, Clock clock) {
+        this.clock = clock;
         this.webClient = webClientBuilder.baseUrl(BASE_URL).build();
         this.properties = properties;
     }
 
     /** 지정한 통계코드의 오늘(KST)자 최신값을 조회한다. 실패·결측이면 {@link Optional#empty()}. */
     public Optional<Observation> fetchLatest(String statCode) {
-        LocalDate today = LocalDate.now(MarketConstants.KST);
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
         try {
             Map<String, Object> response = callApi(statCode, today);
             return parse(statCode, response);

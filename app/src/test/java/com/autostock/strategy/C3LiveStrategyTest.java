@@ -14,6 +14,7 @@ import com.autostock.portfolio.PositionBook;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -149,7 +150,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(false, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
-                mock(TradingSystemManager.class)); // enabled=false는 상태 조회 전에 반환되므로 스텁 불필요
+                mock(TradingSystemManager.class), Clock.systemUTC()); // enabled=false는 상태 조회 전에 반환되므로 스텁 불필요
 
         strategy.run();
 
@@ -171,7 +172,7 @@ class C3LiveStrategyTest {
 
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
-                notRunning);
+                notRunning, Clock.systemUTC());
 
         strategy.run();
 
@@ -191,7 +192,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService,
-                runningManager());
+                runningManager(), Clock.systemUTC());
 
         strategy.run();
 
@@ -213,7 +214,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
-                runningManager());
+                runningManager(), Clock.systemUTC());
 
         strategy.run();
 
@@ -238,7 +239,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
-                runningManager());
+                runningManager(), Clock.systemUTC());
 
         strategy.run();
 
@@ -261,7 +262,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
-                runningManager());
+                runningManager(), Clock.systemUTC());
 
         strategy.run();
 
@@ -279,7 +280,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService,
-                runningManager());
+                runningManager(), Clock.systemUTC());
 
         assertDoesNotThrow(strategy::run, "한 종목의 예외가 전체 배치 실행을 중단시키면 안 됨");
 
@@ -304,7 +305,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
-                runningManager());
+                runningManager(), Clock.systemUTC());
 
         strategy.run();
 
@@ -337,7 +338,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, positionBook, published::add, marketCalendarService,
-                runningManager());
+                runningManager(), Clock.systemUTC());
 
         strategy.run();
 
@@ -360,7 +361,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
-                runningManager());
+                runningManager(), Clock.systemUTC());
 
         strategy.run();
 
@@ -383,7 +384,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, positionBook, published::add, marketCalendarService,
-                runningManager());
+                runningManager(), Clock.systemUTC());
 
         strategy.run();
 

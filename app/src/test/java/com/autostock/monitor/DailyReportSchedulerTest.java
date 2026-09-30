@@ -68,10 +68,10 @@ class DailyReportSchedulerTest {
     @BeforeEach
     void setUp() {
         positionBook = new PositionBook();
-        killSwitch = new KillSwitch(event -> { });
+        killSwitch = new KillSwitch(event -> { }, Clock.systemUTC());
         RiskProperties properties = new RiskProperties(0.10, 5, -0.03, 0.05, -0.02, 30,
                 10_000_000, 0.00015, 0.0015, false);
-        dailyLimits = new DailyLimitTracker(properties);
+        dailyLimits = new DailyLimitTracker(properties, Clock.systemUTC());
         clock = Clock.fixed(Instant.parse("2026-08-13T02:00:00Z"), ZoneOffset.UTC);
         dailyPnl = new DailyPnlTracker(properties, new PaperEquitySource(properties), killSwitch, clock);
         // 보수 모드는 이 테스트의 관심사가 아니라 기본값(OFF)으로 둔다 — MacroGuardTest 참고.

@@ -12,6 +12,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Clock;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
@@ -69,7 +70,7 @@ class KiwoomSmokeIT {
         WebClient.Builder builder = WebClient.builder();
 
         // ── 1) 토큰 발급 ──────────────────────────────────────────────────────
-        TokenManager tokenManager = new TokenManager(builder, properties);
+        TokenManager tokenManager = new TokenManager(builder, properties, Clock.systemUTC());
         String token = tokenManager.accessToken();
         assertFalse(token == null || token.isBlank(), "접근토큰이 발급되어야 함");
 

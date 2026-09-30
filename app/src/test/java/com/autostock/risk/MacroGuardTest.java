@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -28,7 +29,7 @@ class MacroGuardTest {
     @BeforeEach
     void setUp() {
         ApplicationEventPublisher noopPublisher = event -> { };
-        killSwitch = new KillSwitch(noopPublisher);
+        killSwitch = new KillSwitch(noopPublisher, Clock.systemUTC());
         guard = new MacroGuard(PROPERTIES, killSwitch);
     }
 

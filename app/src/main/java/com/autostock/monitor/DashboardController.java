@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -49,11 +50,13 @@ public class DashboardController {
     private final KillSwitch killSwitch;
     private final ApplicationEventPublisher publisher;
     private final MarketQueryService marketQueryService;
+    private final Clock clock;
 
     public DashboardController(DashboardFacade facade,
                                KillSwitch killSwitch,
                                ApplicationEventPublisher publisher,
-                               MarketQueryService marketQueryService) {
+                               MarketQueryService marketQueryService, Clock clock) {
+        this.clock = clock;
         this.facade = facade;
         this.killSwitch = killSwitch;
         this.publisher = publisher;
@@ -118,7 +121,7 @@ public class DashboardController {
                 new BigDecimal(request.price()),
                 1.0,
                 fixedQuantity,
-                Instant.now()));
+                clock.instant()));
         return new TestSignalResponse(true);
     }
 
@@ -129,7 +132,7 @@ public class DashboardController {
      */
     @PostMapping("/orders/{clientOrderId}/cancel")
     public TestSignalResponse cancelOrder(@PathVariable String clientOrderId) {
-        publisher.publishEvent(new CancelRequest(clientOrderId, "dashboard", Instant.now()));
+        publisher.publishEvent(new CancelRequest(clientOrderId, "dashboard", clock.instant()));
         return new TestSignalResponse(true);
     }
 

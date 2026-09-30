@@ -15,6 +15,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Component;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Set;
@@ -84,13 +85,15 @@ public class TradingService {
     private final ReconciliationService reconciliationService;
     private final ApplicationEventPublisher publisher;
     private final MeterRegistry meterRegistry;
+    private final Clock clock;
 
     public TradingService(TradingProperties properties,
                             BrokerPort brokerPort,
                             OrderRepository orderRepository,
                             ReconciliationService reconciliationService,
                             ApplicationEventPublisher publisher,
-                            MeterRegistry meterRegistry) {
+                            MeterRegistry meterRegistry, Clock clock) {
+        this.clock = clock;
         this.properties = properties;
         this.brokerPort = brokerPort;
         this.orderRepository = orderRepository;
@@ -155,7 +158,7 @@ public class TradingService {
                 request.side(),
                 request.quantity(),
                 request.limitPrice(),       // 지정가 그대로 체결됐다고 가정
-                Instant.now()));
+                clock.instant()));
     }
 
     /**

@@ -9,6 +9,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
@@ -84,11 +85,13 @@ public class HolidaySyncService {
     private final HolidayApiProperties properties;
     private final MarketHolidayRepository repository;
     private final MarketCalendarService marketCalendarService;
+    private final Clock clock;
 
     public HolidaySyncService(WebClient.Builder webClientBuilder,
                               HolidayApiProperties properties,
                               MarketHolidayRepository repository,
-                              MarketCalendarService marketCalendarService) {
+                              MarketCalendarService marketCalendarService, Clock clock) {
+        this.clock = clock;
         this.webClient = webClientBuilder.baseUrl(properties.baseUrl()).build();
         this.properties = properties;
         this.repository = repository;
@@ -101,7 +104,7 @@ public class HolidaySyncService {
      */
     @Scheduled(cron = "0 0 9 1 11 *", zone = "Asia/Seoul")
     public void syncNextYear() {
-        int nextYear = LocalDate.now(MarketConstants.KST).getYear() + 1;
+        int nextYear = LocalDate.now(clock.withZone(MarketConstants.KST)).getYear() + 1;
         syncYear(nextYear);
     }
 
@@ -140,7 +143,7 @@ public class HolidaySyncService {
         if (!properties.enabled() || properties.serviceKey() == null || properties.serviceKey().isBlank()) {
             return;
         }
-        LocalDate today = LocalDate.now(MarketConstants.KST);
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
         LocalDate from = today.withDayOfMonth(1);
         LocalDate to = today.plusMonths(1).withDayOfMonth(1).plusMonths(1).minusDays(1);
         if (!repository.findByHolidayDateBetween(from, to).isEmpty()) {
@@ -160,7 +163,7 @@ public class HolidaySyncService {
 
     @Scheduled(cron = "0 10 9 15 * *", zone = "Asia/Seoul")
     public void resyncUpcomingWindow() {
-        LocalDate today = LocalDate.now(MarketConstants.KST);
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
         LocalDate nextMonth = today.plusMonths(1);
         syncMonths(List.of(
                 new YearMonthPair(today.getYear(), today.getMonthValue()),
@@ -329,7 +332,7 @@ public class HolidaySyncService {
      * 뒤 반드시 {@code save}를 다시 호출해야 반영된다(더티체킹에 기대지 않는다).
      */
     private void upsert(RestDeItem item) {
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         MarketHolidayEntity entity = repository.findById(item.date())
                 .map(existing -> {
                     existing.updateFromSync(item.dateName(), now);

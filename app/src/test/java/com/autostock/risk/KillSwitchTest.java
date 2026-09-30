@@ -5,6 +5,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -24,7 +25,7 @@ class KillSwitchTest {
 
     @BeforeEach
     void setUp() {
-        killSwitch = new KillSwitch(publisher);
+        killSwitch = new KillSwitch(publisher, Clock.systemUTC());
     }
 
     @Test

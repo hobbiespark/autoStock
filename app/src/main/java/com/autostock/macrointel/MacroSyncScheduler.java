@@ -11,6 +11,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -45,9 +46,11 @@ public class MacroSyncScheduler {
     private final FredClient fredClient;
     private final EcosClient ecosClient;
     private final ApplicationEventPublisher publisher;
+    private final Clock clock;
 
     public MacroSyncScheduler(MacroIntelProperties properties, FredClient fredClient,
-                              EcosClient ecosClient, ApplicationEventPublisher publisher) {
+                              EcosClient ecosClient, ApplicationEventPublisher publisher, Clock clock) {
+        this.clock = clock;
         this.properties = properties;
         this.fredClient = fredClient;
         this.ecosClient = ecosClient;
@@ -87,7 +90,7 @@ public class MacroSyncScheduler {
             log.info("macro-intel 따라잡기({}) 스킵 — API 키 없음", reason);
             return;
         }
-        LocalDate today = LocalDate.now(MarketConstants.KST);
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
         if (today.equals(lastSuccessDate)) {
             return;
         }
@@ -119,7 +122,7 @@ public class MacroSyncScheduler {
         any |= collectEcos(INDICATOR_USDKRW, EcosClient.STAT_CODE_USDKRW);
         any |= collectEcos(INDICATOR_BASE_RATE, EcosClient.STAT_CODE_BASE_RATE);
         if (any) {
-            lastSuccessDate = LocalDate.now(MarketConstants.KST);
+            lastSuccessDate = LocalDate.now(clock.withZone(MarketConstants.KST));
         }
     }
 
@@ -153,7 +156,7 @@ public class MacroSyncScheduler {
     }
 
     private void publish(String indicatorId, BigDecimal value, String detail) {
-        publisher.publishEvent(new MacroIndicator(indicatorId, SCOPE_MARKET, value, detail, Instant.now()));
+        publisher.publishEvent(new MacroIndicator(indicatorId, SCOPE_MARKET, value, detail, clock.instant()));
         log.info("거시 지표 발행: {}={} ({})", indicatorId, value, detail);
     }
 }

@@ -13,6 +13,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -55,7 +56,7 @@ class TradingServiceTest {
 
         simService = new TradingService(
                 new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5)),
-                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry());
+                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry(), Clock.systemUTC());
     }
 
     private OrderRequest order(String idempotencyKey) {
@@ -92,7 +93,7 @@ class TradingServiceTest {
     void LIVE_모드_정상_주문은_SUBMITTED로_저장되고_Fill은_아직_없다() {
         TradingService liveService = new TradingService(
                 new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5)),
-                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry());
+                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry(), Clock.systemUTC());
         when(brokerPort.placeOrder(any(OrderRequest.class))).thenReturn(new BrokerOrderResult("BROKER-1"));
 
         liveService.onOrderRequest(order("key-live-1"));
@@ -108,7 +109,7 @@ class TradingServiceTest {
     void LIVE_모드_전송_타임아웃시_UNKNOWN_전이및_reconcile_요청() {
         TradingService liveService = new TradingService(
                 new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5)),
-                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry());
+                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry(), Clock.systemUTC());
         when(brokerPort.placeOrder(any(OrderRequest.class)))
                 .thenThrow(new RuntimeException("simulated timeout"));
 
@@ -125,7 +126,7 @@ class TradingServiceTest {
     private TradingService liveService() {
         return new TradingService(
                 new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5)),
-                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry());
+                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry(), Clock.systemUTC());
     }
 
     private static OrderEntity submitted(String clientOrderId, long quantity) {

@@ -6,6 +6,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -39,7 +40,7 @@ class MacroSyncSchedulerTest {
 
     private MacroSyncScheduler schedulerWithEnabled(boolean enabled) {
         MacroIntelProperties properties = new MacroIntelProperties(enabled, "fk", "ek", 25.0, 35.0, 1450.0);
-        return new MacroSyncScheduler(properties, fredClient, ecosClient, publisher);
+        return new MacroSyncScheduler(properties, fredClient, ecosClient, publisher, Clock.systemUTC());
     }
 
     @Test

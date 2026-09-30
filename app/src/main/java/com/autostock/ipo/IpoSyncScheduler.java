@@ -249,7 +249,7 @@ public class IpoSyncScheduler {
     }
 
     private void publishAlert(IpoDealEntity entity, String phase, String message) {
-        publisher.publishEvent(new IpoAlert(entity.getCorpName(), phase, message, Instant.now()));
+        publisher.publishEvent(new IpoAlert(entity.getCorpName(), phase, message, clock.instant()));
         log.info("공모주 알림 발행: {} {} — {}", entity.getCorpName(), phase, message);
     }
 

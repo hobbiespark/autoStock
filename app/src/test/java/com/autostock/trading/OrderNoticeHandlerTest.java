@@ -55,7 +55,7 @@ class OrderNoticeHandlerTest {
 
         tradingService = new TradingService(
                 new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5)),
-                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry());
+                brokerPort, orderRepository, reconciliationService, publisher, new SimpleMeterRegistry(), Clock.systemUTC());
         handler = new OrderNoticeHandler(tradingService, orderRepository, publisher, clock);
     }
 

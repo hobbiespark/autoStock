@@ -4,6 +4,7 @@ import com.autostock.common.util.MarketConstants;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -167,7 +168,7 @@ class HolidaySyncServiceTest {
                                         MarketCalendarService marketCalendarService) {
             super(WebClient.builder(),
                     new HolidayApiProperties(enabled, "test-key", "https://apis.data.go.kr/test"),
-                    repository, marketCalendarService);
+                    repository, marketCalendarService, Clock.systemUTC());
             this.repository = repository;
             this.marketCalendarService = marketCalendarService;
         }

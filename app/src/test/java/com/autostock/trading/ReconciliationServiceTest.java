@@ -8,6 +8,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Optional;
@@ -39,7 +40,7 @@ class ReconciliationServiceTest {
         marketSession = mock(MarketSessionService.class);
         when(marketSession.isActive()).thenReturn(true);
         TradingProperties liveProperties = new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
-        service = new ReconciliationService(orderRepository, brokerPort, liveProperties, marketSession);
+        service = new ReconciliationService(orderRepository, brokerPort, liveProperties, marketSession, Clock.systemUTC());
     }
 
     private OrderEntity submittedEntity(String clientOrderId, String brokerOrderId) {
@@ -143,7 +144,7 @@ class ReconciliationServiceTest {
     @Test
     void SIM_모드에서는_startup_이벤트로_대사하지_않는다() {
         TradingProperties simProperties = new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5));
-        ReconciliationService simService = new ReconciliationService(orderRepository, brokerPort, simProperties, marketSession);
+        ReconciliationService simService = new ReconciliationService(orderRepository, brokerPort, simProperties, marketSession, Clock.systemUTC());
 
         simService.onStartup();
         simService.scheduledReconcile();

@@ -3,6 +3,7 @@ package com.autostock.kiwoom;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Clock;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
@@ -77,7 +78,7 @@ class TokenManagerTest {
         final AtomicInteger callCount = new AtomicInteger();
 
         FakeTokenManager() {
-            super(WebClient.builder(), PROPERTIES);
+            super(WebClient.builder(), PROPERTIES, Clock.systemUTC());
         }
 
         @Override
