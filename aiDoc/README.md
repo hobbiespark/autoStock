@@ -36,3 +36,4 @@
 - [sleep-resume.md](sleep-resume.md) — 2026-09-30 로그: 장중 PC 절전 방지·복귀 감지, 토큰 거부(8005) 재발급, 로그 소음 정리
 - [upgrade-2026-10/](upgrade-2026-10/00-README.md) — 2026-10-01 고도화 조사(FE·BE·기획·디자인·인프라·주식거래 6관점)·코드 감사(BE·FE)·실행 계획(Phase 0~6, 충돌 방지 규약)·사용자 결정 목록(D-01~D-14)
 - [stale-cancel.md](stale-cancel.md) — Phase 0.1: 미체결 타임아웃 취소 정상화(ACCEPTED·부분체결 포함, 취소 경로 TradingService로 일원화, CANCELLED 확정, 대사에 CANCEL_REQUESTED 추가)
+- [risk-state-persistence.md](risk-state-persistence.md) — Phase 0.2: 킬스위치·일 손실 누계 영속화(V9 risk_state·risk_daily_pnl)와 재기동 복원, 원가 장부 시드(PositionRestored), 켜진 채 시작하면 DEGRADED

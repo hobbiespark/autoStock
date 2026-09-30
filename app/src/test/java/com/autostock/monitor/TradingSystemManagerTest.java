@@ -1,6 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.common.event.KillSwitchChanged;
+import com.autostock.risk.KillSwitch;
 import com.autostock.trading.TradingProperties;
 import com.autostock.trading.ReconciliationService;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 /**
  * TradingSystemManager 검증 — start/stop 비동기 흐름, LIVE reconcile 실패,
@@ -38,7 +40,7 @@ class TradingSystemManagerTest {
     @Test
     void SIM_모드_시작은_reconcile_없이_RUNNING까지_도달() throws InterruptedException {
         ReconciliationService reconciliation = mock(ReconciliationService.class);
-        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation);
+        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation, mock(KillSwitch.class));
 
         assertEquals(TradingSystemStatus.STARTING, manager.start(), "start()는 즉시 STARTING을 반환해야 함");
         awaitStatus(manager, TradingSystemStatus.RUNNING);
@@ -49,7 +51,7 @@ class TradingSystemManagerTest {
     @Test
     void LIVE_모드_시작은_reconcile_성공하면_RUNNING까지_도달() throws InterruptedException {
         ReconciliationService reconciliation = mock(ReconciliationService.class);
-        TradingSystemManager manager = new TradingSystemManager(liveProperties(), reconciliation);
+        TradingSystemManager manager = new TradingSystemManager(liveProperties(), reconciliation, mock(KillSwitch.class));
 
         manager.start();
         awaitStatus(manager, TradingSystemStatus.RUNNING);
@@ -61,7 +63,7 @@ class TradingSystemManagerTest {
     void LIVE_모드_reconcile_실패하면_ERROR로_전이() throws InterruptedException {
         ReconciliationService reconciliation = mock(ReconciliationService.class);
         doThrow(new RuntimeException("브로커 연결 실패(테스트)")).when(reconciliation).reconcile();
-        TradingSystemManager manager = new TradingSystemManager(liveProperties(), reconciliation);
+        TradingSystemManager manager = new TradingSystemManager(liveProperties(), reconciliation, mock(KillSwitch.class));
 
         manager.start();
         awaitStatus(manager, TradingSystemStatus.ERROR);
@@ -70,7 +72,7 @@ class TradingSystemManagerTest {
     @Test
     void 정지_명령은_RUNNING에서_STOPPED까지_도달() throws InterruptedException {
         ReconciliationService reconciliation = mock(ReconciliationService.class);
-        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation);
+        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation, mock(KillSwitch.class));
         manager.start();
         awaitStatus(manager, TradingSystemStatus.RUNNING);
 
@@ -81,7 +83,7 @@ class TradingSystemManagerTest {
     @Test
     void 킬스위치_작동시_RUNNING에서_DEGRADED로_해제시_RUNNING복귀() throws InterruptedException {
         ReconciliationService reconciliation = mock(ReconciliationService.class);
-        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation);
+        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation, mock(KillSwitch.class));
         manager.start();
         awaitStatus(manager, TradingSystemStatus.RUNNING);
 
@@ -93,11 +95,26 @@ class TradingSystemManagerTest {
     }
 
     @Test
+    void 킬스위치가_켜진_채_시작하면_DEGRADED로_가고_해제되면_RUNNING으로_돌아온다() throws InterruptedException {
+        // Phase 0.2: 재기동 복원으로 작동 상태에서 시작하는 경우 — 작동 이벤트는 시작 전에 지나가 on()이 무시한다
+        ReconciliationService reconciliation = mock(ReconciliationService.class);
+        KillSwitch killSwitch = mock(KillSwitch.class);
+        when(killSwitch.isEngaged()).thenReturn(true);
+        TradingSystemManager manager = new TradingSystemManager(liveProperties(), reconciliation, killSwitch);
+
+        manager.start();
+        awaitStatus(manager, TradingSystemStatus.DEGRADED);
+
+        manager.on(new KillSwitchChanged(false, "dashboard", Instant.now()));
+        assertEquals(TradingSystemStatus.RUNNING, manager.status());
+    }
+
+    @Test
     void STOPPED에서_킬스위치_이벤트는_무시된다() {
         // STOPPED 상태에서 킬스위치가 작동해도(예: 다른 원인) RUNNING이 아니므로
         // DEGRADED로 전이하지 않는다 — compareAndSet(RUNNING, DEGRADED)가 실패해 조용히 무시.
         ReconciliationService reconciliation = mock(ReconciliationService.class);
-        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation);
+        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation, mock(KillSwitch.class));
 
         manager.on(new KillSwitchChanged(true, "테스트", Instant.now()));
 
@@ -107,7 +124,7 @@ class TradingSystemManagerTest {
     @Test
     void STOPPED에서_stop_호출은_불법_전이_예외() {
         ReconciliationService reconciliation = mock(ReconciliationService.class);
-        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation);
+        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation, mock(KillSwitch.class));
 
         assertThrows(IllegalStateException.class, manager::stop);
     }
@@ -115,7 +132,7 @@ class TradingSystemManagerTest {
     @Test
     void RUNNING에서_start_재호출은_불법_전이_예외() throws InterruptedException {
         ReconciliationService reconciliation = mock(ReconciliationService.class);
-        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation);
+        TradingSystemManager manager = new TradingSystemManager(simProperties(), reconciliation, mock(KillSwitch.class));
         manager.start();
         awaitStatus(manager, TradingSystemStatus.RUNNING);
 

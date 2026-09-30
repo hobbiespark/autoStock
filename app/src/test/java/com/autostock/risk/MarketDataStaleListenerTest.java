@@ -8,6 +8,7 @@ import java.time.Clock;
 import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 /**
  * MarketDataStaleListener — 시세 단절 이벤트 수신 시 킬스위치를 작동시키는지 검증.
@@ -19,7 +20,7 @@ class MarketDataStaleListenerTest {
 
     @BeforeEach
     void setUp() {
-        killSwitch = new KillSwitch(event -> { }, Clock.systemUTC());
+        killSwitch = new KillSwitch(event -> { }, mock(RiskStateStore.class), Clock.systemUTC());
         listener = new MarketDataStaleListener(killSwitch);
     }
 

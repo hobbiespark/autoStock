@@ -12,6 +12,7 @@ import java.time.Instant;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
 
 /**
  * MacroGuard 판정 규칙 검증 — VIX 35(severe) → 킬스위치, VIX/USDKRW 25/1450(caution) →
@@ -29,7 +30,7 @@ class MacroGuardTest {
     @BeforeEach
     void setUp() {
         ApplicationEventPublisher noopPublisher = event -> { };
-        killSwitch = new KillSwitch(noopPublisher, Clock.systemUTC());
+        killSwitch = new KillSwitch(noopPublisher, mock(RiskStateStore.class), Clock.systemUTC());
         guard = new MacroGuard(PROPERTIES, killSwitch);
     }
 

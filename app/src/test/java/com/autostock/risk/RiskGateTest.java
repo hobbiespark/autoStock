@@ -60,7 +60,7 @@ class RiskGateTest {
         // killSwitch 전용 publisher는 이 테스트의 published 리스트와 분리한다 —
         // KillSwitchChanged 이벤트가 여기 섞이면 "주문이 published에 없다"를 검증하는
         // 기존 단언들이 killSwitch.engage() 한 번에 깨진다(이 테스트는 OrderRequest만 관심 대상).
-        killSwitch = new KillSwitch(event -> { }, Clock.systemUTC());
+        killSwitch = new KillSwitch(event -> { }, mock(RiskStateStore.class), Clock.systemUTC());
         positionBook = new PositionBook();
         macroGuard = new MacroGuard(defaultMacroIntelProperties(), killSwitch);
         disclosureBlacklist = new DisclosureBlacklist(
