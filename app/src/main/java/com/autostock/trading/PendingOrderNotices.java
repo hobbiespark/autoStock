@@ -1,6 +1,7 @@
 package com.autostock.trading;
 
 import com.autostock.common.event.OrderNotice;
+import com.autostock.common.util.BrokerOrderId;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -22,14 +23,14 @@ final class PendingOrderNotices {
     /** 보류 건수 상한 — 수동 주문 체결이 몰려도 메모리가 무한히 늘지 않게 한다. */
     static final int MAX_PENDING = 200;
 
-    private final Map<String, List<Pending>> byBrokerOrderId = new ConcurrentHashMap<>();
+    private final Map<BrokerOrderId, List<Pending>> byBrokerOrderId = new ConcurrentHashMap<>();
 
     /** 통보를 보류한다. 상한을 넘으면 보류하지 않고 false. */
     boolean park(OrderNotice notice, Instant now) {
         if (size() >= MAX_PENDING) {
             return false;
         }
-        byBrokerOrderId.compute(notice.brokerOrderId(), (id, list) -> {
+        byBrokerOrderId.compute(new BrokerOrderId(notice.brokerOrderId()), (id, list) -> {
             List<Pending> next = list == null ? new ArrayList<>() : new ArrayList<>(list);
             next.add(new Pending(notice, now));
             return next;
@@ -37,12 +38,12 @@ final class PendingOrderNotices {
         return true;
     }
 
-    Set<String> brokerOrderIds() {
+    Set<BrokerOrderId> brokerOrderIds() {
         return Set.copyOf(byBrokerOrderId.keySet());
     }
 
     /** 해당 주문번호로 보류된 통보를 도착 순서대로 꺼낸다(없으면 빈 목록). 한 번 꺼낸 통보는 다시 나오지 않는다. */
-    List<OrderNotice> drain(String brokerOrderId) {
+    List<OrderNotice> drain(BrokerOrderId brokerOrderId) {
         List<Pending> removed = byBrokerOrderId.remove(brokerOrderId);
         return removed == null ? List.of() : removed.stream().map(Pending::notice).toList();
     }
@@ -51,7 +52,7 @@ final class PendingOrderNotices {
     List<OrderNotice> removeExpired(Instant now) {
         Instant cutoff = now.minus(HOLD);
         List<OrderNotice> expired = new ArrayList<>();
-        for (String brokerOrderId : brokerOrderIds()) {
+        for (BrokerOrderId brokerOrderId : brokerOrderIds()) {
             byBrokerOrderId.computeIfPresent(brokerOrderId, (id, list) -> {
                 List<Pending> kept = new ArrayList<>();
                 for (Pending p : list) {

@@ -1,5 +1,6 @@
 package com.autostock.trading;
 
+import com.autostock.common.util.BrokerOrderId;
 import com.autostock.execution.BrokerOutstandingOrder;
 import com.autostock.execution.BrokerPort;
 import com.autostock.market.MarketSessionService;
@@ -118,9 +119,9 @@ public class ReconciliationService {
         if (pending.isEmpty()) {
             return;
         }
-        Map<String, BrokerOutstandingOrder> outstandingByBrokerOrderId = brokerPort.outstandingOrders()
+        Map<BrokerOrderId, BrokerOutstandingOrder> outstandingByBrokerOrderId = brokerPort.outstandingOrders()
                 .stream()
-                .collect(Collectors.toMap(BrokerOutstandingOrder::brokerOrderId, Function.identity(),
+                .collect(Collectors.toMap(ReconciliationService::keyOf, Function.identity(),
                         (a, b) -> a)); // 중복 브로커주문번호는 이론상 없어야 하지만 방어적으로 첫 값 유지
 
         for (OrderEntity order : pending) {
@@ -135,9 +136,9 @@ public class ReconciliationService {
             log.warn("reconcile 요청 대상 주문을 찾을 수 없음: {}", clientOrderId);
             return;
         }
-        Map<String, BrokerOutstandingOrder> outstandingByBrokerOrderId = brokerPort.outstandingOrders()
+        Map<BrokerOrderId, BrokerOutstandingOrder> outstandingByBrokerOrderId = brokerPort.outstandingOrders()
                 .stream()
-                .collect(Collectors.toMap(BrokerOutstandingOrder::brokerOrderId, Function.identity(), (a, b) -> a));
+                .collect(Collectors.toMap(ReconciliationService::keyOf, Function.identity(), (a, b) -> a));
         reconcileOne(order.get(), outstandingByBrokerOrderId);
     }
 
@@ -153,7 +154,12 @@ public class ReconciliationService {
      *       않으면 UNKNOWN을 유지하고 운영자가 수동 확인하도록 경고만 남긴다).</li>
      * </ol>
      */
-    private void reconcileOne(OrderEntity order, Map<String, BrokerOutstandingOrder> outstandingByBrokerOrderId) {
+    /** 브로커 응답의 주문번호(문자열)를 trading 입구에서 값 객체로 감싼다 — 조회 키 타입을 OrderEntity와 맞춘다. */
+    private static BrokerOrderId keyOf(BrokerOutstandingOrder order) {
+        return new BrokerOrderId(order.brokerOrderId());
+    }
+
+    private void reconcileOne(OrderEntity order, Map<BrokerOrderId, BrokerOutstandingOrder> outstandingByBrokerOrderId) {
         if (order.getBrokerOrderId() == null) {
             // SUBMITTING 단계에서 UNKNOWN이 된 경우 — 브로커 주문번호 자체가 없어 미체결
             // 목록으로는 식별 불가능하다. 당일 주문내역 조회 TR로 clientOrderId를 매칭해야

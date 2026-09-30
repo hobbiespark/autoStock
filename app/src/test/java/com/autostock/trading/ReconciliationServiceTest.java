@@ -1,6 +1,8 @@
 package com.autostock.trading;
 
 import com.autostock.common.event.Side;
+import com.autostock.common.util.BrokerOrderId;
+import com.autostock.common.util.Quantity;
 import com.autostock.execution.BrokerOutstandingOrder;
 import com.autostock.execution.BrokerPort;
 import com.autostock.market.MarketSessionService;
@@ -44,11 +46,11 @@ class ReconciliationServiceTest {
     }
 
     private OrderEntity submittedEntity(String clientOrderId, String brokerOrderId) {
-        OrderEntity entity = new OrderEntity(clientOrderId, "005930", Side.BUY, 10,
+        OrderEntity entity = new OrderEntity(clientOrderId, "005930", Side.BUY, new Quantity(10),
                 new BigDecimal("70000"), "BREAKOUT");
         entity.transitionTo(OrderStatus.VALIDATED);
         entity.transitionTo(OrderStatus.SUBMITTING);
-        entity.markSubmitted(brokerOrderId);
+        entity.markSubmitted(new BrokerOrderId(brokerOrderId));
         return entity;
     }
 
@@ -104,7 +106,7 @@ class ReconciliationServiceTest {
 
     @Test
     void brokerOrderId_없는_UNKNOWN_주문은_스킵된다() {
-        OrderEntity order = new OrderEntity("key-4", "005930", Side.BUY, 10,
+        OrderEntity order = new OrderEntity("key-4", "005930", Side.BUY, new Quantity(10),
                 new BigDecimal("70000"), "BREAKOUT");
         order.transitionTo(OrderStatus.VALIDATED);
         order.transitionTo(OrderStatus.SUBMITTING);
