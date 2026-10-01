@@ -4,13 +4,14 @@
 - 기준 문서
   - `C:\claude\CLAUDE.md`
   - `C:\claude\coding-rules.md` (이하 "규칙", 절 번호는 `§`로 표기)
-- 상태: **진행 중**
+- 상태: **마무리** — B4만 보류, 운영 실측 일부 남음. 이후 작업은 `upgrade-2026-10/11-execution-plan.md`로 이어진다(2026-10-01)
   - S1: 완료 (`log-secret-masking.md`)
-  - S2: 완료, 사용자 확정 (a) 루프백 바인딩 (`loopback-binding.md`). 재기동 실측은 남음
-  - R1: 완료 (`http-timeouts.md`). 기동 후 실측은 남음
+  - S2: 완료, 사용자 확정 (a) 루프백 바인딩 (`loopback-binding.md`). 10/1 재기동 뒤 17:40 정상 종료 확인(첫 HTTP 요청 직후 graceful shutdown — stop 스크립트의 종료 요청으로 보임, 추론). `netstat`(127.0.0.1:8080만 LISTENING)·LAN 차단 확인은 남음
+  - R1: 완료 (`http-timeouts.md`). 10/1 재기동 실측: 빈 생성 오류 없음, DART(공시)·FRED·ECOS 수집과 키움 토큰·WS 정상. IPO 수집 결과는 성공 로그가 없어 10/2 요약 줄(`run-summary-logs.md`)로 확인
   - R3: 완료 (`ipo-command-transaction.md`). 동시 갱신 문제는 R2로 넘김
-  - R2: 완료, 커밋 `fb02d61` (`order-concurrency.md`). 사용자 확정. 실제 DB 검증은 남음
-  - R4(신규, F3): (a) 보류 후 재처리, 커밋 `3f6dc77`, 사용자 확정 (`order-concurrency.md` 8절). (b) 체결내역 조회 TR은 미착수
+  - R2: 완료, 커밋 `fb02d61` (`order-concurrency.md`). 사용자 확정. 주문 `@Version`은 2026-09-30 DB 통합 테스트(`OrderRepositoryDbTest`)로 검증, V8은 10/1 07:15 운영 DB에 적용·기동 정상. IPO 딜 `@Version`은 2026-10-01 DB 테스트(`IpoDealRepositoryDbTest`)로 검증. 실주문 흐름 확인(첫 주문 뒤)만 남음
+  - R4(신규, F3): (a) 보류 후 재처리, 커밋 `3f6dc77`, 사용자 확정 (`order-concurrency.md` 8절). (b) 체결내역 조회 TR은 미착수 → 고도화 계획 1.6(UNKNOWN 자동 해소, 장중 실측 필요)
+  - B4: **보류** — 2026-09-30 사용자 결정 "나중에". 고도화 계획 1.8에서 실패 카운터(`audit.write.failure`)만 추가하고 알림은 보류 유지
   - A4: 빈·정적 유틸 완료, 커밋 `71e2afd`. 엔티티 시각(③)도 완료(2026-09-30 사용자 결정) — 직접 시계 호출 0, 규칙 테스트로 고정 (`clock-injection.md` 10절)
   - A3: 완료, 커밋 `2badb2f` (`architecture-rules.md`). market→kiwoom 규칙은 A2 뒤에
   - A2: 완료, 커밋 `71b7927` (`market-data-port.md`). market→kiwoom 규칙 추가
@@ -301,10 +302,10 @@
 ## 5. 사용자 결정이 필요한 것
 
 1. ~~**S2**~~: 사용자 확정(2026-09-29). 원격 접속을 쓰지 않으므로 루프백 바인딩으로 한다.
-2. **R2**: 조사 결과 경합이 있으면 `@Version` 도입에 동의하는가.
-3. **B1**: 에러 본문을 RFC 9457로 바꾸는 데 동의하는가(FE 영향 포함).
-4. **B4**: 감사 기록 실패를 Telegram으로 알릴 것인가.
-5. **P3 표**: 각 항목을 유지할지 도입할지. 특히 Testcontainers.
+2. ~~**R2**~~: 사용자 확정(2026-09-30). `@Version` 도입 완료(커밋 `fb02d61`).
+3. ~~**B1**~~: 완료(커밋 `578dba8`). 에러 본문 RFC 9457.
+4. **B4**: 2026-09-30 "나중에"로 보류. 다시 정할 때까지 알림 없이 실패 카운터만(고도화 계획 1.8).
+5. ~~**P3 표**~~: Testcontainers 도입 확정·완료(2026-09-30, `db-integration-test.md`). 나머지는 기본값(현행 유지).
 
 ## 6. 참고 — 조사 중 발견한 기타 사항
 
@@ -315,3 +316,4 @@
 ## 변경 이력
 
 - 2026-09-29: 최초 작성(코드 조사 기반, 코드 변경 없음)
+- 2026-10-01: 상태 갱신 — R2 DB 검증·V8 운영 적용, R1·S2 재기동 실측(10/1 로그), B4 보류 기록, 5절 결정 정리. 근거 `upgrade-2026-10/13-log-review-2026-10-01.md`
