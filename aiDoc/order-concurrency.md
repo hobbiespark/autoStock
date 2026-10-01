@@ -132,10 +132,10 @@ WS 체결 통보가 2보다 먼저 오면 `OrderNoticeHandler`는 `findByBrokerO
 
 - 운영 로그 위치 확인 및 위 흔적 검색(사용자에게 로그 경로 문의)
 - 재기동 후 확인
-  - Flyway V8 적용과 `ddl-auto: validate` 통과
+  - Flyway V8 적용과 `ddl-auto: validate` 통과 — 2026-10-01 07:15 운영 기동 로그로 확인
   - 주문 1건의 정상 흐름(VALIDATED → SUBMITTING → SUBMITTED 저장)에서 충돌 예외가 나지 않는지
   - 로그 `주문 동시 갱신 충돌`과 `보류했던 체결통보 재처리`의 빈도
-- 실제 DB에서 `@Version` 충돌 동작 검증: Testcontainers(P3) 결정 뒤 → 주문은 2026-09-30 `OrderRepositoryDbTest`로 검증, IPO 딜은 남음
+- 실제 DB에서 `@Version` 충돌 동작 검증: Testcontainers(P3) 결정 뒤 → 주문은 2026-09-30 `OrderRepositoryDbTest`, IPO 딜은 2026-10-01 `IpoDealRepositoryDbTest`로 검증(배치 재계산과 수동 입력 경합 재현)
 
 ## 7. 구현 — R2 낙관적 잠금 (커밋 `fb02d61`)
 
@@ -233,10 +233,12 @@ WS 체결 통보가 2보다 먼저 오면 `OrderNoticeHandler`는 `findByBrokerO
   - 머지 후 전체 테스트 통과. `StaleOrderCanceller`와 `ReconciliationService`에 STANDBY 스킵과 R2 재시도가 모두 들어 있음을 확인했다.
 - **Red 미확인**: 새 테스트는 구현 뒤에 작성했다. 수정 전 코드에서 실패하는지는 실행으로 확인하지 않았다. 코드상으로는 옛 사본 저장 경로에서 실패해야 한다(추론).
 - **미검증**
-  - 실제 PostgreSQL에서 `@Version` 충돌 예외 발생과 Spring 예외 변환. 단위 테스트는 목으로 `ObjectOptimisticLockingFailureException`을 흉내 낸다.
-  - V8 적용과 기동.
+  - ~~실제 PostgreSQL에서 `@Version` 충돌 예외 발생과 Spring 예외 변환~~ → 검증: 주문 2026-09-30 `OrderRepositoryDbTest`, IPO 딜 2026-10-01 `IpoDealRepositoryDbTest`(둘 다 `@Version`을 빼면 실패하는 것까지 확인)
+  - ~~V8 적용과 기동~~ → 2026-10-01 07:15 운영 DB 적용·기동 정상(운영 로그)
+  - 첫 실주문 흐름에서 충돌 예외가 나지 않는지(아직 주문 없음)
 
 ## 12. 변경 이력
 
 - 2026-09-29: 최초 작성(조사만, 코드 변경 없음)
 - 2026-09-30: R2·R4 구현 기록 추가
+- 2026-10-01: R2 DB 검증 완료 기록(IPO 딜 `IpoDealRepositoryDbTest`), V8 운영 적용 확인
