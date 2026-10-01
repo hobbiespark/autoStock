@@ -1,11 +1,22 @@
 package com.autostock.monitor;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.reactive.function.client.WebClient;
+import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
 
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
@@ -56,5 +67,90 @@ class TelegramNotifierTest {
         TelegramNotifier notifier = new TelegramNotifier(builderReturning(webClient), properties);
 
         assertDoesNotThrow(() -> notifier.notify(NoticeLevel.CRITICAL, "킬스위치 작동: 테스트"));
+    }
+
+    // ── 발송 제한(429) — 2026-10-01, aiDoc/alert-digest.md ──────────────────────────────
+
+    /** 텔레그램 429 응답 — 본문 parameters.retry_after(초)에 대기 시간이 온다. */
+    private static WebClientResponseException tooManyRequests(int retryAfterSeconds) {
+        String body = ("{\"ok\":false,\"error_code\":429,\"description\":\"Too Many Requests: retry after %d\","
+                + "\"parameters\":{\"retry_after\":%d}}").formatted(retryAfterSeconds, retryAfterSeconds);
+        return WebClientResponseException.create(HttpStatusCode.valueOf(429), "Too Many Requests",
+                HttpHeaders.EMPTY, body.getBytes(StandardCharsets.UTF_8), StandardCharsets.UTF_8, null);
+    }
+
+    /** n번째 호출(1부터)에 무엇을 돌려줄지 정한 WebClient — 실제 호출 횟수를 calls에 센다. */
+    private static WebClient webClientAnswering(AtomicInteger calls, java.util.function.IntFunction<Mono<ResponseEntity<Void>>> answer) {
+        WebClient webClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
+        when(webClient.post().uri(anyString()).bodyValue(any()).retrieve().toBodilessEntity())
+                .thenAnswer(inv -> answer.apply(calls.incrementAndGet()));
+        return webClient;
+    }
+
+    @Test
+    void 발송_제한_429면_retry_after만큼_기다렸다가_한_번_재시도한다() {
+        AtomicInteger calls = new AtomicInteger();
+        WebClient webClient = webClientAnswering(calls,
+                n -> n == 1 ? Mono.error(tooManyRequests(3)) : Mono.just(ResponseEntity.ok().build()));
+        List<Duration> waits = new ArrayList<>();
+
+        TelegramNotifier notifier = new TelegramNotifier(builderReturning(webClient), properties, waits::add);
+        notifier.notify(NoticeLevel.INFO, "공시 블랙리스트 요약");
+
+        assertEquals(2, calls.get());
+        assertEquals(List.of(Duration.ofSeconds(3)), waits);
+    }
+
+    @Test
+    void retry_after가_상한보다_길면_기다리지_않고_버린다() {
+        AtomicInteger calls = new AtomicInteger();
+        WebClient webClient = webClientAnswering(calls, n -> Mono.error(tooManyRequests(30)));
+        List<Duration> waits = new ArrayList<>();
+
+        TelegramNotifier notifier = new TelegramNotifier(builderReturning(webClient), properties, waits::add);
+
+        assertDoesNotThrow(() -> notifier.notify(NoticeLevel.INFO, "요약"));
+        assertEquals(1, calls.get());
+        assertTrue(waits.isEmpty());
+    }
+
+    @Test
+    void 재시도도_실패하면_예외를_삼키고_더_재시도하지_않는다() {
+        AtomicInteger calls = new AtomicInteger();
+        WebClient webClient = webClientAnswering(calls, n -> Mono.error(tooManyRequests(1)));
+        List<Duration> waits = new ArrayList<>();
+
+        TelegramNotifier notifier = new TelegramNotifier(builderReturning(webClient), properties, waits::add);
+
+        assertDoesNotThrow(() -> notifier.notify(NoticeLevel.CRITICAL, "킬스위치 작동"));
+        assertEquals(2, calls.get());
+        assertEquals(List.of(Duration.ofSeconds(1)), waits);
+    }
+
+    @Test
+    void 다른_HTTP_오류는_재시도하지_않는다() {
+        AtomicInteger calls = new AtomicInteger();
+        WebClient webClient = webClientAnswering(calls, n -> Mono.error(WebClientResponseException.create(
+                HttpStatusCode.valueOf(400), "Bad Request", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8, null)));
+        List<Duration> waits = new ArrayList<>();
+
+        TelegramNotifier notifier = new TelegramNotifier(builderReturning(webClient), properties, waits::add);
+
+        assertDoesNotThrow(() -> notifier.notify(NoticeLevel.INFO, "잘못된 chat_id"));
+        assertEquals(1, calls.get());
+        assertTrue(waits.isEmpty());
+    }
+
+    @Test
+    void 대기_시간은_본문_다음_헤더_둘_다_없으면_1초다() {
+        assertEquals(Duration.ofSeconds(7), TelegramNotifier.retryAfter(tooManyRequests(7)));
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.RETRY_AFTER, "4");
+        assertEquals(Duration.ofSeconds(4), TelegramNotifier.retryAfter(WebClientResponseException.create(
+                HttpStatusCode.valueOf(429), "Too Many Requests", headers, new byte[0], StandardCharsets.UTF_8, null)));
+
+        assertEquals(Duration.ofSeconds(1), TelegramNotifier.retryAfter(WebClientResponseException.create(
+                HttpStatusCode.valueOf(429), "Too Many Requests", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8, null)));
     }
 }
