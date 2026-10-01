@@ -16,6 +16,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 공모주 일정 수집·필터 판단 배치 (PLAN.md ADR-9 ①②, 트랙 E2) — 평일 08:20 KST(장 시작 전,
@@ -106,21 +107,38 @@ public class IpoSyncScheduler {
      * MacroSyncScheduler.syncNow}와 같은 이유). {@code dart.enabled=false}면 조용히 스킵한다.
      */
     public void syncNow() {
+        SyncSummary summary = sync();
+        if (summary != null) {
+            // 성공하면 로그가 하나도 없어 수집이 돌았는지 확인할 수 없었다
+            // (2026-10-01 로그 점검 F-4, aiDoc/run-summary-logs.md) — 블랙리스트·매크로 수집과 같은 한 줄 요약.
+            log.info(summary.toLogLine());
+        }
+    }
+
+    /** 수집 본체 — 비활성이면 null, 끝까지 돌면 요약을 돌려준다. 목록 조회 실패는 예외로 올라간다(따라잡기가 재시도). */
+    SyncSummary sync() {
         if (!dartProperties.enabled()) {
             log.info("ipo 수집 비활성(dart.enabled=false) — 이번 배치 스킵");
-            return;
+            return null;
         }
         LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
         LocalDate since = today.minusDays(dartProperties.lookbackDays());
 
         List<DartClient.DealNotice> deals = dartClient.fetchRecentEquityFilings(since, today);
         lastSuccessDate = today; // 목록 조회가 예외 없이 끝났으면 오늘 수집으로 인정(개별 딜 실패는 아래서 격리)
+        int created = 0;
+        int skipped = 0;
+        int failed = 0;
         for (DartClient.DealNotice deal : deals) {
             try {
-                syncOneDeal(deal, since, today);
+                if (syncOneDeal(deal, since, today)) {
+                    created++;
+                }
             } catch (OptimisticLockingFailureException e) {
+                skipped++;
                 log.info("공모주 딜 동기화 저장 생략(동시 수동 입력, 다음 배치 재시도) — corpName={}", deal.corpName());
             } catch (RuntimeException e) {
+                failed++;
                 log.error("공모주 딜 동기화 실패(스킵) — corpName={}, rceptNo={}",
                         deal.corpName(), deal.rceptNo(), e);
             }
@@ -141,16 +159,38 @@ public class IpoSyncScheduler {
                 log.info("공모주 딜 재계산 저장 생략(동시 수동 입력) — corpName={}", entity.getCorpName());
             }
         }
+        return new SyncSummary(since, today, deals.size(), created, skipped, failed, all.size());
     }
 
-    private void syncOneDeal(DartClient.DealNotice deal, LocalDate since, LocalDate today) {
-        IpoDealEntity entity = repository.findByRceptNo(deal.rceptNo())
+    /**
+     * 수집 요약(2026-10-01 로그 점검 F-4).
+     *
+     * @param filings    조회 기간의 증권신고(지분증권) 건수
+     * @param created    이번에 새로 만든 딜 수
+     * @param skipped    동시 수동 입력으로 저장을 건너뛴 건수(다음 배치 재시도)
+     * @param failed     개별 동기화 실패 건수
+     * @param totalDeals 상태·필터·알림을 다시 계산한 전체 딜 수
+     */
+    record SyncSummary(LocalDate since, LocalDate until, int filings, int created, int skipped, int failed,
+                       int totalDeals) {
+
+        String toLogLine() {
+            return "공모주 수집 완료 — %s~%s 증권신고(지분증권) %d건(신규 딜 %d·저장 생략 %d·실패 %d), 전체 딜 %d건 상태 재계산"
+                    .formatted(since, until, filings, created, skipped, failed, totalDeals);
+        }
+    }
+
+    /** 딜 1건 동기화 — 새로 만든 딜이면 true. */
+    private boolean syncOneDeal(DartClient.DealNotice deal, LocalDate since, LocalDate today) {
+        Optional<IpoDealEntity> existing = repository.findByRceptNo(deal.rceptNo());
+        IpoDealEntity entity = existing
                 .orElseGet(() -> new IpoDealEntity(deal.corpCode(), deal.corpName(), deal.rceptNo(), SOURCE_DART, clock.instant()));
         dartClient.fetchOfferingDetail(deal.corpCode(), deal.rceptNo(), since, today)
                 .ifPresentOrElse(
                         detail -> entity.applyOfferingDetail(detail, clock.instant()),
                         () -> logDetailMissing(deal, today));
         repository.save(entity);
+        return existing.isEmpty();
     }
 
     /**

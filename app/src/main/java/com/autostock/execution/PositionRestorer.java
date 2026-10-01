@@ -95,15 +95,17 @@ public class PositionRestorer {
         boolean keysLogged = false;
         for (Map<String, Object> holding : balance.holdings()) {
             if (!keysLogged) {
-                log.info("[실측] kt00018 보유 원소 키: {}", holding.keySet());
+                // 실측(2026-09-11) 목적은 끝났다 — 기동마다 INFO로 찍히던 것을 DEBUG로 내린다
+                // (2026-10-01 로그 점검 F-5). 해석에 실패하면 아래 WARN이 원소 키를 직접 싣는다.
+                log.debug("kt00018 보유 원소 키: {}", holding.keySet());
                 keysLogged = true;
             }
             String symbol = normalizeSymbol(firstText(holding, "stk_cd", "stock_cd"));
             long quantity = firstLong(holding, "rmnd_qty", "evlt_rmnd_qty", "hldg_qty", "qty");
             Price avgPrice = firstPrice(holding, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric");
             if (!symbol.matches(StockCode.PATTERN) || quantity <= 0) {
-                log.warn("포지션 복원 원소 해석 실패(TODO 실측 — 위 키 로그 참고): symbol={}, qty={}",
-                        symbol, quantity);
+                log.warn("포지션 복원 원소 해석 실패: symbol={}, qty={}, 원소 키={}",
+                        symbol, quantity, holding.keySet());
                 continue;
             }
             if (avgPrice == null) {
