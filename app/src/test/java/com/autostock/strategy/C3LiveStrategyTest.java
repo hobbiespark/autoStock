@@ -44,6 +44,13 @@ class C3LiveStrategyTest {
 
     private static final LocalDate D0 = LocalDate.of(2024, 1, 1);
 
+    /**
+     * 고정 시계 — 2026-10-01(목) 09:05 KST, 거래일. 실제 시계를 쓰면 주말·휴장일에 돌린 테스트가
+     * "휴장일 스킵"에 걸려 실패한다(2026-10-01 실측: 날짜를 토요일로 속여 전체 테스트를 돌리면
+     * 이 클래스 9건만 실패했다). 캔들은 스텁이 날짜를 보지 않으므로 이 시계와 무관하다.
+     */
+    private static final Clock OCT_1_0905 = Clock.fixed(Instant.parse("2026-10-01T00:05:00Z"), ZoneOffset.UTC);
+
     // repository는 mock — market_holidays에 해당 연도 데이터가 없으므로 MarketCalendarService는
     // TradingCalendar 하드코딩 폴백으로 판정한다(기존 동작과 동일, RiskGateTest와 같은 이유).
     private final MarketCalendarService marketCalendarService = new MarketCalendarService(mock(MarketHolidayRepository.class));
@@ -160,7 +167,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(false, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                mock(TradingSystemManager.class), Clock.systemUTC()); // enabled=false는 상태 조회 전에 반환되므로 스텁 불필요
+                mock(TradingSystemManager.class), OCT_1_0905); // enabled=false는 상태 조회 전에 반환되므로 스텁 불필요
 
         strategy.run();
 
@@ -182,7 +189,7 @@ class C3LiveStrategyTest {
 
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                notRunning, Clock.systemUTC());
+                notRunning, OCT_1_0905);
 
         strategy.run();
 
@@ -202,7 +209,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         when(marketData.bestQuote("000660")).thenReturn(new MarketDataPort.BestQuote(
                 new BigDecimal("49550"), new BigDecimal("49500")));
@@ -234,7 +241,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         strategy.run();
 
@@ -254,7 +261,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         when(marketData.bestQuote("005930")).thenReturn(new MarketDataPort.BestQuote(
                 new BigDecimal("10100"), new BigDecimal("10050")));
@@ -284,7 +291,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         when(marketData.bestQuote("005930")).thenReturn(new MarketDataPort.BestQuote(
                 new BigDecimal("9100"), new BigDecimal("9050")));
@@ -311,7 +318,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         strategy.run();
 
@@ -329,7 +336,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         assertDoesNotThrow(strategy::run, "한 종목의 예외가 전체 배치 실행을 중단시키면 안 됨");
 
@@ -354,7 +361,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         strategy.run();
 
@@ -387,7 +394,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         strategy.run();
 
@@ -410,7 +417,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         strategy.run();
 
@@ -433,7 +440,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), Clock.systemUTC());
+                runningManager(), OCT_1_0905);
 
         strategy.run();
 
@@ -444,9 +451,6 @@ class C3LiveStrategyTest {
 
     // ── 실행 요약(2026-10-01 로그 점검 F-2, aiDoc/run-summary-logs.md) ─────────────────────
     // 판단 결과는 DB에만 남으므로 run()이 요약 1줄을 로그로 남긴다 — 그 집계(execute())를 검증한다.
-    // 고정 시계: 2026-10-01(목) 09:05 KST — 거래일.
-
-    private static final Clock OCT_1_0905 = Clock.fixed(Instant.parse("2026-10-01T00:05:00Z"), ZoneOffset.UTC);
 
     private static Fill buyFill(String symbol) {
         return new Fill("k-" + symbol, new BrokerOrderId("b-" + symbol), new StockCode(symbol), Side.BUY,
