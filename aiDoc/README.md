@@ -42,3 +42,4 @@
 - [kiwoom-error-codes.md](kiwoom-error-codes.md) — Phase 0.6: 키움 오류코드 분류(유량 1700·1701·1702 재시도, 8005·8010 재발급 1회, 인증 실패 8001·8002·8010·8030·8031·8040·8050·8103 텔레그램 긴급 알림), 주문 타임아웃을 거부가 아닌 결과 불명(UNKNOWN)으로
 - [heartbeat-telegram.md](heartbeat-telegram.md) — Phase 0.7: 외부 heartbeat(Healthchecks.io, 장중 1분 핑), 텔레그램 가동(bat 조건부), /resume 2단계 확인(4자리·60초), 폴러 fixedDelay, RUNBOOK 5·6·8절
 - [backup.md](backup.md) — Phase 0.8: DB 백업(scripts/backup_db.ps1 — 컨테이너 내 pg_dump, 목차 확인, 14일+12개월 보존)과 복원 리허설(scripts/restore_check.ps1)
+- [alert-digest.md](alert-digest.md) — 10/1 로그 점검 F-1: 공시 블랙리스트 알림을 매매 대상·보유 종목만 즉시 WARN, 나머지는 1분 요약 INFO 1건으로. 텔레그램 429는 retry_after 대기 후 1회 재시도(상한 10초)
