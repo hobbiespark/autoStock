@@ -28,8 +28,9 @@
 | `SchemaAndTimeZoneDbTest` DATE·TIMESTAMPTZ | `LocalDate`·`Instant`가 변환 없이 저장(A5) | A5 실측은 일회성 실험 |
 | `OrderRepositoryDbTest` 값 객체 컬럼 | `StockCode`·`BrokerOrderId` 컨버터가 기존 문자열 컬럼에 저장, `findByBrokerOrderId(BrokerOrderId)` 파생 쿼리 | A1 조각 1·4 **미검증** |
 | `OrderRepositoryDbTest` 낙관적 잠금 | 같은 주문을 두 트랜잭션에서 고치면 나중 저장이 `ObjectOptimisticLockingFailureException` | R2 **미검증**(`order-concurrency.md`) |
+| `IpoDealRepositoryDbTest` 낙관적 잠금(2026-10-01 추가) | 배치 재계산과 수동 입력이 같은 딜을 고치면 배치의 나중 저장이 `OptimisticLockingFailureException`(하위 `ObjectOptimisticLockingFailureException`)으로 거부되고 먼저 저장한 수동 지표가 남는다. 저장마다 `version`이 오른다 | R2 IPO 딜 **미검증**(`order-concurrency.md`) |
 
-- 변이 확인: `OrderEntity`의 `@Version`을 빼면 잠금 테스트가 "예외가 나지 않았다"로 실패한다(실행 확인).
+- 변이 확인: `OrderEntity`의 `@Version`을 빼면 잠금 테스트가 "예외가 나지 않았다"로 실패한다(실행 확인). `IpoDealEntity`도 같다(2026-10-01 실행 확인 — 2건 모두 실패).
 
 ## 3. 실행 결과
 
@@ -39,4 +40,4 @@
 ## 4. 앞으로
 
 - DB가 걸린 변경(마이그레이션, 엔티티, 저장소 쿼리)은 `PostgresDataJpaTest`를 상속한 `*DbTest`로 검증한다.
-- 후보: IPO 딜 `@Version`(R2), 이벤트 스토어 JSON(`EventAuditListener`) 저장 형식, `DailyPerformance` upsert.
+- 후보: 이벤트 스토어 JSON(`EventAuditListener`) 저장 형식, `DailyPerformance` upsert. (IPO 딜 `@Version`은 2026-10-01 추가)
