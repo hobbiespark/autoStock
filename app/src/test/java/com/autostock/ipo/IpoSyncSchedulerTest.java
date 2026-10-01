@@ -178,4 +178,39 @@ class IpoSyncSchedulerTest {
         Clock fixed = Clock.fixed(today.atTime(12, 0).toInstant(ZoneOffset.of("+09:00")), ZoneOffset.UTC);
         return new IpoSyncScheduler(enabledProps, filterProps, dartClient, repository, publisher, fixed);
     }
+
+    // ── 수집 요약(2026-10-01 로그 점검 F-4, aiDoc/run-summary-logs.md) ──────────────────────
+
+    @Test
+    void 수집이_끝나면_신규_실패_건수와_전체_딜_수를_요약한다() {
+        LocalDate today = LocalDate.of(2026, 10, 1);
+        DartClient.DealNotice fresh = new DartClient.DealNotice("20260930000001", "00000001", "새회사", "증권신고서(지분증권)", today.minusDays(1));
+        DartClient.DealNotice known = new DartClient.DealNotice("20260925000002", "00000002", "기존회사", "증권신고서(지분증권)", today.minusDays(6));
+        DartClient.DealNotice broken = new DartClient.DealNotice("20260929000003", "00000003", "실패회사", "증권신고서(지분증권)", today.minusDays(2));
+        IpoDealEntity knownEntity = new IpoDealEntity("00000002", "기존회사", "20260925000002", "DART", Instant.now());
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of(fresh, known, broken));
+        when(repository.findByRceptNo("20260930000001")).thenReturn(Optional.empty());
+        when(repository.findByRceptNo("20260925000002")).thenReturn(Optional.of(knownEntity));
+        when(repository.findByRceptNo("20260929000003")).thenThrow(new RuntimeException("DB 오류(테스트)"));
+        when(dartClient.fetchOfferingDetail(any(), any(), any(), any())).thenReturn(Optional.empty());
+        when(repository.findAll()).thenReturn(List.of(knownEntity));
+
+        IpoSyncScheduler.SyncSummary summary = schedulerAt(today).sync();
+
+        assertEquals(3, summary.filings());
+        assertEquals(1, summary.created());
+        assertEquals(1, summary.failed());
+        assertEquals(0, summary.skipped());
+        assertEquals(1, summary.totalDeals());
+        assertEquals("공모주 수집 완료 — 2026-09-17~2026-10-01 증권신고(지분증권) 3건(신규 딜 1·저장 생략 0·실패 1), 전체 딜 1건 상태 재계산",
+                summary.toLogLine());
+    }
+
+    @Test
+    void 비활성이면_요약이_없다() {
+        IpoSyncScheduler disabled = new IpoSyncScheduler(
+                new DartProperties(false, "test-key", 14), filterProps, dartClient, repository, publisher, Clock.systemUTC());
+
+        assertEquals(null, disabled.sync());
+    }
 }

@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -439,5 +440,121 @@ class C3LiveStrategyTest {
         List<SignalDecision> decisions = onlyDecisions(published);
         assertEquals(1, decisions.size());
         assertEquals("HOLD", decisions.get(0).conclusion());
+    }
+
+    // ── 실행 요약(2026-10-01 로그 점검 F-2, aiDoc/run-summary-logs.md) ─────────────────────
+    // 판단 결과는 DB에만 남으므로 run()이 요약 1줄을 로그로 남긴다 — 그 집계(execute())를 검증한다.
+    // 고정 시계: 2026-10-01(목) 09:05 KST — 거래일.
+
+    private static final Clock OCT_1_0905 = Clock.fixed(Instant.parse("2026-10-01T00:05:00Z"), ZoneOffset.UTC);
+
+    private static Fill buyFill(String symbol) {
+        return new Fill("k-" + symbol, new BrokerOrderId("b-" + symbol), new StockCode(symbol), Side.BUY,
+                new Quantity(10), new Price(new BigDecimal("10000")), Instant.parse("2026-09-30T01:00:00Z"));
+    }
+
+    @Test
+    void 국면_ON_요약은_결과별_건수_오류_다음_판단일을_담는다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put("005930", uptrendSymbolCandles("005930"));   // 미보유 상승 → 매수
+        chart.put("000660", downtrendSymbolCandles("000660")); // 보유 하락 → 매도
+        chart.put("035420", uptrendSymbolCandles("035420"));   // 보유 상승 → 보유 유지
+        chart.put("035720", downtrendSymbolCandles("035720")); // 미보유 하락 → 미진입
+        chart.failFor("051910", new RuntimeException("네트워크 오류(테스트)")); // 오류 → 다음 스케줄 재판단
+
+        PositionBook positionBook = new PositionBook();
+        positionBook.onFill(buyFill("000660"));
+        positionBook.onFill(buyFill("035420"));
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930", "000660", "035420", "035720", "051910"), 5), chart, marketData,
+                positionBook, published::add, marketCalendarService, runningManager(), OCT_1_0905);
+
+        C3LiveStrategy.RunSummary summary = strategy.execute();
+
+        assertTrue(summary.regimeOn());
+        assertEquals(1, summary.count(C3LiveStrategy.Outcome.BUY));
+        assertEquals(1, summary.count(C3LiveStrategy.Outcome.SELL));
+        assertEquals(1, summary.count(C3LiveStrategy.Outcome.HOLD));
+        assertEquals(1, summary.count(C3LiveStrategy.Outcome.SKIP));
+        assertEquals(1, summary.errors());
+        assertEquals(LocalDate.of(2026, 10, 22), summary.nextDue(), "판단한 종목은 10/1 + 21일");
+        assertEquals(1, summary.retrySymbols(), "실패한 051910은 다음 스케줄에 다시 판단");
+        assertEquals("C3 판단 2026-10-01 — 국면 ON(069500 종가 11000 / SMA200 10005)"
+                        + " · 매수 1 · 매도 1 · 보유 유지 1 · 미진입 1 · 주기 전 0 · 데이터 부족 0 · 오류 1"
+                        + " · 다음 판단 2026-10-22부터 · 다음 스케줄에 재판단 1종목",
+                summary.toLogLine());
+    }
+
+    @Test
+    void 같은_날_다시_돌면_판단한_종목은_주기_전으로_센다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put("035720", downtrendSymbolCandles("035720"));
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("035720"), 5), chart, marketData, new PositionBook(), published::add,
+                marketCalendarService, runningManager(), OCT_1_0905);
+
+        strategy.execute();
+        C3LiveStrategy.RunSummary second = strategy.execute();
+
+        assertEquals(1, second.count(C3LiveStrategy.Outcome.NOT_DUE));
+        assertEquals(0, second.retrySymbols());
+    }
+
+    @Test
+    void 캔들이_부족하면_데이터_부족으로_세고_다음_스케줄에_재판단한다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles()); // 005930은 캔들 없음
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930"), 5), chart, marketData, new PositionBook(), published::add,
+                marketCalendarService, runningManager(), OCT_1_0905);
+
+        C3LiveStrategy.RunSummary summary = strategy.execute();
+
+        assertEquals(1, summary.count(C3LiveStrategy.Outcome.NO_DATA));
+        assertNull(summary.nextDue());
+        assertTrue(summary.toLogLine().endsWith("· 오류 0 · 다음 스케줄에 재판단 1종목"), summary.toLogLine());
+    }
+
+    @Test
+    void 국면_OFF_요약은_강제_청산_신호_수를_담는다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOffIndexCandles());
+        PositionBook positionBook = new PositionBook();
+        positionBook.onFill(buyFill("005930"));
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add,
+                marketCalendarService, runningManager(), OCT_1_0905);
+
+        C3LiveStrategy.RunSummary summary = strategy.execute();
+
+        assertEquals(false, summary.regimeOn());
+        assertEquals(1, summary.liquidations());
+        assertEquals("C3 판단 2026-10-01 — 국면 OFF(069500 종가 9000 / SMA200 9995) · 신규 판단 보류 · 강제 청산 신호 1 · 오류 0",
+                summary.toLogLine());
+    }
+
+    @Test
+    void 비활성이거나_휴장일이면_요약이_없다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy disabled = new C3LiveStrategy(
+                properties(false, List.of("005930"), 5), chart, marketData, new PositionBook(), published::add,
+                marketCalendarService, runningManager(), OCT_1_0905);
+        // 2026-10-05(월) — 개천절 대체공휴일(폴백 달력)
+        C3LiveStrategy holiday = new C3LiveStrategy(
+                properties(true, List.of("005930"), 5), chart, marketData, new PositionBook(), published::add,
+                marketCalendarService, runningManager(),
+                Clock.fixed(Instant.parse("2026-10-05T00:05:00Z"), ZoneOffset.UTC));
+
+        assertNull(disabled.execute());
+        assertNull(holiday.execute());
+        assertTrue(published.isEmpty());
     }
 }

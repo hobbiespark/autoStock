@@ -24,10 +24,13 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Arrays;
+import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * C3 라이브 전략 — 시계열 모멘텀 + KODEX200 SMA200 국면필터 + 변동성 타게팅을
@@ -129,15 +132,28 @@ public class C3LiveStrategy {
     /** 매 평일 09:05 KST(정규장 09:00 개장 직후) 1회 실행 — 클래스 설명 "왜 스케줄 기반인가" 참고. */
     @Scheduled(cron = "0 5 9 * * MON-FRI", zone = "Asia/Seoul")
     public void run() {
+        RunSummary summary = execute();
+        if (summary != null) {
+            // 판단 결과는 signal_decisions(DB)에만 남는다 — 실행 여부와 결과를 로그로도 확인할 수 있게
+            // 요약 1줄을 남긴다(2026-10-01 로그 점검 F-2, aiDoc/run-summary-logs.md).
+            log.info(summary.toLogLine());
+        }
+    }
+
+    /**
+     * 실행 본체 — 국면 판정까지 갔으면 실행 요약을 돌려준다. 비활성·운영 상태·휴장일로 건너뛰면 null
+     * (휴장일·운영 상태 스킵은 각자 로그를 남긴다).
+     */
+    RunSummary execute() {
         if (!properties.enabled()) {
-            return; // 자택망 검증 전 기본 비활성 — C3StrategyProperties Javadoc 참고
+            return null; // 자택망 검증 전 기본 비활성 — C3StrategyProperties Javadoc 참고
         }
         TradingSystemStatus systemStatus = tradingSystemManager.status();
         if (systemStatus != TradingSystemStatus.RUNNING) {
             // 이중 가드 — enabled=true여도 운영 상태기계가 RUNNING이 아니면 매매하지 않는다
             // (클래스 설명 "운영 상태기계와의 이중 가드" 참고).
             log.info("C3: 운영 상태가 RUNNING이 아님({}) — 이번 스케줄 스킵", systemStatus);
-            return;
+            return null;
         }
 
         LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
@@ -148,7 +164,7 @@ public class C3LiveStrategy {
             // 위임한다 — DB에 동기화된 특일 데이터가 있으면 그것을, 없으면 TradingCalendar
             // 하드코딩으로 폴백한다(MarketCalendarService 클래스 설명 참고).
             log.info("C3: 휴장일({}) — 이번 스케줄 스킵", today);
-            return;
+            return null;
         }
 
         RegimeSnapshot regime = judgeRegime();
@@ -161,18 +177,38 @@ public class C3LiveStrategy {
                 publishDecision(symbol, "SKIP", "국면 OFF(지수 종가가 SMA200 이하) — 신규 진입 판단 보류",
                         regimeMetrics(regime));
             }
-            liquidateAll();
-            return;
+            LiquidationResult liquidation = liquidateAll();
+            return new RunSummary(today, false, regime.indexSymbol(), regime.indexClose(), regime.sma(),
+                    properties.regimeSmaDays(), Map.of(), liquidation.errors(), liquidation.signals(), null, 0);
         }
 
+        Map<Outcome, Integer> counts = new EnumMap<>(Outcome.class);
+        int errors = 0;
         for (String symbol : properties.symbols()) {
             try {
-                decideOne(symbol, today, regime);
+                counts.merge(decideOne(symbol, today, regime), 1, Integer::sum);
             } catch (RuntimeException e) {
+                errors++;
                 // 종목 단위 격리 — 한 종목의 실패가 전체 배치를 중단시키지 않는다(클래스 설명 참고).
                 log.error("C3: 종목 {} 판단 중 오류 — 이 종목만 스킵하고 계속 진행", symbol, e);
             }
         }
+
+        // 다음 판단일 — 이미 판단한 종목은 (판단일 + 주기) 중 가장 이른 날, 아직 판단 기록이 없거나
+        // 오늘 판단에 실패해 여전히 판단일인 종목은 다음 스케줄에 다시 판단한다(isJudgmentDay와 같은 기준).
+        LocalDate nextDue = null;
+        int retrySymbols = 0;
+        for (String symbol : properties.symbols()) {
+            LocalDate last = lastDecisionDate.get(symbol);
+            LocalDate due = last == null ? null : last.plusDays(properties.decisionIntervalDays());
+            if (due == null || !due.isAfter(today)) {
+                retrySymbols++;
+            } else if (nextDue == null || due.isBefore(nextDue)) {
+                nextDue = due;
+            }
+        }
+        return new RunSummary(today, true, regime.indexSymbol(), regime.indexClose(), regime.sma(),
+                properties.regimeSmaDays(), counts, errors, 0, nextDue, retrySymbols);
     }
 
     /**
@@ -222,11 +258,71 @@ public class C3LiveStrategy {
     private record RegimeSnapshot(boolean on, String indexSymbol, BigDecimal indexClose, BigDecimal sma) {
     }
 
+    /** 종목 하나의 판단 결과 — 실행 요약(F-2) 집계용. 매매 결론은 기존 그대로 Signal·SignalDecision이 나른다. */
+    enum Outcome {
+        BUY("매수"), SELL("매도"), HOLD("보유 유지"), SKIP("미진입"), NOT_DUE("주기 전"), NO_DATA("데이터 부족");
+
+        private final String label;
+
+        Outcome(String label) {
+            this.label = label;
+        }
+    }
+
+    /** 국면 OFF 강제 청산 결과 — 발행한 SELL 신호 수와 오류로 건너뛴 종목 수. */
+    private record LiquidationResult(int signals, int errors) {
+    }
+
+    /**
+     * 09:05 실행 요약(2026-10-01 로그 점검 F-2, aiDoc/run-summary-logs.md).
+     *
+     * @param counts       국면 ON일 때 종목별 결과 집계(OFF면 빈 맵)
+     * @param errors       판단(ON) 또는 강제 청산(OFF) 중 오류로 건너뛴 종목 수
+     * @param liquidations 국면 OFF 강제 청산 신호 수(ON이면 0)
+     * @param nextDue      가장 이른 다음 판단 기준일(그날 이후 첫 스케줄에 판단) — 없으면 null
+     * @param retrySymbols 판단 기록이 없거나 오늘 실패해 다음 스케줄에 다시 판단할 종목 수
+     */
+    record RunSummary(LocalDate date, boolean regimeOn, String indexSymbol, BigDecimal indexClose, BigDecimal sma,
+                      int smaDays, Map<Outcome, Integer> counts, int errors, int liquidations,
+                      LocalDate nextDue, int retrySymbols) {
+
+        int count(Outcome outcome) {
+            return counts.getOrDefault(outcome, 0);
+        }
+
+        /** 예: "C3 판단 2026-10-01 — 국면 ON(069500 종가 11000 / SMA200 10005) · 매수 1 · … · 오류 0 · 다음 판단 2026-10-22부터". */
+        String toLogLine() {
+            String regime = "국면 %s(%s 종가 %s / SMA%d %s)".formatted(
+                    regimeOn ? "ON" : "OFF", indexSymbol, whole(indexClose), smaDays, whole(sma));
+            if (!regimeOn) {
+                return "C3 판단 %s — %s · 신규 판단 보류 · 강제 청산 신호 %d · 오류 %d".formatted(
+                        date, regime, liquidations, errors);
+            }
+            String outcomes = Arrays.stream(Outcome.values())
+                    .map(o -> o.label + " " + count(o))
+                    .collect(Collectors.joining(" · "));
+            String next;
+            if (nextDue == null) {
+                next = "다음 스케줄에 재판단 " + retrySymbols + "종목";
+            } else {
+                next = "다음 판단 " + nextDue + "부터"
+                        + (retrySymbols > 0 ? " · 다음 스케줄에 재판단 " + retrySymbols + "종목" : "");
+            }
+            return "C3 판단 %s — %s · %s · 오류 %d · %s".formatted(date, regime, outcomes, errors, next);
+        }
+
+        private static String whole(BigDecimal value) {
+            return value == null ? "N/A" : value.setScale(0, RoundingMode.HALF_UP).toPlainString();
+        }
+    }
+
     /**
      * 국면 OFF — 이 전략이 관리하는 종목 중 보유 중인 것 전부 SELL Signal 발행. 종목 단위로 격리한다
      * (호가 조회 실패가 다른 종목 청산을 막지 않게).
      */
-    private void liquidateAll() {
+    private LiquidationResult liquidateAll() {
+        int signals = 0;
+        int errors = 0;
         for (String symbol : properties.symbols()) {
             if (positionBook.get(new StockCode(symbol)) == null) {
                 continue;
@@ -235,10 +331,13 @@ public class C3LiveStrategy {
                 BigDecimal price = bestOrderPrice(symbol, Side.SELL);
                 log.info("C3: 국면 OFF — 강제 청산: {} 기준가 {}", symbol, price);
                 publishSell(symbol, price);
+                signals++;
             } catch (RuntimeException e) {
+                errors++;
                 log.error("C3: 종목 {} 강제 청산 신호 발행 중 오류 — 이 종목만 스킵하고 계속 진행", symbol, e);
             }
         }
+        return new LiquidationResult(signals, errors);
     }
 
     /**
@@ -280,10 +379,10 @@ public class C3LiveStrategy {
         }
     }
 
-    /** 종목 하나의 판단 — 판단일이면 모멘텀/변동성을 계산해 BUY 또는 SELL을, 아니면 아무 것도 하지 않는다. */
-    private void decideOne(String symbol, LocalDate today, RegimeSnapshot regime) {
+    /** 종목 하나의 판단 — 판단일이면 모멘텀/변동성을 계산해 BUY 또는 SELL을, 아니면 아무 것도 하지 않는다. 결과 분류를 돌려준다. */
+    private Outcome decideOne(String symbol, LocalDate today, RegimeSnapshot regime) {
         if (!isJudgmentDay(symbol, today)) {
-            return; // decisionIntervalDays가 아직 안 지남 — 보유/미보유 상태를 그대로 유지.
+            return Outcome.NOT_DUE; // decisionIntervalDays가 아직 안 지남 — 보유/미보유 상태를 그대로 유지.
             // FE-6 참고: 판단 주기가 아직 안 지난 종목은 이번 스케줄에서 "평가되지 않았다"고
             // 보고 SignalDecision을 남기지 않는다(재구성할 판단 자체가 없음) — 평가된 종목만
             // "왜 샀는지/안 샀는지" 기록 대상이다.
@@ -300,7 +399,7 @@ public class C3LiveStrategy {
             publishDecision(symbol, "SKIP",
                     "캔들 부족(" + candles.size() + "개, 최소 " + (properties.lookbackN() + 1) + "개 필요) — 이번 판단 스킵",
                     regimeMetrics(regime));
-            return;
+            return Outcome.NO_DATA;
         }
         List<BigDecimal> closes = candles.stream().map(Candle::close).toList();
 
@@ -326,15 +425,19 @@ public class C3LiveStrategy {
             metrics.put("orderRefPrice", price == null ? "N/A" : price.toPlainString());
             publishBuy(symbol, price, fraction);
             publishDecision(symbol, "BUY", "모멘텀 상승 전환 + 국면 ON + 미보유 — 매수 시그널 발행", metrics);
+            return Outcome.BUY;
         } else if (!uptrend && holding) {
             BigDecimal price = bestOrderPrice(symbol, Side.SELL);
             metrics.put("orderRefPrice", price == null ? "N/A" : price.toPlainString());
             publishSell(symbol, price);
             publishDecision(symbol, "SELL", "모멘텀 하락 전환 — 보유분 매도 시그널 발행", metrics);
+            return Outcome.SELL;
         } else if (uptrend && holding) {
             publishDecision(symbol, "HOLD", "모멘텀 상승 유지 + 이미 보유 중 — 재진입 불필요, 그대로 유지", metrics);
+            return Outcome.HOLD;
         } else {
             publishDecision(symbol, "SKIP", "모멘텀 하락 추세 — 신규 진입하지 않고 미보유 유지", metrics);
+            return Outcome.SKIP;
         }
         // uptrend && holding → 그대로 보유 유지(재진입 불필요)
         // !uptrend && !holding → 그대로 미보유 유지(청산할 것이 없음)
