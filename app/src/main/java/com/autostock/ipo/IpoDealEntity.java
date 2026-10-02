@@ -115,6 +115,13 @@ public class IpoDealEntity {
     @Column(name = "memo", columnDefinition = "TEXT")
     private String memo;
 
+    /** 마지막으로 보낸 청약 알림 단계(D-1·START)와 날짜 — 회사 단위 중복 방지(V16, 2026-10-02). */
+    @Column(name = "last_alert_phase", length = 16)
+    private String lastAlertPhase;
+
+    @Column(name = "last_alert_date")
+    private LocalDate lastAlertDate;
+
     @Column(name = "source", nullable = false, length = 16)
     private String source;
 
@@ -271,6 +278,19 @@ public class IpoDealEntity {
     public BigDecimal getSellPrice() { return sellPrice; }
     public LocalDate getSellDate() { return sellDate; }
     public String getMemo() { return memo; }
+    public String getLastAlertPhase() { return lastAlertPhase; }
+    public LocalDate getLastAlertDate() { return lastAlertDate; }
+
+    /** 이 단계 알림을 그날 이미 보냈는가(V16). */
+    public boolean alreadyAlerted(String phase, LocalDate date) {
+        return phase.equals(lastAlertPhase) && date.equals(lastAlertDate);
+    }
+
+    /** 청약 알림을 보냈다고 남긴다 — 같은 회사의 모든 딜에 남겨 재기동·정정 신고서로 다시 보내지 않게 한다(V16). */
+    public void markAlerted(String phase, LocalDate date) {
+        this.lastAlertPhase = phase;
+        this.lastAlertDate = date;
+    }
     public String getSource() { return source; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

@@ -15,10 +15,14 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 공모주 일정 수집·필터 판단 배치 (PLAN.md ADR-9 ①②, 트랙 E2) — 평일 08:20 KST(장 시작 전,
@@ -171,8 +175,10 @@ public class IpoSyncScheduler {
             recalculateStatus(entity, today);
             if (!entity.isRightsOffering()) { // 상장사 유상증자는 권고·알림 대상이 아니다
                 evaluateFilter(entity);
-                maybeAlert(entity, today);
             }
+        }
+        alertByCorp(all, today);
+        for (IpoDealEntity entity : all) {
             try {
                 repository.save(entity);
             } catch (OptimisticLockingFailureException e) {
@@ -343,23 +349,55 @@ public class IpoSyncScheduler {
         return entity.getMetricsSource() == IpoDealEntity.MetricsSource.MANUAL ? " (수동 입력)" : "";
     }
 
-    /** 청약 시작 D-1·당일에만 알림을 발행한다(ADR-9 ③, 반복 알림으로 스팸이 되지 않도록). */
-    private void maybeAlert(IpoDealEntity entity, LocalDate today) {
+    /**
+     * 청약 시작 D-1·당일에만, <b>회사 단위로 한 번</b> 알림을 발행한다(ADR-9 ③, 반복 알림으로 스팸이 되지 않도록).
+     *
+     * <p>2026-10-02(V16): 한 회사가 신고서를 여러 번 내면(정정·발행조건확정) 딜이 rcept_no마다 따로 있어 같은 알림이 딜 수만큼
+     * 나갔고, 재기동할 때마다 그날 알림을 다시 보냈다(감사 BE-P2-6). 이제 그날 알림 단계가 있는 딜 중 가장 최근 신고서
+     * (rcept_no가 가장 큰 딜) 내용으로 한 번만 보내고, 그 회사의 모든 딜에 (단계, 날짜)를 남긴다 — 같은 회사·단계·날짜면
+     * 다시 보내지 않는다. 표시는 저장 루프가 DB에 남긴다.
+     */
+    private void alertByCorp(List<IpoDealEntity> all, LocalDate today) {
+        Map<String, List<IpoDealEntity>> byCorp = all.stream()
+                .filter(entity -> !entity.isRightsOffering())
+                .collect(Collectors.groupingBy(IpoDealEntity::getCorpCode, LinkedHashMap::new, Collectors.toList()));
+        for (List<IpoDealEntity> deals : byCorp.values()) {
+            Optional<IpoDealEntity> latest = deals.stream()
+                    .filter(entity -> alertPhase(entity, today) != null)
+                    .max(Comparator.comparing(IpoDealEntity::getRceptNo));
+            if (latest.isEmpty()) {
+                continue;
+            }
+            String phase = alertPhase(latest.get(), today);
+            if (deals.stream().anyMatch(entity -> entity.alreadyAlerted(phase, today))) {
+                continue;   // 오늘 이미 보냈다(재기동·같은 날 재수집)
+            }
+            publishAlert(latest.get(), phase, alertMessage(latest.get(), phase));
+            deals.forEach(entity -> entity.markAlerted(phase, today));
+        }
+    }
+
+    /** 오늘이 청약 시작 전날이면 D-1, 당일이면 START, 아니면 null. */
+    private static String alertPhase(IpoDealEntity entity, LocalDate today) {
         LocalDate start = entity.getSubscriptionStart();
         if (start == null) {
-            return;
+            return null;
         }
         if (start.minusDays(1).isEqual(today)) {
-            publishAlert(entity, PHASE_D_MINUS_1,
-                    "[청약 D-1] %s — 공모가 %s, 주관사 %s, 권고: %s (%s)".formatted(
-                            entity.getCorpName(), formatPrice(entity), nullToDash(entity.getLeadManager()),
-                            entity.getRecommendation(), entity.getRecommendReason()));
-        } else if (start.isEqual(today)) {
-            publishAlert(entity, PHASE_START,
-                    "[청약 시작] %s — 청약기간 %s~%s, 권고: %s (%s). 청약 실행은 영웅문S#에서 수동.".formatted(
-                            entity.getCorpName(), start, entity.getSubscriptionEnd(),
-                            entity.getRecommendation(), entity.getRecommendReason()));
+            return PHASE_D_MINUS_1;
         }
+        return start.isEqual(today) ? PHASE_START : null;
+    }
+
+    private static String alertMessage(IpoDealEntity entity, String phase) {
+        if (PHASE_D_MINUS_1.equals(phase)) {
+            return "[청약 D-1] %s — 공모가 %s, 주관사 %s, 권고: %s (%s)".formatted(
+                    entity.getCorpName(), formatPrice(entity), nullToDash(entity.getLeadManager()),
+                    entity.getRecommendation(), entity.getRecommendReason());
+        }
+        return "[청약 시작] %s — 청약기간 %s~%s, 권고: %s (%s). 청약 실행은 영웅문S#에서 수동.".formatted(
+                entity.getCorpName(), entity.getSubscriptionStart(), entity.getSubscriptionEnd(),
+                entity.getRecommendation(), entity.getRecommendReason());
     }
 
     private void publishAlert(IpoDealEntity entity, String phase, String message) {
