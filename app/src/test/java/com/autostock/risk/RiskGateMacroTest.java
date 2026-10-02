@@ -63,7 +63,7 @@ class RiskGateMacroTest {
         gate = new RiskGate(publisher, killSwitch, properties,
                 new PositionSizer(properties), positionBook, new DailyLimitTracker(properties, ANY_CLOCK),
                 new PaperEquitySource(properties), ANY_CLOCK, marketCalendarService,
-                macroGuard, disclosureBlacklist);
+                macroGuard, disclosureBlacklist, () -> java.util.Set.of());
     }
 
     private Signal buySignal(String symbol, String price) {

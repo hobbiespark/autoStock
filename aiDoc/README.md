@@ -51,3 +51,4 @@
 - [db-switch-timescale.md](db-switch-timescale.md) — 2026-10-02 S1 1단계: DB를 TimescaleDB HA 이미지(PostgreSQL 17, 다이제스트 고정)로 전환하는 스크립트(덤프·복원·행 수 대조·자동 되돌림·끊김 복구)와 되돌리기, 백업 버전 기록·복원 리허설 pre/post restore·랩(-Lab), DB 테스트는 운영 이미지로만(zonky 제거), 결정 D-15~D-19 권고안 적용
 - [minute-bars-db.md](minute-bars-db.md) — 2026-10-02 S1 2단계: 분봉을 DB로(V12 `minute_bars` 하이퍼테이블·월 청크·18시 열 압축, `daily_bars` KST 일봉 연속 집계), 적재 잡 따라잡기·장외 1년 되채우기·빈 구간 메우기·검증 제외·CSV 이관, 키움 연속 조회(cont-yn·next-key)
 - [c3-trading-day-cycle.md](c3-trading-day-cycle.md) — Phase 1.1: C3 판단 주기를 21거래일로(백테스트 21봉과 같게), 마지막 판단일 영속화(V13 `strategy_state`), D-03 권고안(카운트 유지·성과 변경일 기준 분리)
+- [open-order-aware-risk.md](open-order-aware-risk.md) — Phase 1.2: RiskGate가 미체결 매수를 안다(risk.OpenOrderQuery 포트, 같은 종목 중복 매수 차단·동시 보유 한도 포함), 주문 슬롯 날짜+일련번호 원자 발급(BE-P2-17 포함)

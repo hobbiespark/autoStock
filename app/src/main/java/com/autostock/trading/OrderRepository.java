@@ -1,5 +1,6 @@
 package com.autostock.trading;
 
+import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -22,6 +23,9 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
 
     /** 특정 상태 집합에 속한 주문 전체 — Reconciliation·StaleOrderCanceller가 대상 선별에 사용. */
     List<OrderEntity> findByStatusIn(Collection<OrderStatus> statuses);
+
+    /** 특정 방향·상태 집합의 주문 — 미체결 매수 조회({@link OpenOrderQueryAdapter}, 실행 계획 1.2)가 사용. */
+    List<OrderEntity> findBySideAndStatusIn(Side side, Collection<OrderStatus> statuses);
 
     /**
      * 특정 시각 이후 접수된 주문 전체를 최신순으로 — 주문 이력 View API(FE-1, PLAN ADR-10
