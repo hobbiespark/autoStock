@@ -1,6 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockNames;
 import com.autostock.monitor.view.SignalDecisionView;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -57,9 +59,23 @@ public class DecisionController {
                 entity.getHorizon(),
                 entity.getStrategyId(),
                 entity.getSymbol(),
+                StockNames.nameOf(entity.getSymbol()).orElse(null),
                 entity.getConclusion(),
                 entity.getReason(),
-                parseMetrics(entity.getMetricsJson(), entity.getSymbol()));
+                labelSymbolMetrics(parseMetrics(entity.getMetricsJson(), entity.getSymbol())));
+    }
+
+    /**
+     * 지표값 중 종목코드(키가 "Symbol"로 끝나는 값, 예: {@code regimeIndexSymbol=069500})를 화면에 "KODEX 200(069500)"으로
+     * 보낸다 — 저장값(metrics_json)은 코드 그대로 두고 응답에서만 바꾼다(2026-10-02 종목명 함께 표시, aiDoc/stock-names.md).
+     */
+    private static Map<String, String> labelSymbolMetrics(Map<String, String> metrics) {
+        if (metrics.keySet().stream().noneMatch(key -> key.endsWith("Symbol"))) {
+            return metrics;
+        }
+        Map<String, String> labelled = new LinkedHashMap<>(metrics);
+        labelled.replaceAll((key, value) -> key.endsWith("Symbol") && value != null ? StockNames.label(value) : value);
+        return labelled;
     }
 
     /** metrics_json(TEXT) → Map&lt;String,String&gt; 역직렬화. 손상된 값이 있어도 화면 전체를 막지 않는다. */
@@ -67,7 +83,7 @@ public class DecisionController {
         try {
             return objectMapper.readValue(metricsJson, new TypeReference<Map<String, String>>() { });
         } catch (Exception ex) {
-            log.warn("SignalDecision metrics_json 역직렬화 실패(빈 맵으로 대체) — symbol={}", symbol, ex);
+            log.warn("SignalDecision metrics_json 역직렬화 실패(빈 맵으로 대체) — 종목={}", StockNames.label(symbol), ex);
             return Map.of();
         }
     }

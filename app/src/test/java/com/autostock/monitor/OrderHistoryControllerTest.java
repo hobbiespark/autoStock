@@ -5,6 +5,7 @@ import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.trading.OrderEntity;
 import com.autostock.trading.OrderRepository;
 import com.autostock.trading.OrderStatus;
@@ -67,6 +68,7 @@ class OrderHistoryControllerTest {
 
     @Test
     void OrderEntity를_View_DTO로_변환해서_반환한다() {
+        StockNames.learn("005930", "삼성전자", StockNames.Source.KIWOOM);
         OrderEntity order = new OrderEntity("20260911-C3-005930-BUY-001", new StockCode("005930"), Side.BUY, new Quantity(10),
                 new Price(new BigDecimal("70000")), "C3", Instant.now());
         order.transitionTo(OrderStatus.VALIDATED, Instant.now());
@@ -81,6 +83,7 @@ class OrderHistoryControllerTest {
         var item = result.orders().get(0);
         assertEquals("20260911-C3-005930-BUY-001", item.clientOrderId());
         assertEquals("005930", item.symbol());
+        assertEquals("삼성전자", item.symbolName());
         assertEquals("BUY", item.side());
         assertEquals(10, item.quantity());
         assertEquals(0, item.filledQuantity());

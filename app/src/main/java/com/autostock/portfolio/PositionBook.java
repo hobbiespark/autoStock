@@ -4,6 +4,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.PositionRestored;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;
@@ -103,7 +104,7 @@ public class PositionBook {
         Position previous = positions.putIfAbsent(restored.symbol(),
                 new Position(restored.quantity(), restored.avgPrice() == null ? null : restored.avgPrice().value()));
         if (previous == null) {
-            log.info("포지션 복원(브로커 잔고): {} {}주 @ {}", restored.symbol(),
+            log.info("포지션 복원(브로커 잔고): {} {}주 @ {}", StockNames.label(restored.symbol()),
                     restored.quantity(), restored.avgPrice() == null ? "평단 미상" : restored.avgPrice());
         }
     }

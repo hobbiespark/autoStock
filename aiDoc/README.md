@@ -44,3 +44,4 @@
 - [backup.md](backup.md) — Phase 0.8: DB 백업(scripts/backup_db.ps1 — 컨테이너 내 pg_dump, 목차 확인, 14일+12개월 보존)과 복원 리허설(scripts/restore_check.ps1)
 - [alert-digest.md](alert-digest.md) — 10/1 로그 점검 F-1: 공시 블랙리스트 알림을 매매 대상·보유 종목만 즉시 WARN, 나머지는 1분 요약 INFO 1건으로. 텔레그램 429는 retry_after 대기 후 1회 재시도(상한 10초)
 - [run-summary-logs.md](run-summary-logs.md) — 10/1 로그 점검 F-2·F-4·F-5: C3 09:05 실행 요약 1줄, 공모주 수집 완료 요약 1줄, kt00018 실측 키 로그 DEBUG화
+- [stock-names.md](stock-names.md) — 2026-10-02 종목코드와 종목명 함께 표시: 표기 "삼성전자(005930)"(모르면 "종목명 미확인(코드)"), 이름 출처(키움 ka10001·kt00018 > DART 기업명), 메모리 사전 + V10 `stock_names`, 알림·리포트·API(symbolName)·화면·로그 적용

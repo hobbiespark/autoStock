@@ -1,9 +1,11 @@
 package com.autostock.monitor;
 
 import com.autostock.common.event.Fill;
+import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.execution.BrokerBalance;
 import com.autostock.execution.BrokerPort;
 import com.autostock.macrointel.MacroIntelProperties;
@@ -69,6 +71,7 @@ class DailyReportSchedulerTest {
     private DailyLimitTracker dailyLimits;
     private DailyPnlTracker dailyPnl;
     private DailyReportScheduler scheduler;
+    private SlippageTracker slippageTracker;
     private Clock clock;
 
     @BeforeEach
@@ -83,13 +86,15 @@ class DailyReportSchedulerTest {
         // 보수 모드는 이 테스트의 관심사가 아니라 기본값(OFF)으로 둔다 — MacroGuardTest 참고.
         MacroGuard macroGuard = new MacroGuard(
                 new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0), killSwitch);
+        slippageTracker = new SlippageTracker(java.time.Clock.systemUTC(),
+                new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
         scheduler = new DailyReportScheduler(positionBook, fakeBroker, dailyLimits, killSwitch, dailyPnl, macroGuard,
-                new SlippageTracker(java.time.Clock.systemUTC(), new io.micrometer.core.instrument.simple.SimpleMeterRegistry()),
-                fakeNotifier, fakeRecorder, clock);
+                slippageTracker, fakeNotifier, fakeRecorder, clock);
     }
 
     @Test
     void 리포트는_INFO_한_건으로_발송되고_포지션과_킬스위치_상태를_포함한다() {
+        StockNames.learn("005930", "삼성전자", StockNames.Source.KIWOOM);
         positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10),
                 new Price(new BigDecimal("70000")), Instant.now()));
 
@@ -98,10 +103,24 @@ class DailyReportSchedulerTest {
         assertEquals(1, notices.size());
         String notice = (String) notices.get(0);
         assertTrue(notice.startsWith("INFO:"));
-        assertTrue(notice.contains("005930"));
+        assertTrue(notice.contains("\n- 삼성전자(005930) 10주 @ "), notice); // 종목명과 코드를 함께 싣는다
         assertTrue(notice.contains("정상")); // 킬스위치 미작동 상태
         assertTrue(notice.contains("계좌 평가액(추정예탁자산): 12,345,678원"), notice);
         assertTrue(notice.contains("총평가손익 10,000원"), notice);
+    }
+
+    @Test
+    void 슬리피지_최대_종목도_종목명과_코드로_표시한다() {
+        StockNames.learn("000660", "SK하이닉스", StockNames.Source.KIWOOM);
+        slippageTracker.onOrderRequest(new OrderRequest("O1", "C3", new StockCode("000660"), Side.BUY, new Quantity(1),
+                new Price(new BigDecimal("200000")), Instant.now()));
+        slippageTracker.onFill(new Fill("O1", new BrokerOrderId("b1"), new StockCode("000660"), Side.BUY, new Quantity(1),
+                new Price(new BigDecimal("200200")), Instant.now()));
+
+        scheduler.sendDailyReport();
+
+        String notice = (String) notices.get(0);
+        assertTrue(notice.contains("최대 10.00bps(SK하이닉스(000660))"), notice);
     }
 
     @Test

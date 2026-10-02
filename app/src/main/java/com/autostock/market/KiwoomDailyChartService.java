@@ -1,6 +1,7 @@
 package com.autostock.market;
 
 import com.autostock.common.event.Candle;
+import com.autostock.common.util.StockNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -37,8 +38,8 @@ public class KiwoomDailyChartService {
         //  종목당 minCount(예: 20~수백봉) 정도면 한 페이지로 충분해 보류했다.
         List<Candle> candles = marketData.dailyCandles(symbol, baseDate);
         if (!candles.isEmpty() && candles.size() < minCount) {
-            log.warn("요청한 최소 개수({})보다 적은 캔들({})만 수신함 — 연속조회 미구현 (symbol={}, baseDate={})",
-                    minCount, candles.size(), symbol, baseDate);
+            log.warn("요청한 최소 개수({})보다 적은 캔들({})만 수신함 — 연속조회 미구현 (종목={}, baseDate={})",
+                    minCount, candles.size(), StockNames.label(symbol), baseDate);
         }
         return candles;
     }

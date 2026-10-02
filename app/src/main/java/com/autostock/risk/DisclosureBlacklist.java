@@ -3,6 +3,7 @@ package com.autostock.risk;
 import com.autostock.common.event.DisclosureBlacklisted;
 import com.autostock.common.event.DisclosureRisk;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockNames;
 import com.autostock.macrointel.DisclosureType;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
@@ -110,7 +111,8 @@ public class DisclosureBlacklist {
     @EventListener
     public void onDisclosureRisk(DisclosureRisk event) {
         if (repository.existsBySymbolAndRceptNo(event.symbol(), event.rceptNo())) {
-            log.debug("이미 등록된 공시 — 스킵(멱등): symbol={}, rceptNo={}", event.symbol(), event.rceptNo());
+            log.debug("이미 등록된 공시 — 스킵(멱등): 종목={}, rceptNo={}",
+                    StockNames.label(event.symbol(), event.corpName()), event.rceptNo());
             return;
         }
         repository.save(new DisclosureBlacklistEntity(
@@ -118,8 +120,8 @@ public class DisclosureBlacklist {
                 event.rceptNo(), event.rceptDt(), event.expiresOn(), clock.instant()));
         mergeExpiry(event.symbol(), event.expiresOn());
 
-        log.warn("공시 블랙리스트 신규 등록: symbol={}, type={}, rceptNo={}, 만료={}",
-                event.symbol(), event.disclosureType(), event.rceptNo(), event.expiresOn());
+        log.warn("공시 블랙리스트 신규 등록: 종목={}, type={}, rceptNo={}, 만료={}",
+                StockNames.label(event.symbol(), event.corpName()), event.disclosureType(), event.rceptNo(), event.expiresOn());
         publisher.publishEvent(new DisclosureBlacklisted(
                 event.symbol(), event.corpName(), labelOf(event.disclosureType()),
                 event.rceptNo(), event.expiresOn(), clock.instant()));

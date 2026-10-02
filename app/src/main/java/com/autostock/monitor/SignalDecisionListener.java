@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockNames;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,8 +55,8 @@ public class SignalDecisionListener {
             // EventAuditListener와 같은 원칙 — 감사성 저장 실패 1건이 시스템을 세울 이유는
             // 없다. 실제 사실은 EventAuditListener가 별도로 남기는 event_store에도 있으므로
             // 재구성 가능하다.
-            log.error("SignalDecision 저장 실패(스킵) — symbol={}, decidedAt={}",
-                    event.symbol(), event.decidedAt(), ex);
+            log.error("SignalDecision 저장 실패(스킵) — 종목={}, decidedAt={}",
+                    StockNames.label(event.symbol()), event.decidedAt(), ex);
         }
     }
 }

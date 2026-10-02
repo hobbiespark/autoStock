@@ -8,6 +8,7 @@ import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockNames;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.portfolio.PositionBook;
 import org.slf4j.Logger;
@@ -123,7 +124,7 @@ public class RiskGate {
         // 정규장 외 시간에 들어온 시그널(예: 배치 재처리, 테스트 데이터 오발행 등)은
         // 애초에 체결될 수 없거나 의도치 않은 시점에 주문이 나가는 사고로 이어질 수 있다.
         if (properties.enforceMarketHours() && !isMarketHours()) {
-            log.info("장 시간 외 — 시그널 거부: {}", signal.symbol());
+            log.info("장 시간 외 — 시그널 거부: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "장 시간 외 — 시그널 거부", Map.of());
             return;
         }
@@ -132,7 +133,7 @@ public class RiskGate {
         // 텔레그램 명령·일 손실 한도·WS 단절 등 어떤 이유로든 비상 정지 상태면
         // 신규 주문은 전면 차단된다.
         if (killSwitch.isEngaged()) {
-            log.warn("킬스위치 작동 중 — 시그널 거부: {}", signal.symbol());
+            log.warn("킬스위치 작동 중 — 시그널 거부: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "킬스위치 작동 중 — 시그널 거부", Map.of());
             return;
         }
@@ -161,21 +162,21 @@ public class RiskGate {
         BigDecimal aligned = KrxTickSize.align(refPriceOf(signal));
         if (aligned == null || aligned.signum() <= 0) {
             log.warn("기준가 없음 — 지정가를 정할 수 없어 거부: {} {} refPrice={}",
-                    signal.symbol(), signal.side(), signal.refPrice());
+                    StockNames.label(signal.symbol()), signal.side(), signal.refPrice());
             publishRejected(signal, "기준가 없음 — 지정가를 정할 수 없어 거부",
                     Map.of("refPrice", String.valueOf(signal.refPrice())));
             return;
         }
         Price limitPrice = new Price(aligned);
         if (aligned.compareTo(refPriceOf(signal)) != 0) {
-            log.info("호가단위 보정: {} {} 기준가 {} → 지정가 {}", signal.symbol(), signal.side(),
+            log.info("호가단위 보정: {} {} 기준가 {} → 지정가 {}", StockNames.label(signal.symbol()), signal.side(),
                     signal.refPrice(), limitPrice);
         }
 
         // ── 3단계: 일 주문 한도 ─────────────────────────────────────────
         // 사이징까지 통과한 "진짜 주문 후보"만 슬롯을 소비한다.
         if (!dailyLimits.tryAcquireOrderSlot()) {
-            log.warn("일 주문 한도 초과 — 거부: {}", signal.symbol());
+            log.warn("일 주문 한도 초과 — 거부: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "일 주문 한도 초과 — 거부",
                     Map.of("quantity", String.valueOf(quantity)));
             return;
@@ -231,24 +232,24 @@ public class RiskGate {
         // 킬스위치와 달리 매도는 막지 않는다 — sizeSell 경로는 이 검사를 거치지 않으므로
         // 청산 시그널은 그대로 통과한다(MacroGuard 클래스 설명 "보수 모드 vs 킬스위치" 참고).
         if (macroGuard.isConservativeMode()) {
-            log.info("보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부: {}", signal.symbol());
+            log.info("보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부", Map.of());
             return 0;
         }
         // ── DART 공시 배제(PLAN 5절, 골격) ─────────────────────────────────
         if (disclosureBlacklist.isBlacklisted(signal.symbol().value())) {
-            log.info("공시 블랙리스트 종목 — 매수 거부: {}", signal.symbol());
+            log.info("공시 블랙리스트 종목 — 매수 거부: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "공시 블랙리스트 종목 — 매수 거부", Map.of());
             return 0;
         }
         if (positionBook.holds(signal.symbol())) {
-            log.info("이미 보유 중 — 추가 매수 차단: {}", signal.symbol());
+            log.info("이미 보유 중 — 추가 매수 차단: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "이미 보유 중 — 추가 매수 차단", Map.of());
             return 0;
         }
         if (positionBook.openPositionCount() >= properties.maxConcurrentPositions()) {
             log.info("동시 보유 한도 도달({}) — 매수 거부: {}",
-                    properties.maxConcurrentPositions(), signal.symbol());
+                    properties.maxConcurrentPositions(), StockNames.label(signal.symbol()));
             publishRejected(signal, "동시 보유 한도 도달(" + properties.maxConcurrentPositions() + ") — 매수 거부",
                     Map.of("openPositionCount", String.valueOf(positionBook.openPositionCount())));
             return 0;
@@ -261,7 +262,7 @@ public class RiskGate {
         long qty = sizer.sizeBuy(equity, refPriceOf(signal), confidence);
         if (qty <= 0) {
             log.info("사이징 결과 0주 — 매수 불가: {} (equity={}, price={}, confidence={})",
-                    signal.symbol(), equity, signal.refPrice(), confidence);
+                    StockNames.label(signal.symbol()), equity, signal.refPrice(), confidence);
             publishRejected(signal, "사이징 결과 0주 — 매수 불가",
                     Map.of("equity", equity.toString(), "confidence", String.valueOf(confidence)));
         }
@@ -277,7 +278,7 @@ public class RiskGate {
     private double clampConfidence(Signal signal) {
         double confidence = signal.confidence();
         if (confidence <= 0.0 || confidence > 1.0) {
-            log.warn("confidence 범위(0,1] 벗어남({}) — 1.0으로 클램프: {}", confidence, signal.symbol());
+            log.warn("confidence 범위(0,1] 벗어남({}) — 1.0으로 클램프: {}", confidence, StockNames.label(signal.symbol()));
             return 1.0;
         }
         return confidence;
@@ -308,24 +309,24 @@ public class RiskGate {
         if (signal.side() == Side.SELL) {
             PositionBook.Position position = positionBook.get(signal.symbol());
             if (position == null) {
-                log.info("미보유 종목 수동 매도 무시: {}", signal.symbol());
+                log.info("미보유 종목 수동 매도 무시: {}", StockNames.label(signal.symbol()));
                 publishRejected(signal, "미보유 종목 매도 시그널 무시", Map.of());
                 return 0;
             }
             long qty = Math.min(requested, position.quantity());
             if (qty < requested) {
-                log.info("수동 매도 수량 {} → 보유량 {}로 캡: {}", requested, qty, signal.symbol());
+                log.info("수동 매도 수량 {} → 보유량 {}로 캡: {}", requested, qty, StockNames.label(signal.symbol()));
             }
             return qty;
         }
         // BUY
         if (macroGuard.isConservativeMode()) {
-            log.info("보수 모드 — 수동 매수도 거부: {}", signal.symbol());
+            log.info("보수 모드 — 수동 매수도 거부: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부", Map.of());
             return 0;
         }
         if (disclosureBlacklist.isBlacklisted(signal.symbol().value())) {
-            log.info("공시 블랙리스트 종목 — 수동 매수도 거부: {}", signal.symbol());
+            log.info("공시 블랙리스트 종목 — 수동 매수도 거부: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "공시 블랙리스트 종목 — 매수 거부", Map.of());
             return 0;
         }
@@ -335,7 +336,7 @@ public class RiskGate {
             BigDecimal maxAmount = BigDecimal.valueOf(properties.manualOrderMaxKrw());
             if (amount.compareTo(maxAmount) > 0) {
                 log.warn("수동 매수 금액 상한 초과 — 거부: {} {}주 × {} = {}원 > 상한 {}원",
-                        signal.symbol(), requested, refPrice, amount.toPlainString(), maxAmount);
+                        StockNames.label(signal.symbol()), requested, refPrice, amount.toPlainString(), maxAmount);
                 publishRejected(signal, "수동 주문 금액 상한 초과 — 거부",
                         Map.of("amount", amount.toPlainString(), "maxAmount", maxAmount.toPlainString(),
                                 "quantity", String.valueOf(requested)));
@@ -349,7 +350,7 @@ public class RiskGate {
         }
         long qty = Math.min(requested, cap);
         if (qty < requested) {
-            log.info("수동 매수 수량 {} → 예산 캡 {}로 축소: {}", requested, qty, signal.symbol());
+            log.info("수동 매수 수량 {} → 예산 캡 {}로 축소: {}", requested, qty, StockNames.label(signal.symbol()));
         }
         return qty;
     }
@@ -361,7 +362,7 @@ public class RiskGate {
     private long sizeSell(Signal signal) {
         PositionBook.Position position = positionBook.get(signal.symbol());
         if (position == null) {
-            log.info("미보유 종목 매도 시그널 무시: {}", signal.symbol());
+            log.info("미보유 종목 매도 시그널 무시: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "미보유 종목 매도 시그널 무시", Map.of());
             return 0;
         }

@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import com.autostock.common.util.StockNames;
 import com.autostock.risk.KillSwitch;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.common.util.SecretMasking;
@@ -250,7 +251,7 @@ public class TelegramCommandPoller {
         sb.append("킬스위치: ").append(killSwitch.isEngaged() ? "작동 중" : "정상").append('\n');
         sb.append("보유 종목 수: ").append(positions.size());
         positions.forEach((symbol, position) ->
-                sb.append("\n- ").append(symbol).append(' ')
+                sb.append("\n- ").append(StockNames.label(symbol)).append(' ')
                         .append(position.quantity()).append("주 @ ").append(position.avgPriceText()));
         return sb.toString();
     }

@@ -2,6 +2,7 @@ package com.autostock.market;
 
 import com.autostock.common.event.Candle;
 import com.autostock.common.util.KiwoomNumbers;
+import com.autostock.common.util.StockNames;
 import com.autostock.config.CacheConfig;
 import com.autostock.kiwoom.KiwoomRestClient;
 import com.autostock.kiwoom.TrId;
@@ -54,7 +55,11 @@ public class KiwoomMarketDataAdapter implements MarketDataPort {
     @Cacheable(cacheNames = CacheConfig.STOCK_PRICE_CACHE, key = "#symbol")
     public StockQuote stockQuote(String symbol) {
         Map<String, Object> r = client.call(TrId.STOCK_PRICE, "/api/dostk/stkinfo", Map.of("stk_cd", symbol));
-        return new StockQuote(text(r, "stk_nm"), price(r, "cur_prc"), price(r, "open_pric"),
+        String name = text(r, "stk_nm");
+        // ka10001을 부를 때마다 종목명을 사전에 남긴다 — C3 판단·대시보드 시세·종목명 조회 어디서 불러도
+        // 알림·로그·화면의 "종목명(코드)" 표기가 채워진다(2026-10-02, aiDoc/stock-names.md)
+        StockNames.learn(symbol, name, StockNames.Source.KIWOOM);
+        return new StockQuote(name, price(r, "cur_prc"), price(r, "open_pric"),
                 price(r, "high_pric"), price(r, "low_pric"));
     }
 
@@ -73,7 +78,7 @@ public class KiwoomMarketDataAdapter implements MarketDataPort {
         Map<String, Object> r = client.call(TrId.DAILY_CHART, "/api/dostk/chart",
                 Map.of("stk_cd", symbol, "base_dt", baseDate.format(BASE_DATE), "upd_stkpc_tp", "1"));
         if (!(r.get(DAILY_FIELD) instanceof List<?> rows) || rows.isEmpty()) {
-            log.warn("일봉 응답에 {} 필드가 없거나 비어 있음 (symbol={}, baseDate={})", DAILY_FIELD, symbol, baseDate);
+            log.warn("일봉 응답에 {} 필드가 없거나 비어 있음 (종목={}, baseDate={})", DAILY_FIELD, StockNames.label(symbol), baseDate);
             return List.of();
         }
         List<Candle> candles = new ArrayList<>(rows.size());
@@ -97,7 +102,7 @@ public class KiwoomMarketDataAdapter implements MarketDataPort {
         Map<String, Object> r = client.call(TrId.MINUTE_CHART, "/api/dostk/chart",
                 Map.of("stk_cd", symbol, "tic_scope", "1", "upd_stkpc_tp", "1"));
         if (!(r.get(MINUTE_FIELD) instanceof List<?> rows)) {
-            log.warn("분봉 응답에 배열 없음({}): 키={}", symbol, r.keySet());
+            log.warn("분봉 응답에 배열 없음({}): 키={}", StockNames.label(symbol), r.keySet());
             return List.of();
         }
         List<MinuteBar> bars = new ArrayList<>(rows.size());

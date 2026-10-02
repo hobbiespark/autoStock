@@ -5,6 +5,7 @@ import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.KiwoomNumbers;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.kiwoom.KiwoomApiException;
 import com.autostock.kiwoom.KiwoomTimeoutException;
 import com.autostock.kiwoom.KiwoomRestClient;
@@ -119,8 +120,8 @@ public class KiwoomBrokerAdapter implements BrokerPort {
             // 명시 거부(예: 이미 전량 체결됨) — placeOrder와 같은 번역 규칙(운영 1일차 ②)
             throw new BrokerRejectedException(e.getMessage(), e);
         }
-        log.info("[LIVE] 취소 요청: brokerOrderId={} symbol={} qty={} → {}",
-                brokerOrderId, symbol, quantity, response.get("return_msg"));
+        log.info("[LIVE] 취소 요청: brokerOrderId={} 종목={} qty={} → {}",
+                brokerOrderId, StockNames.label(symbol), quantity, response.get("return_msg"));
     }
 
     /** 실측 확정(2026-08-13, mockapi): 미체결 목록은 응답의 {@code "oso"} 키에 배열로 담긴다. */

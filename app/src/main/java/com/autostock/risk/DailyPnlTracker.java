@@ -5,6 +5,7 @@ import com.autostock.common.event.PositionRestored;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -137,14 +138,14 @@ public class DailyPnlTracker {
         }
         if (restored.avgPrice() == null) {
             log.warn("DailyPnlTracker: {} 평단 미상 — 원가 장부 시드 생략(이 종목 매도의 실현손익은 계산되지 않는다)",
-                    restored.symbol());
+                    StockNames.label(restored.symbol()));
             return;
         }
         Lot previous = lots.putIfAbsent(restored.symbol(),
                 new Lot(restored.quantity(), restored.avgPrice().value()));
         if (previous == null) {
             log.info("DailyPnlTracker: 원가 장부 시드(브로커 잔고): {} {}주 @ {}",
-                    restored.symbol(), restored.quantity(), restored.avgPrice());
+                    StockNames.label(restored.symbol()), restored.quantity(), restored.avgPrice());
         }
     }
 
@@ -172,7 +173,7 @@ public class DailyPnlTracker {
         Lot current = lots.get(symbol);
         if (current == null) {
             log.warn("DailyPnlTracker: 자체 장부에 없는 종목의 매도 체결 — 실현손익 계산 스킵(재시작 등으로 장부 유실 가능): {}",
-                    symbol);
+                    StockNames.label(symbol));
             return;
         }
 

@@ -1,6 +1,7 @@
 package com.autostock.strategy;
 
 import com.autostock.common.event.MarketTick;
+import com.autostock.common.util.StockNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -31,6 +32,8 @@ public class StrategyEngine {
     @EventListener
     public void onTick(MarketTick tick) {
         // TODO Phase 4: 변동성 돌파 전략 — 시그널 생성 시 publisher.publishEvent(new Signal(...))
-        log.trace("tick 수신: {}", tick.symbol());
+        if (log.isTraceEnabled()) { // 틱마다 불리므로 TRACE가 꺼져 있으면 표기를 만들지 않는다
+            log.trace("tick 수신: {}", StockNames.label(tick.symbol()));
+        }
     }
 }

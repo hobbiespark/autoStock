@@ -7,9 +7,10 @@ import java.math.BigDecimal;
  * portfolio 이동)을 화면용으로 옮겨 담은 것.
  * FE는 Domain Entity를 직접 보지 않는다(ARCHITECTURE.md 13절 설계 규칙 13).
  *
- * @param symbol   종목코드
- * @param quantity 보유 수량
- * @param avgPrice 평균 매수 단가
+ * @param symbol     종목코드
+ * @param symbolName 종목명 — 화면은 코드와 함께 표시한다(2026-10-02). 아직 모르면 null
+ * @param quantity   보유 수량
+ * @param avgPrice   평균 매수 단가
  */
-public record PositionView(String symbol, long quantity, BigDecimal avgPrice) {
+public record PositionView(String symbol, String symbolName, long quantity, BigDecimal avgPrice) {
 }

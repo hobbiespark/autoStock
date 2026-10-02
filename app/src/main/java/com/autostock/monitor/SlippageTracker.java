@@ -4,6 +4,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockNames;
 import io.micrometer.core.instrument.DistributionSummary;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
@@ -67,8 +68,12 @@ public class SlippageTracker {
     private record PendingOrder(BigDecimal decisionPrice, Side side) {
     }
 
-    /** 오늘 요약 — DashboardFacade/DailyReportScheduler가 읽는 불변 스냅샷. */
-    public record SlippageSummary(long fills, double avgBps, double maxBps, String maxBpsSymbol) {
+    /**
+     * 오늘 요약 — DashboardFacade/DailyReportScheduler가 읽는 불변 스냅샷.
+     *
+     * @param maxBpsSymbolName 최대 슬리피지 종목의 이름(화면 표시용, 모르면 null — 2026-10-02 종목명 함께 표시)
+     */
+    public record SlippageSummary(long fills, double avgBps, double maxBps, String maxBpsSymbol, String maxBpsSymbolName) {
     }
 
     public SlippageTracker(Clock clock, MeterRegistry meterRegistry) {
@@ -120,7 +125,7 @@ public class SlippageTracker {
             }
         }
         log.info("슬리피지: {} {} {}주 결정가 {} → 체결가 {} = {}bps",
-                fill.symbol(), origin.side(), fill.filledQuantity().value(),
+                StockNames.label(fill.symbol()), origin.side(), fill.filledQuantity().value(),
                 origin.decisionPrice(), fill.fillPrice(), String.format("%.2f", bps));
     }
 
@@ -128,7 +133,8 @@ public class SlippageTracker {
         synchronized (lock) {
             rolloverIfNeeded();
             double avg = totalQuantity == 0 ? 0.0 : quantityWeightedBpsSum / totalQuantity;
-            return new SlippageSummary(fillCount, avg, maxBps, maxBpsSymbol);
+            return new SlippageSummary(fillCount, avg, maxBps, maxBpsSymbol,
+                    StockNames.nameOf(maxBpsSymbol).orElse(null));
         }
     }
 

@@ -7,6 +7,7 @@ import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.market.KiwoomDailyChartService;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketDataPort;
@@ -190,7 +191,7 @@ public class C3LiveStrategy {
             } catch (RuntimeException e) {
                 errors++;
                 // 종목 단위 격리 — 한 종목의 실패가 전체 배치를 중단시키지 않는다(클래스 설명 참고).
-                log.error("C3: 종목 {} 판단 중 오류 — 이 종목만 스킵하고 계속 진행", symbol, e);
+                log.error("C3: 종목 {} 판단 중 오류 — 이 종목만 스킵하고 계속 진행", StockNames.label(symbol), e);
             }
         }
 
@@ -290,10 +291,10 @@ public class C3LiveStrategy {
             return counts.getOrDefault(outcome, 0);
         }
 
-        /** 예: "C3 판단 2026-10-01 — 국면 ON(069500 종가 11000 / SMA200 10005) · 매수 1 · … · 오류 0 · 다음 판단 2026-10-22부터". */
+        /** 예: "C3 판단 2026-10-01 — 국면 ON(KODEX 200(069500) 종가 11000 / SMA200 10005) · 매수 1 · … · 오류 0 · 다음 판단 2026-10-22부터". */
         String toLogLine() {
             String regime = "국면 %s(%s 종가 %s / SMA%d %s)".formatted(
-                    regimeOn ? "ON" : "OFF", indexSymbol, whole(indexClose), smaDays, whole(sma));
+                    regimeOn ? "ON" : "OFF", StockNames.label(indexSymbol), whole(indexClose), smaDays, whole(sma));
             if (!regimeOn) {
                 return "C3 판단 %s — %s · 신규 판단 보류 · 강제 청산 신호 %d · 오류 %d".formatted(
                         date, regime, liquidations, errors);
@@ -329,12 +330,12 @@ public class C3LiveStrategy {
             }
             try {
                 BigDecimal price = bestOrderPrice(symbol, Side.SELL);
-                log.info("C3: 국면 OFF — 강제 청산: {} 기준가 {}", symbol, price);
+                log.info("C3: 국면 OFF — 강제 청산: {} 기준가 {}", StockNames.label(symbol), price);
                 publishSell(symbol, price);
                 signals++;
             } catch (RuntimeException e) {
                 errors++;
-                log.error("C3: 종목 {} 강제 청산 신호 발행 중 오류 — 이 종목만 스킵하고 계속 진행", symbol, e);
+                log.error("C3: 종목 {} 강제 청산 신호 발행 중 오류 — 이 종목만 스킵하고 계속 진행", StockNames.label(symbol), e);
             }
         }
         return new LiquidationResult(signals, errors);
@@ -361,10 +362,10 @@ public class C3LiveStrategy {
         BigDecimal current = positiveOrNull(() -> marketData.stockQuote(symbol).current(), symbol, "현재가(ka10001)");
         if (current != null) {
             log.warn("C3: {} {} 없음 — 현재가 {}로 {} 신호(체결되지 않으면 미체결 취소로 끝날 수 있다)",
-                    symbol, quoteName, current, side);
+                    StockNames.label(symbol), quoteName, current, side);
             return current;
         }
-        log.error("C3: {} 호가·현재가 모두 없음 — 기준가 없이 {} 신호(RiskGate가 거부한다)", symbol, side);
+        log.error("C3: {} 호가·현재가 모두 없음 — 기준가 없이 {} 신호(RiskGate가 거부한다)", StockNames.label(symbol), side);
         return null;
     }
 
@@ -374,7 +375,7 @@ public class C3LiveStrategy {
             BigDecimal value = query.get();
             return value != null && value.signum() > 0 ? value : null;
         } catch (RuntimeException e) {
-            log.warn("C3: {} {} 조회 실패: {}", symbol, what, e.getMessage());
+            log.warn("C3: {} {} 조회 실패: {}", StockNames.label(symbol), what, e.getMessage());
             return null;
         }
     }
@@ -395,7 +396,7 @@ public class C3LiveStrategy {
             // 데이터가 부족하면 이번엔 판단을 건너뛴다 — lastDecisionDate를 갱신하지 않으므로
             // 다음 스케줄에서 즉시 재시도한다(21일을 더 기다리지 않는다).
             log.warn("C3: 종목 {} 캔들 부족({}개, 최소 {}개 필요) — 이번 판단 스킵",
-                    symbol, candles.size(), properties.lookbackN() + 1);
+                    StockNames.label(symbol), candles.size(), properties.lookbackN() + 1);
             publishDecision(symbol, "SKIP",
                     "캔들 부족(" + candles.size() + "개, 최소 " + (properties.lookbackN() + 1) + "개 필요) — 이번 판단 스킵",
                     regimeMetrics(regime));

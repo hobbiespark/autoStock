@@ -6,6 +6,7 @@ import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.market.KiwoomDailyChartService;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketDataPort;
@@ -459,6 +460,7 @@ class C3LiveStrategyTest {
 
     @Test
     void 국면_ON_요약은_결과별_건수_오류_다음_판단일을_담는다() {
+        StockNames.learn("069500", "KODEX 200", StockNames.Source.KIWOOM); // 요약의 국면 지수도 "이름(코드)"로 남긴다
         StubChartService chart = new StubChartService();
         chart.put("069500", regimeOnIndexCandles());
         chart.put("005930", uptrendSymbolCandles("005930"));   // 미보유 상승 → 매수
@@ -485,7 +487,7 @@ class C3LiveStrategyTest {
         assertEquals(1, summary.errors());
         assertEquals(LocalDate.of(2026, 10, 22), summary.nextDue(), "판단한 종목은 10/1 + 21일");
         assertEquals(1, summary.retrySymbols(), "실패한 051910은 다음 스케줄에 다시 판단");
-        assertEquals("C3 판단 2026-10-01 — 국면 ON(069500 종가 11000 / SMA200 10005)"
+        assertEquals("C3 판단 2026-10-01 — 국면 ON(KODEX 200(069500) 종가 11000 / SMA200 10005)"
                         + " · 매수 1 · 매도 1 · 보유 유지 1 · 미진입 1 · 주기 전 0 · 데이터 부족 0 · 오류 1"
                         + " · 다음 판단 2026-10-22부터 · 다음 스케줄에 재판단 1종목",
                 summary.toLogLine());
@@ -539,7 +541,8 @@ class C3LiveStrategyTest {
 
         assertEquals(false, summary.regimeOn());
         assertEquals(1, summary.liquidations());
-        assertEquals("C3 판단 2026-10-01 — 국면 OFF(069500 종가 9000 / SMA200 9995) · 신규 판단 보류 · 강제 청산 신호 1 · 오류 0",
+        // 이름을 모르는 종목도 코드와 함께 "종목명 미확인(코드)"로 남긴다
+        assertEquals("C3 판단 2026-10-01 — 국면 OFF(종목명 미확인(069500) 종가 9000 / SMA200 9995) · 신규 판단 보류 · 강제 청산 신호 1 · 오류 0",
                 summary.toLogLine());
     }
 

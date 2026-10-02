@@ -7,6 +7,7 @@ import com.autostock.common.util.KiwoomNumbers;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.fasterxml.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -87,7 +88,7 @@ final class RealMessageParser {
         BigDecimal price = KiwoomNumbers.toBigDecimal(priceRaw);
         if (price.signum() <= 0) {
             // 가격 0인 시세는 쓸 데가 없다(소비자는 감사 기록뿐). 종목코드 형식 오류와 같이 DEBUG로 버린다
-            log.debug("시세 가격 0 — 버림: {} '{}'", symbol, priceRaw);
+            log.debug("시세 가격 0 — 버림: {} '{}'", StockNames.label(symbol), priceRaw);
             return null;
         }
         // FID 15(체결량)도 같은 이유로 부호가 붙는다(+매수 주도/-매도 주도) — MarketTick.volume은

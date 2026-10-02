@@ -98,7 +98,7 @@ autostock.ws.enabled: true
 - 사전(수동 기동 시): 새 창이면 위 2절의 .env 로더를 먼저 실행(미로드 시 KiwoomProperties 바인딩 실패로 기동 불가)
 - [ ] 앱 시작 → Reconciliation 로그(잔고 대사) 정상 → RUNNING
 - [ ] **WS 로그인 성공(sor_yn=Y) — 재구독 N종목** 로그 확인 (LOGIN→REG 순서 실전 검증 포인트)
-- [ ] 09:05 C3 요약 1줄 확인 — `C3 판단 YYYY-MM-DD — 국면 ON/OFF(지수 종가 / SMA200) · 매수 · 매도 · 보유 유지 · 미진입 · 주기 전 · 데이터 부족 · 오류 · 다음 판단 …`(2026-10-01 추가, `aiDoc/run-summary-logs.md`). 종목별 근거는 대시보드 판단 근거 탭
+- [ ] 09:05 C3 요약 1줄 확인 — `C3 판단 YYYY-MM-DD — 국면 ON/OFF(지수 종목명(코드) 종가 / SMA200) · 매수 · 매도 · 보유 유지 · 미진입 · 주기 전 · 데이터 부족 · 오류 · 다음 판단 …`(2026-10-01 추가, `aiDoc/run-summary-logs.md`). 종목별 근거는 대시보드 판단 근거 탭
 - [ ] 08:20(·기동 시) `공모주 수집 완료 — … 증권신고(지분증권) N건(신규 딜 …)` 1줄. 공시 블랙리스트는 매매 대상·보유 종목만 즉시 WARN, 나머지는 1분 뒤 요약 INFO 1건(`aiDoc/alert-digest.md`)
 - [ ] 첫 주문 발생 시: ClientOrderId 포맷, orders 상태 전이(SUBMITTING→SUBMITTED→FILLED), WS 체결통보→Fill→포지션 일치
 - [ ] 15:50 일일 리포트 수신

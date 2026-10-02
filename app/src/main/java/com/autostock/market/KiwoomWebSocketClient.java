@@ -1,6 +1,7 @@
 package com.autostock.market;
 
 import com.autostock.common.event.MarketDataStale;
+import com.autostock.common.util.StockNames;
 import com.autostock.kiwoom.KiwoomProperties;
 import com.autostock.kiwoom.TokenManager;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -330,7 +331,7 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                             "type", new String[]{"0B"}   // 주식체결
                     )}))));
         } catch (Exception e) {
-            log.error("구독 등록 실패: {}", symbol, e);
+            log.error("구독 등록 실패: {}", StockNames.label(symbol), e);
         }
     }
 

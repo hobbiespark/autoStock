@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import com.autostock.common.util.StockNames;
 import com.autostock.monitor.view.OrderHistoryItemView;
 import com.autostock.monitor.view.OrderHistoryView;
 import com.autostock.trading.OrderEntity;
@@ -64,6 +65,7 @@ public class OrderHistoryController {
         return new OrderHistoryItemView(
                 order.getClientOrderId(),
                 order.getSymbol().value(),
+                StockNames.nameOf(order.getSymbol()).orElse(null),
                 order.getSide().name(),
                 order.getQuantity(),
                 order.getFilledQuantity(),
