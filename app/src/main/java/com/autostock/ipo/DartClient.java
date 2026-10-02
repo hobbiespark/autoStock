@@ -15,7 +15,12 @@ import javax.net.ssl.SSLContext;
 import java.security.GeneralSecurityException;
 import java.util.Arrays;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.math.BigDecimal;
+import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -24,6 +29,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * OpenDART(금융감독원 전자공시) 클라이언트 — 신규/정정 공모주 딜 감지({@code list.json})와
@@ -57,9 +64,19 @@ import java.util.regex.Pattern;
  *         하나만 제공된다(실측 2건 모두 단일값). 이 클라이언트는 slprc를 확정/모집가로만
  *         매핑하고 밴드 하단/상단은 항상 비워 둔다(null).</li>
  *     <li>상장(예정)일은 어느 group에도 없다 — null로 두고 수동 입력/향후 KIND 연동 과제로 남긴다.</li>
- *     <li>기관경쟁률·의무보유확약비율은 어느 group에도 없다 — 자동 수집 불가 확정,
- *         수동 입력 API(POST /api/ipo/{id}/metrics)로만 채운다.</li>
+ *     <li>기관경쟁률·의무보유확약비율은 estkRs.json 어느 group에도 없다 — 2026-10-02부터 공시 원본
+ *         ({@code document.xml})의 [발행조건확정] 수요예측 결과에서 읽는다({@link DemandForecastParser}).</li>
+ *     <li>estkRs.json은 회사의 최신 증권신고서(기재정정 포함) 한 건만 돌려주고 [발행조건확정] 접수번호로는 행이 없다.
+ *         조회 기간은 그 최신 신고서의 접수일에 걸려야 한다(실측 2026-10-02 — 진코스텍: 10/1 하루 조회는 없음, 8/1~10/2는
+ *         9/10 기재정정 행). 일부 회사는 기간과 관계없이 조회되지 않는다(툴젠·빅웨이브로보틱스 등).</li>
  *   </ul>
+ *
+ *   GET /api/document.xml?crtfc_key=...&amp;rcept_no=...   (공시서류원본파일, 실측 2026-10-02 — 14건)
+ *     응답: ZIP 한 개, 안에 {rcept_no}.xml(dart4.xsd 형식, UTF-8). 압축 5~120KB, 풀면 30KB~1MB.
+ *     파일이 없으면 ZIP 대신 오류 응답(status 014 등)이 온다.
+ *
+ *   GET /api/list.json?crtfc_key=...&amp;corp_code=...&amp;pblntf_ty=C&amp;bgn_de=...&amp;end_de=...
+ *     회사 한 곳의 발행공시 — [발행조건확정] 신고서를 찾을 때 쓴다(corp_code가 없으면 기간이 3개월로 제한된다).
  * </pre>
  *
  * <p>실패 처리: {@code macrointel.FredClient}와 동일한 정책 — 예외를 절대 밖으로 던지지 않고
@@ -80,15 +97,25 @@ public class DartClient {
     /** list.json report_nm 필터 — 신규/정정 증권신고서(지분증권)만 딜로 취급(ADR-9 ①). */
     static final String REPORT_NAME_FILTER = "증권신고서(지분증권)";
 
+    /** [발행조건확정] 신고서 — 수요예측 결과가 실리는 정정 신고서(report_nm 접두). */
+    static final String CONFIRMED_TERMS_PREFIX = "[발행조건확정]";
+
     private static final String STATUS_OK = "000";
     private static final String STATUS_NO_DATA = "013";
+    /** 공시 원본 ZIP 응답 상한 — WebClient 기본(256KB)으로는 큰 신고서가 잘린다. */
+    private static final int MAX_DOCUMENT_BYTES = 16 * 1024 * 1024;
+    /** 압축을 푼 XML 상한 — 비정상적으로 큰 응답(압축 폭탄)을 끝까지 풀지 않는다. */
+    private static final long MAX_XML_BYTES = 32L * 1024 * 1024;
+    private static final Pattern XML_ENCODING = Pattern.compile("encoding=\"([A-Za-z0-9_-]+)\"");
 
     private final WebClient webClient;
     private final DartProperties properties;
 
     public DartClient(WebClient.Builder webClientBuilder, ClientHttpConnectorSettings connectorSettings,
                       DartProperties properties) {
-        this.webClient = webClientBuilder.baseUrl(BASE_URL).clientConnector(jdkCipherConnector(connectorSettings)).build();
+        this.webClient = webClientBuilder.baseUrl(BASE_URL).clientConnector(jdkCipherConnector(connectorSettings))
+                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(MAX_DOCUMENT_BYTES))
+                .build();
         this.properties = properties;
     }
 
@@ -140,12 +167,48 @@ public class DartClient {
      */
     public Optional<OfferingDetail> fetchOfferingDetail(String corpCode, String rceptNo,
                                                           LocalDate since, LocalDate until) {
+        return fetchOffering(corpCode, rceptNo, since, until).map(OfferingLookup::detail);
+    }
+
+    /**
+     * 주요정보 조회 한 번으로 이 접수번호의 상세(있으면)와 공모 종류(회사의 최신 신고서 기준, 판정되면)를 함께 돌려준다.
+     * 둘 다 없거나 실패하면 {@link Optional#empty()}.
+     */
+    public Optional<OfferingLookup> fetchOffering(String corpCode, String rceptNo, LocalDate since, LocalDate until) {
         try {
-            return parseDetail(callDetail(corpCode, since, until), rceptNo);
+            return parseOffering(callDetail(corpCode, since, until), rceptNo);
         } catch (RuntimeException e) {
             // 위와 동일한 이유로 마스킹 후 로그(crtfc_key 유출 방지).
             log.error("DART estkRs.json 조회 실패(corpCode={}, rceptNo={})", corpCode, rceptNo,
                     SecretMasking.sanitizeForLogging(e));
+            return Optional.empty();
+        }
+    }
+
+    /** 회사 한 곳의 [since, until] 증권신고서(지분증권) 계열 공시 — [발행조건확정] 찾기용. 실패하면 빈 목록. */
+    public List<DealNotice> fetchCorpEquityFilings(String corpCode, LocalDate since, LocalDate until) {
+        try {
+            return parseList(callCorpList(corpCode, since, until));
+        } catch (RuntimeException e) {
+            log.error("DART list.json(회사별) 조회 실패(corpCode={})", corpCode, SecretMasking.sanitizeForLogging(e));
+            return List.of();
+        }
+    }
+
+    /**
+     * 공시 원본(document.xml ZIP)의 본문 XML. 파일이 없거나(ZIP이 아닌 오류 응답) 실패하면 빈 값.
+     * 압축 안의 {@code {rcept_no}.xml}을 우선 쓰고, 없으면 첫 XML을 쓴다. 글자 인코딩은 XML 선언을 따른다(기본 UTF-8).
+     */
+    public Optional<String> fetchDocument(String rceptNo) {
+        try {
+            byte[] body = callDocument(rceptNo);
+            if (body == null || body.length < 4 || body[0] != 'P' || body[1] != 'K') {
+                log.warn("DART document.xml 원본 없음(rceptNo={}): {}", rceptNo, preview(body));
+                return Optional.empty();
+            }
+            return unzipMainXml(body, rceptNo);
+        } catch (IOException | RuntimeException e) {
+            log.error("DART document.xml 조회 실패(rceptNo={})", rceptNo, SecretMasking.sanitizeForLogging(e));
             return Optional.empty();
         }
     }
@@ -163,6 +226,36 @@ public class DartClient {
                         .build())
                 .retrieve()
                 .bodyToMono(Map.class)
+                .block();
+    }
+
+    /** 실제 HTTP 호출 지점 — 테스트에서 오버라이드 가능. 회사 한 곳의 발행공시 목록. */
+    protected Map<String, Object> callCorpList(String corpCode, LocalDate since, LocalDate until) {
+        return webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/list.json")
+                        .queryParam("crtfc_key", properties.apiKey())
+                        .queryParam("corp_code", corpCode)
+                        .queryParam("pblntf_ty", "C")
+                        .queryParam("bgn_de", since.format(DART_DATE))
+                        .queryParam("end_de", until.format(DART_DATE))
+                        .queryParam("page_count", 100)
+                        .build())
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block();
+    }
+
+    /** 실제 HTTP 호출 지점 — 테스트에서 오버라이드 가능. 공시 원본 ZIP 바이트(오류면 JSON/XML 본문). */
+    protected byte[] callDocument(String rceptNo) {
+        return webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/api/document.xml")
+                        .queryParam("crtfc_key", properties.apiKey())
+                        .queryParam("rcept_no", rceptNo)
+                        .build())
+                .retrieve()
+                .bodyToMono(byte[].class)
                 .block();
     }
 
@@ -220,7 +313,7 @@ public class DartClient {
     }
 
     @SuppressWarnings("unchecked")
-    private Optional<OfferingDetail> parseDetail(Map<String, Object> response, String rceptNo) {
+    private Optional<OfferingLookup> parseOffering(Map<String, Object> response, String rceptNo) {
         if (response == null) {
             return Optional.empty();
         }
@@ -235,11 +328,26 @@ public class DartClient {
         if (!(groupObj instanceof List<?> groups)) {
             return Optional.empty();
         }
+        OfferingDetail detail = parseDetail(groups, rceptNo);
+        // 공모 종류는 이 접수번호 행이 없어도(예: [발행조건확정]) 회사의 최신 신고서 행으로 판정한다 — 같은 공모다
+        Map<String, Object> general = firstRow(groups, "일반사항", rceptNo);
+        String method = offeringMethod(groups, rceptNo);
+        OfferingKind kind = OfferingKind.fromOfferingInfo(method,
+                general == null ? null : stringOrNull(general.get("rpt_rcpn")),
+                general == null ? null : stringOrNull(general.get("asstd")));
+        if (detail == null && kind == null) {
+            return Optional.empty();
+        }
+        return Optional.of(new OfferingLookup(detail, kind, method));
+    }
+
+    /** 이 접수번호의 상세 — 행이 없으면(이 corp_code 조회 범위에 없음) null. */
+    private OfferingDetail parseDetail(List<?> groups, String rceptNo) {
         Map<String, Object> general = findRowByTitleAndRceptNo(groups, "일반사항", rceptNo);
         Map<String, Object> security = findRowByTitleAndRceptNo(groups, "증권의종류", rceptNo);
         List<Map<String, Object>> underwriters = findRowsByTitleAndRceptNo(groups, "인수인정보", rceptNo);
         if (general == null && security == null) {
-            return Optional.empty(); // 이 rcept_no 항목이 이 corp_code 조회 범위에 없음
+            return null; // 이 rcept_no 항목이 이 corp_code 조회 범위에 없음
         }
 
         LocalDate subStart = null;
@@ -276,8 +384,110 @@ public class DartClient {
                         .findFirst()
                         .orElse(null));
 
-        return Optional.of(new OfferingDetail(
-                rceptNo, subStart, subEnd, refundDate, leadManager, offerPriceConfirmed, sharesOffered));
+        return new OfferingDetail(
+                rceptNo, subStart, subEnd, refundDate, leadManager, offerPriceConfirmed, sharesOffered);
+    }
+
+    /** "증권의종류"의 모집방법(slmthn) — 이 접수번호의 보통주 행을 먼저, 없으면 아무 행. */
+    @SuppressWarnings("unchecked")
+    private String offeringMethod(List<?> groups, String rceptNo) {
+        List<Map<String, Object>> rows = allRows(groups, "증권의종류");
+        return rows.stream()
+                .sorted(java.util.Comparator
+                        .comparing((Map<String, Object> r) -> !rceptNo.equals(String.valueOf(r.get("rcept_no"))))
+                        .thenComparing(r -> !"보통주".equals(stringOrNull(r.get("stksen")))))
+                .map(r -> stringOrNull(r.get("slmthn")))
+                .filter(java.util.Objects::nonNull)
+                .findFirst()
+                .orElse(null);
+    }
+
+    /** title 그룹에서 이 접수번호 행, 없으면 첫 행. */
+    private Map<String, Object> firstRow(List<?> groups, String title, String rceptNo) {
+        Map<String, Object> exact = findRowByTitleAndRceptNo(groups, title, rceptNo);
+        if (exact != null) {
+            return exact;
+        }
+        List<Map<String, Object>> rows = allRows(groups, title);
+        return rows.isEmpty() ? null : rows.get(0);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> allRows(List<?> groups, String title) {
+        for (Object g : groups) {
+            Map<String, Object> group = (Map<String, Object>) g;
+            if (title.equals(group.get("title")) && group.get("list") instanceof List<?> rows) {
+                List<Map<String, Object>> result = new ArrayList<>();
+                for (Object row : rows) {
+                    result.add((Map<String, Object>) row);
+                }
+                return result;
+            }
+        }
+        return List.of();
+    }
+
+    /** ZIP에서 본문 XML을 꺼낸다 — {rcept_no}.xml 우선, 없으면 첫 XML. */
+    private static Optional<String> unzipMainXml(byte[] zip, String rceptNo) throws IOException {
+        byte[] chosen = null;
+        try (ZipInputStream in = new ZipInputStream(new ByteArrayInputStream(zip))) {
+            ZipEntry entry;
+            while ((entry = in.getNextEntry()) != null) {
+                String name = entry.getName();
+                if (entry.isDirectory() || !name.toLowerCase(java.util.Locale.ROOT).endsWith(".xml")) {
+                    continue;
+                }
+                boolean main = name.equals(rceptNo + ".xml");
+                if (chosen == null || main) {
+                    chosen = readLimited(in);
+                }
+                if (main) {
+                    break;
+                }
+            }
+        }
+        if (chosen == null) {
+            log.warn("DART document.xml ZIP에 XML이 없음(rceptNo={})", rceptNo);
+            return Optional.empty();
+        }
+        return Optional.of(new String(chosen, xmlCharset(chosen)));
+    }
+
+    private static byte[] readLimited(ZipInputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[64 * 1024];
+        long total = 0;
+        int n;
+        while ((n = in.read(buffer)) > 0) {
+            total += n;
+            if (total > MAX_XML_BYTES) {
+                throw new IOException("공시 원본 XML이 " + MAX_XML_BYTES + "바이트를 넘음");
+            }
+            out.write(buffer, 0, n);
+        }
+        return out.toByteArray();
+    }
+
+    /** XML 선언의 encoding(없거나 모르면 UTF-8) — 오래된 공시는 EUC-KR일 수 있다. */
+    private static Charset xmlCharset(byte[] xml) {
+        String head = new String(xml, 0, Math.min(xml.length, 200), StandardCharsets.ISO_8859_1);
+        Matcher m = XML_ENCODING.matcher(head);
+        if (m.find()) {
+            try {
+                return Charset.forName(m.group(1));
+            } catch (RuntimeException e) {
+                log.warn("DART 공시 원본의 모르는 인코딩 {} — UTF-8로 읽는다", m.group(1));
+            }
+        }
+        return StandardCharsets.UTF_8;
+    }
+
+    private static String preview(byte[] body) {
+        if (body == null) {
+            return "(빈 응답)";
+        }
+        String s = new String(body, 0, Math.min(body.length, 200), StandardCharsets.UTF_8);
+        return s.replaceAll("\\s+", " ").trim();
     }
 
     @SuppressWarnings("unchecked")
@@ -357,5 +567,13 @@ public class DartClient {
     public record OfferingDetail(String rceptNo, LocalDate subscriptionStart, LocalDate subscriptionEnd,
                                   LocalDate refundDate, String leadManager, BigDecimal offerPriceConfirmed,
                                   Long sharesOffered) {
+    }
+
+    /**
+     * 주요정보 조회 결과 — 이 접수번호의 상세(행이 없으면 null)와 공모 종류(판정 못 하면 null).
+     *
+     * @param offeringMethod 모집방법 원문(slmthn, 예: "일반공모", "주주배정후 실권주 일반공모") — 로그·근거용
+     */
+    public record OfferingLookup(OfferingDetail detail, OfferingKind kind, String offeringMethod) {
     }
 }

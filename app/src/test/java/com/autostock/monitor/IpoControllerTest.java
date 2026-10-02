@@ -55,6 +55,22 @@ class IpoControllerTest {
     }
 
     @Test
+    void 상장사_유상증자로_판정된_딜은_목록에서_뺀다() {
+        IpoDealEntity rights = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
+        rights.classifyOffering(com.autostock.ipo.OfferingKind.RIGHTS, Instant.now());
+        IpoDealEntity ipo = new IpoDealEntity("01801026", "브릴스", "20260916000234", "DART", Instant.now());
+        ipo.applyDemandForecast(new BigDecimal("1187.74"), new BigDecimal("0.2175"), "20260916000234", Instant.now());
+        when(repository.findAllByOrderBySubscriptionStartDesc()).thenReturn(List.of(rights, ipo));
+
+        var result = controller.deals(null);
+
+        assertEquals(1, result.size());
+        assertEquals("브릴스", result.get(0).corpName());
+        assertEquals("DART", result.get(0).metricsSource()); // 화면이 "자동 입력"으로 표시한다
+        assertEquals("20260916000234", result.get(0).metricsRceptNo());
+    }
+
+    @Test
     void status_지정시_해당_상태만_조회한다() {
         when(repository.findByStatusOrderBySubscriptionStartAsc(IpoStatus.SUBSCRIBING)).thenReturn(List.of());
 
@@ -126,5 +142,18 @@ class IpoControllerTest {
         assertEquals(new BigDecimal("600"), response.getBody().institutionalCompetitionRate()); // 부분 갱신
         assertEquals(LocalDate.of(2020, 1, 2), response.getBody().listingDate());
         assertEquals("LISTED", response.getBody().status()); // 과거 상장일 → 즉시 LISTED
+        assertEquals("MANUAL", response.getBody().metricsSource()); // 앞서 넣은 지표의 출처가 그대로다
+    }
+
+    @Test
+    void 상장일만_입력하면_자동_입력된_지표의_출처는_그대로다() {
+        IpoDealEntity entity = new IpoDealEntity("01801026", "브릴스", "20260825000476", "DART", Instant.now());
+        entity.applyDemandForecast(new BigDecimal("1187.74"), new BigDecimal("0.2175"), "20260916000234", Instant.now());
+        when(repository.findById(1L)).thenReturn(Optional.of(entity));
+
+        var response = controller.metrics(1L, new IpoMetricsRequest(null, null, LocalDate.of(2026, 9, 25)));
+
+        assertEquals("DART", response.getBody().metricsSource());
+        assertEquals("20260916000234", response.getBody().metricsRceptNo());
     }
 }

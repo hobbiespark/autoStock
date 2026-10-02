@@ -47,3 +47,4 @@
 - [external-data-files.md](external-data-files.md) — 외부 데이터 파일 현황(data/ 579MB·aiDoc/market-data·docs/measured)과 파일·DB 관리 비교. 분봉은 유일 원천인데 백업 누락·빈 날 많음 → DB 이전 확정(TimescaleDB, 10/1)·1년치 되채우기, aiDoc/market-data 공개 커밋 제거 권고(결정 대기)
 - [data-platform-postgres.md](data-platform-postgres.md) — PostgreSQL 최대 활용 설계: TimescaleDB·pgvector·pg_trgm·UNLOGGED·pg_prewarm을 한 DB에(시계열·AI 지식·메모리·학습), 매매 경로 분리·시점 정합성(available_at)·랩 컨테이너, HA 이미지(PG 17)·전환 실측, 결정 D-15~D-19
 - [stock-names.md](stock-names.md) — 2026-10-02 종목코드와 종목명 함께 표시: 표기 "삼성전자(005930)"(모르면 "종목명 미확인(코드)"), 이름 출처(키움 ka10001·kt00018 > DART 기업명), 메모리 사전 + V10 `stock_names`, 알림·리포트·API(symbolName)·화면·로그 적용
+- [ipo-demand-forecast.md](ipo-demand-forecast.md) — 2026-10-02 공모주 기관경쟁률·의무보유확약비율(수량 기준) 자동 입력: [발행조건확정] 신고서 원본(document.xml)의 수요예측 결과, 실측 14건·언론 대조, 상장사 유상증자를 공모주에서 제외(주요정보 모집방법·공시 본문 판정, V11), 수동 입력 우선

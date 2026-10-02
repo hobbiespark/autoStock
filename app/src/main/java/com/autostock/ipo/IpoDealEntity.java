@@ -72,6 +72,20 @@ public class IpoDealEntity {
     @Column(name = "lockup_commit_rate")
     private BigDecimal lockupCommitRate;
 
+    /** 기관경쟁률·확약비율의 출처(V11) — DART(수요예측 결과 자동) | MANUAL(수동 입력) | null(아직 없음). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "metrics_source", length = 16)
+    private MetricsSource metricsSource;
+
+    /** 자동 입력에 쓴 [발행조건확정] 신고서 접수번호(V11) — 수동 입력이면 null. */
+    @Column(name = "metrics_rcept_no", length = 20)
+    private String metricsRceptNo;
+
+    /** 공모 종류(V11) — IPO(공모주) | RIGHTS(상장사 유상증자, 화면·권고·알림 제외) | null(아직 판정 못 함, 공모주로 취급). */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "offering_kind", length = 16)
+    private OfferingKind offeringKind;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
     private IpoStatus status;
@@ -126,7 +140,7 @@ public class IpoDealEntity {
         this.rceptNo = rceptNo;
         this.status = IpoStatus.UPCOMING;
         this.recommendation = IpoRecommendation.PENDING;
-        this.recommendReason = "지표 미확보 — 기관경쟁률/의무보유확약비율 수동 입력 필요";
+        this.recommendReason = "지표 미확보 — [발행조건확정] 수요예측 결과 공시 전(공시되면 자동 입력, 수동 입력도 가능)";
         this.source = source;
         this.createdAt = now;
         this.updatedAt = now;
@@ -157,7 +171,7 @@ public class IpoDealEntity {
         touch(now);
     }
 
-    /** 기관경쟁률·의무보유확약비율 수동 입력(POST /api/ipo/{id}/metrics) — 자동 수집 불가 경로. */
+    /** 기관경쟁률·의무보유확약비율 수동 입력(POST /api/ipo/{id}/metrics). */
     public void applyMetrics(BigDecimal institutionalCompetitionRate, BigDecimal lockupCommitRate, Instant now) {
         applyMetrics(institutionalCompetitionRate, lockupCommitRate, null, now);
     }
@@ -172,7 +186,47 @@ public class IpoDealEntity {
         if (institutionalCompetitionRate != null) this.institutionalCompetitionRate = institutionalCompetitionRate;
         if (lockupCommitRate != null) this.lockupCommitRate = lockupCommitRate;
         if (listingDate != null) this.listingDate = listingDate;
+        if (institutionalCompetitionRate != null || lockupCommitRate != null) {
+            // 사람이 넣은 지표는 자동 입력이 덮지 않는다(2026-10-02, aiDoc/ipo-demand-forecast.md)
+            this.metricsSource = MetricsSource.MANUAL;
+            this.metricsRceptNo = null;
+        }
         touch(now);
+    }
+
+    /**
+     * DART [발행조건확정] 수요예측 결과 자동 입력. 수동 입력이 있으면 덮지 않는다 — 그때는 false.
+     * 읽지 못한 지표(null)는 기존 값을 지우지 않는다.
+     */
+    public boolean applyDemandForecast(BigDecimal institutionalCompetitionRate, BigDecimal lockupCommitRate,
+                                       String rceptNo, Instant now) {
+        if (metricsSource == MetricsSource.MANUAL) {
+            return false;
+        }
+        if (institutionalCompetitionRate != null) this.institutionalCompetitionRate = institutionalCompetitionRate;
+        if (lockupCommitRate != null) this.lockupCommitRate = lockupCommitRate;
+        this.metricsSource = MetricsSource.DART;
+        this.metricsRceptNo = rceptNo;
+        touch(now);
+        return true;
+    }
+
+    /** 공모 종류 판정을 남긴다 — 같은 값이면 바꾸지 않는다. */
+    public void classifyOffering(OfferingKind kind, Instant now) {
+        if (kind != null && kind != this.offeringKind) {
+            this.offeringKind = kind;
+            touch(now);
+        }
+    }
+
+    /** 상장사 유상증자로 판정된 딜 — 공모주 화면·권고·알림에서 뺀다. 판정 전(null)은 공모주로 둔다. */
+    public boolean isRightsOffering() {
+        return offeringKind == OfferingKind.RIGHTS;
+    }
+
+    /** 지표를 사람이 넣었는지 — 자동 입력 대상에서 뺀다. */
+    public boolean hasManualMetrics() {
+        return metricsSource == MetricsSource.MANUAL;
     }
 
     /** 내 청약/배정/매도 기록(POST /api/ipo/{id}/record). null 파라미터는 값을 지우지 않고 유지한다. */
@@ -205,6 +259,9 @@ public class IpoDealEntity {
     public String getLeadManager() { return leadManager; }
     public BigDecimal getInstitutionalCompetitionRate() { return institutionalCompetitionRate; }
     public BigDecimal getLockupCommitRate() { return lockupCommitRate; }
+    public MetricsSource getMetricsSource() { return metricsSource; }
+    public String getMetricsRceptNo() { return metricsRceptNo; }
+    public OfferingKind getOfferingKind() { return offeringKind; }
     public IpoStatus getStatus() { return status; }
     public IpoRecommendation getRecommendation() { return recommendation; }
     public String getRecommendReason() { return recommendReason; }
@@ -217,4 +274,12 @@ public class IpoDealEntity {
     public String getSource() { return source; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }
+
+    /** 기관경쟁률·확약비율의 출처. */
+    public enum MetricsSource {
+        /** [발행조건확정]증권신고서의 수요예측 결과에서 자동 입력. */
+        DART,
+        /** 화면·API로 사람이 입력 — 자동 입력이 덮지 않는다. */
+        MANUAL
+    }
 }

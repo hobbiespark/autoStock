@@ -153,14 +153,15 @@ class IpoSyncSchedulerTest {
     void 신규딜은_rcept_no_기준으로_upsert된다() {
         LocalDate since = LocalDate.of(2026, 8, 28);
         LocalDate today = LocalDate.of(2026, 9, 11);
-        var notice = new DartClient.DealNotice("20260910000583", "01359815", "한울반도체",
+        var notice = new DartClient.DealNotice("20260910000579", "01158632", "진코스텍",
                 "[기재정정]증권신고서(지분증권)", LocalDate.of(2026, 9, 10));
         when(dartClient.fetchRecentEquityFilings(since, today)).thenReturn(List.of(notice));
-        when(repository.findByRceptNo("20260910000583")).thenReturn(Optional.empty());
-        when(dartClient.fetchOfferingDetail(eq("01359815"), eq("20260910000583"), any(), any()))
-                .thenReturn(Optional.of(new DartClient.OfferingDetail(
-                        "20260910000583", LocalDate.of(2026, 11, 9), LocalDate.of(2026, 11, 10),
-                        LocalDate.of(2026, 11, 17), "SK증권", new BigDecimal("5030"), 3_800_000L)));
+        when(repository.findByRceptNo("20260910000579")).thenReturn(Optional.empty());
+        when(dartClient.fetchOffering(eq("01158632"), eq("20260910000579"), any(), any()))
+                .thenReturn(Optional.of(new DartClient.OfferingLookup(new DartClient.OfferingDetail(
+                        "20260910000579", LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 6),
+                        LocalDate.of(2026, 10, 8), "하나증권", new BigDecimal("19500"), 852_000L),
+                        OfferingKind.IPO, "일반공모")));
         when(repository.findAll()).thenReturn(List.of());
 
         schedulerAt(today).syncNow();
@@ -168,9 +169,137 @@ class IpoSyncSchedulerTest {
         var captor = org.mockito.ArgumentCaptor.forClass(IpoDealEntity.class);
         verify(repository, times(1)).save(captor.capture());
         IpoDealEntity saved = captor.getValue();
-        assertEquals("한울반도체", saved.getCorpName());
-        assertEquals("SK증권", saved.getLeadManager());
+        assertEquals("진코스텍", saved.getCorpName());
+        assertEquals("하나증권", saved.getLeadManager());
         assertFalse(saved.getSubscriptionStart() == null);
+        assertEquals(OfferingKind.IPO, saved.getOfferingKind());
+    }
+
+    // ── 2026-10-02: 상장사 유상증자 제외·수요예측 지표 자동 입력(aiDoc/ipo-demand-forecast.md) ─────────────
+
+    @Test
+    void 상장사_유상증자는_새_딜로_만들지_않는다() {
+        LocalDate today = LocalDate.of(2026, 9, 11);
+        var notice = new DartClient.DealNotice("20260910000583", "01359815", "한울반도체",
+                "[기재정정]증권신고서(지분증권)", LocalDate.of(2026, 9, 10));
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of(notice));
+        when(repository.findByRceptNo("20260910000583")).thenReturn(Optional.empty());
+        when(dartClient.fetchOffering(eq("01359815"), eq("20260910000583"), any(), any()))
+                .thenReturn(Optional.of(new DartClient.OfferingLookup(null, OfferingKind.RIGHTS, "주주배정후 실권주 일반공모")));
+        when(repository.findAll()).thenReturn(List.of());
+
+        IpoSyncScheduler.SyncSummary summary = schedulerAt(today).sync();
+
+        verify(repository, never()).save(any());
+        assertEquals(1, summary.excluded());
+        assertEquals(0, summary.created());
+    }
+
+    @Test
+    void 주요정보가_없으면_공시_본문으로_판정한다() {
+        LocalDate today = LocalDate.of(2026, 9, 15);
+        var notice = new DartClient.DealNotice("20260914000188", "00547510", "툴젠",
+                "[발행조건확정]증권신고서(지분증권)", LocalDate.of(2026, 9, 14));
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of(notice));
+        when(repository.findByRceptNo("20260914000188")).thenReturn(Optional.empty());
+        when(dartClient.fetchDocument("20260914000188"))
+                .thenReturn(Optional.of(DartFixtures.xml("20260914000188.zip"))); // 신주배정기준일·구주주 → 유상증자
+        when(repository.findAll()).thenReturn(List.of());
+
+        IpoSyncScheduler.SyncSummary summary = schedulerAt(today).sync();
+
+        verify(repository, never()).save(any());
+        assertEquals(1, summary.excluded());
+    }
+
+    @Test
+    void 유상증자로_판정된_기존_딜은_권고와_청약_알림에서_뺀다() {
+        LocalDate today = LocalDate.of(2026, 11, 8);
+        IpoDealEntity rights = new IpoDealEntity("01359815", "한울반도체", "20260910000583", "DART", Instant.now());
+        rights.applyOfferingDetail(new DartClient.OfferingDetail(
+                "20260910000583", today.plusDays(1), today.plusDays(2), null, "SK증권",
+                new BigDecimal("5030"), 3_800_000L), Instant.now());
+        rights.classifyOffering(OfferingKind.RIGHTS, Instant.now());
+        String reasonBefore = rights.getRecommendReason();
+        when(repository.findAll()).thenReturn(List.of(rights));
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of());
+
+        schedulerAt(today).syncNow();
+
+        verify(publisher, never()).publishEvent(any()); // 청약 D-1이어도 알리지 않는다
+        assertEquals(reasonBefore, rights.getRecommendReason());
+        verify(dartClient, never()).fetchCorpEquityFilings(any(), any(), any()); // 지표도 찾지 않는다
+    }
+
+    @Test
+    void 옛_딜의_공모_종류를_판정해_같은_회사_딜에_남긴다() {
+        LocalDate today = LocalDate.of(2026, 10, 2);
+        IpoDealEntity older = new IpoDealEntity("01344202", "뷰노", "20260911000606", "DART", Instant.now());
+        IpoDealEntity newer = new IpoDealEntity("01344202", "뷰노", "20260929000672", "DART", Instant.now());
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of());
+        when(repository.findByOfferingKindIsNull()).thenReturn(List.of(older, newer));
+        when(repository.findByCorpCode("01344202")).thenReturn(List.of(older, newer));
+        when(dartClient.fetchOffering(eq("01344202"), eq("20260929000672"), any(), any()))
+                .thenReturn(Optional.of(new DartClient.OfferingLookup(null, OfferingKind.RIGHTS, "주주배정후 실권주 일반공모")));
+        when(repository.findAll()).thenReturn(List.of(older, newer));
+
+        IpoSyncScheduler.SyncSummary summary = schedulerAt(today).sync();
+
+        assertEquals(OfferingKind.RIGHTS, older.getOfferingKind());
+        assertEquals(OfferingKind.RIGHTS, newer.getOfferingKind());
+        assertEquals(2, summary.classified());
+    }
+
+    @Test
+    void 발행조건확정_수요예측_결과로_지표를_자동_입력하고_청약_전날_알림에_권고를_싣는다() {
+        LocalDate today = LocalDate.of(2026, 9, 17);
+        IpoDealEntity brils = new IpoDealEntity("01801026", "브릴스", "20260825000476", "DART", Instant.now());
+        brils.applyOfferingDetail(new DartClient.OfferingDetail(
+                "20260825000476", today.plusDays(1), today.plusDays(2), null, "한국투자증권",
+                new BigDecimal("19500"), null), Instant.now());
+        brils.classifyOffering(OfferingKind.IPO, Instant.now());
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of());
+        when(repository.findAll()).thenReturn(List.of(brils));
+        when(repository.findByCorpCode("01801026")).thenReturn(List.of(brils));
+        when(dartClient.fetchCorpEquityFilings(eq("01801026"), any(), any())).thenReturn(List.of(
+                new DartClient.DealNotice("20260916000234", "01801026", "브릴스", "[발행조건확정]증권신고서(지분증권)",
+                        LocalDate.of(2026, 9, 16)),
+                new DartClient.DealNotice("20260825000476", "01801026", "브릴스", "증권신고서(지분증권)",
+                        LocalDate.of(2026, 8, 25))));
+        when(dartClient.fetchDocument("20260916000234"))
+                .thenReturn(Optional.of(DartFixtures.xml("20260916000234-demand-forecast.xml")));
+
+        IpoSyncScheduler.SyncSummary summary = schedulerAt(today).sync();
+
+        assertEquals(new BigDecimal("1187.74"), brils.getInstitutionalCompetitionRate());
+        assertEquals(new BigDecimal("0.2175"), brils.getLockupCommitRate());
+        assertEquals(IpoDealEntity.MetricsSource.DART, brils.getMetricsSource());
+        assertEquals("20260916000234", brils.getMetricsRceptNo());
+        assertEquals(IpoRecommendation.RECOMMEND, brils.getRecommendation()); // 500:1·20% 둘 다 넘는다
+        assertTrue(brils.getRecommendReason().contains("21.75%"), brils.getRecommendReason());
+        assertTrue(brils.getRecommendReason().contains("DART 수요예측 결과 20260916000234"), brils.getRecommendReason());
+        assertEquals(1, summary.metricsFilled());
+        var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
+        verify(publisher).publishEvent(captor.capture());
+        assertTrue(captor.getValue().message().contains("RECOMMEND"), captor.getValue().message());
+        verify(dartClient, never()).fetchDocument("20260825000476"); // 확정 신고서만 읽는다
+    }
+
+    @Test
+    void 사람이_넣은_지표는_자동_입력이_덮지_않는다() {
+        LocalDate today = LocalDate.of(2026, 9, 17);
+        IpoDealEntity deal = new IpoDealEntity("01801026", "브릴스", "20260825000476", "DART", Instant.now());
+        deal.applyMetrics(new BigDecimal("900"), new BigDecimal("0.30"), Instant.now());
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of());
+        when(repository.findAll()).thenReturn(List.of(deal));
+
+        schedulerAt(today).sync();
+
+        assertEquals(IpoDealEntity.MetricsSource.MANUAL, deal.getMetricsSource());
+        assertEquals(new BigDecimal("900"), deal.getInstitutionalCompetitionRate());
+        verify(dartClient, never()).fetchCorpEquityFilings(any(), any(), any());
+        assertFalse(deal.applyDemandForecast(new BigDecimal("1"), new BigDecimal("0.01"), "20260916000234", Instant.now()));
+        assertEquals(new BigDecimal("0.30"), deal.getLockupCommitRate());
     }
 
     /** 주어진 KST 날짜의 정오를 "오늘"로 보는 스케줄러 — Clock 주입으로 결정론적 테스트. */
@@ -192,7 +321,7 @@ class IpoSyncSchedulerTest {
         when(repository.findByRceptNo("20260930000001")).thenReturn(Optional.empty());
         when(repository.findByRceptNo("20260925000002")).thenReturn(Optional.of(knownEntity));
         when(repository.findByRceptNo("20260929000003")).thenThrow(new RuntimeException("DB 오류(테스트)"));
-        when(dartClient.fetchOfferingDetail(any(), any(), any(), any())).thenReturn(Optional.empty());
+        when(dartClient.fetchOffering(any(), any(), any(), any())).thenReturn(Optional.empty());
         when(repository.findAll()).thenReturn(List.of(knownEntity));
 
         IpoSyncScheduler.SyncSummary summary = schedulerAt(today).sync();
@@ -202,7 +331,8 @@ class IpoSyncSchedulerTest {
         assertEquals(1, summary.failed());
         assertEquals(0, summary.skipped());
         assertEquals(1, summary.totalDeals());
-        assertEquals("공모주 수집 완료 — 2026-09-17~2026-10-01 증권신고(지분증권) 3건(신규 딜 1·저장 생략 0·실패 1), 전체 딜 1건 상태 재계산",
+        assertEquals("공모주 수집 완료 — 2026-09-17~2026-10-01 증권신고(지분증권) 3건(신규 딜 1·유상증자 제외 0·저장 생략 0·실패 1), "
+                        + "옛 딜 공모 종류 판정 0건, 수요예측 지표 자동 입력 0개 회사, 전체 딜 1건 상태 재계산",
                 summary.toLogLine());
     }
 
