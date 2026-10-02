@@ -96,10 +96,34 @@ class IpoDealRepositoryDbTest extends PostgresDataJpaTest {
             assertEquals(0, new BigDecimal("812.50").compareTo((BigDecimal) row.get("institutional_competition_rate")));
             assertEquals(0, new BigDecimal("0.2150").compareTo((BigDecimal) row.get("lockup_commit_rate")));
             assertEquals("PENDING", row.get("recommendation"), "배치의 권고 변경은 반영되지 않아야 한다");
-            assertEquals("지표 미확보 — 기관경쟁률/의무보유확약비율 수동 입력 필요", row.get("recommend_reason"));
+            assertEquals("지표 미확보 — [발행조건확정] 수요예측 결과 공시 전(공시되면 자동 입력, 수동 입력도 가능)",
+                    row.get("recommend_reason"), "딜을 만들 때의 사유 그대로여야 한다");
             assertEquals(1L, ((Number) row.get("version")).longValue());
         } finally {
             jdbc.update("delete from ipo_deals where rcept_no = ?", rcept);
         }
+    }
+
+    @Test
+    void V11_공모_종류와_지표_출처를_저장하고_회사별_미판정_딜을_찾는다() {
+        IpoDealEntity rights = new IpoDealEntity("01359815", "한울반도체", "20261002900001", "DART", Instant.now());
+        rights.classifyOffering(OfferingKind.RIGHTS, Instant.now());
+        IpoDealEntity unknown = new IpoDealEntity("01359815", "한울반도체", "20261002900002", "DART", Instant.now());
+        IpoDealEntity ipo = new IpoDealEntity("01801026", "브릴스", "20261002900003", "DART", Instant.now());
+        ipo.classifyOffering(OfferingKind.IPO, Instant.now());
+        ipo.applyDemandForecast(new BigDecimal("1187.74"), new BigDecimal("0.2175"), "20260916000234", Instant.now());
+        deals.saveAllAndFlush(java.util.List.of(rights, unknown, ipo));
+
+        assertEquals(2, deals.findByCorpCode("01359815").size());
+        assertEquals(java.util.List.of("20261002900002"), deals.findByOfferingKindIsNull().stream()
+                .map(IpoDealEntity::getRceptNo).filter(r -> r.startsWith("20261002900")).toList()); // 다른 시험의 행은 빼고 본다
+        Map<String, Object> row = jdbc.queryForMap(
+                "select offering_kind, metrics_source, metrics_rcept_no, institutional_competition_rate, lockup_commit_rate"
+                        + " from ipo_deals where rcept_no = '20261002900003'");
+        assertEquals("IPO", row.get("offering_kind"));
+        assertEquals("DART", row.get("metrics_source"));
+        assertEquals("20260916000234", row.get("metrics_rcept_no"));
+        assertEquals(0, new BigDecimal("1187.74").compareTo((BigDecimal) row.get("institutional_competition_rate")));
+        assertEquals(0, new BigDecimal("0.2175").compareTo((BigDecimal) row.get("lockup_commit_rate")));
     }
 }

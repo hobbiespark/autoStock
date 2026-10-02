@@ -22,6 +22,12 @@ public interface IpoDealRepository extends JpaRepository<IpoDealEntity, Long> {
 
     List<IpoDealEntity> findAllByOrderBySubscriptionStartDesc();
 
+    /** 한 회사의 딜 전부(정정 신고서마다 한 행) — 공모 종류 판정·수요예측 지표를 회사 단위로 맞춘다(2026-10-02). */
+    List<IpoDealEntity> findByCorpCode(String corpCode);
+
+    /** 공모 종류를 아직 판정하지 못한 딜 — 배치가 조금씩 판정한다(V11 이전에 들어온 딜 포함). */
+    List<IpoDealEntity> findByOfferingKindIsNull();
+
     /** IpoSyncScheduler가 매 배치 상태·D-day 알림 대상을 다시 계산하기 위해 전체를 훑는다. */
     List<IpoDealEntity> findBySubscriptionStartGreaterThanEqualOrSubscriptionStartIsNull(LocalDate since);
 }

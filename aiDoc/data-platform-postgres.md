@@ -303,7 +303,7 @@ CROSS JOIN LATERAL (SELECT close FROM daily_bars        -- 비교: 알려진 뒤
 2. 현 DB를 덤프해 새 이미지에 복원한다.
 3. 백업·복원 리허설 스크립트를 고친다. pre/post 복원을 넣고 확장 버전을 기록한다.
 4. 테스트 DB를 바꾼다. Testcontainers로 운영 이미지를 쓰고, 외부 DB 주소도 받는다.
-5. V11을 추가한다. `minute_bars` 하이퍼테이블과 `daily_bars` 연속 집계다(V10은 종목명 사전 `stock_names`, 2026-10-02 `stock-names.md`).
+5. V12를 추가한다. `minute_bars` 하이퍼테이블과 `daily_bars` 연속 집계다(V10은 종목명 사전 `stock_names`, V11은 공모주 공모 종류·지표 출처 — 둘 다 2026-10-02, `stock-names.md`·`ipo-demand-forecast.md`).
 6. 적재 잡을 DB로 바꾼다. 기동 따라잡기를 넣고 기존 CSV를 옮긴다.
 7. ka10080으로 1년치를 되채운 뒤 해당 구간을 refresh한다.
 8. pg_stat_statements를 켠다.
@@ -393,7 +393,7 @@ CROSS JOIN LATERAL (SELECT close FROM daily_bars        -- 비교: 알려진 뒤
 3. 기존 컨테이너를 멈춘다. 볼륨 `pgdata`는 그대로 둔다(롤백용).
 4. 새 compose 정의로 기동한다(새 볼륨). healthy가 될 때까지 기다리고, 확장 버전을 확인한다.
 5. 덤프를 복원한다(`pg_restore --no-owner --exit-on-error`). 행 수를 대조한다.
-6. 앱을 기동한다. Flyway가 V11(하이퍼테이블·연속 집계)을 적용한다.
+6. 앱을 기동한다. Flyway가 V12(하이퍼테이블·연속 집계)를 적용한다.
 7. 장외에 되채우기를 하고, 해당 구간을 refresh한다.
 8. 새로 백업하고, 새 복원 리허설(pre/post)을 돌린다.
 

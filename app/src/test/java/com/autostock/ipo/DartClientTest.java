@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -95,10 +96,83 @@ class DartClientTest {
         assertEquals(new BigDecimal("19500"), d.offerPriceConfirmed());
     }
 
+    // ── 2026-10-02: 공모 종류 판정·공시 원본·회사별 목록(aiDoc/ipo-demand-forecast.md) ──────────────────
+
+    @Test
+    void 주요정보로_공모_종류를_함께_판정한다() throws Exception {
+        TestableDartClient rights = new TestableDartClient(null, JSON.readValue(HANWOOL_ESTKRS_RESPONSE, Map.class));
+        TestableDartClient ipo = new TestableDartClient(null, JSON.readValue(JINCOSTECH_ESTKRS_RESPONSE, Map.class));
+
+        DartClient.OfferingLookup hanwool = rights.fetchOffering(
+                "01359815", "20260910000583", LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 11)).orElseThrow();
+        DartClient.OfferingLookup jincostech = ipo.fetchOffering(
+                "01158632", "20260910000579", LocalDate.of(2026, 6, 1), LocalDate.of(2026, 9, 11)).orElseThrow();
+
+        assertEquals(OfferingKind.RIGHTS, hanwool.kind(), "주주배정후 실권주 일반공모 + 주요사항보고서 → 상장사 유상증자");
+        assertEquals("주주배정후 실권주 일반공모", hanwool.offeringMethod());
+        assertEquals(OfferingKind.IPO, jincostech.kind());
+        assertEquals("하나증권", jincostech.detail().leadManager());
+    }
+
+    @Test
+    void 이_접수번호_행이_없어도_회사의_최신_신고서로_종류는_판정한다() throws Exception {
+        // [발행조건확정] 접수번호는 주요정보에 행이 없다(실측) — 상세는 비고 종류만 나온다
+        TestableDartClient client = new TestableDartClient(null, JSON.readValue(JINCOSTECH_ESTKRS_RESPONSE, Map.class));
+
+        DartClient.OfferingLookup lookup = client.fetchOffering(
+                "01158632", "20260928000402", LocalDate.of(2026, 6, 1), LocalDate.of(2026, 10, 2)).orElseThrow();
+
+        assertNull(lookup.detail());
+        assertEquals(OfferingKind.IPO, lookup.kind());
+        assertTrue(client.fetchOfferingDetail("01158632", "20260928000402",
+                LocalDate.of(2026, 6, 1), LocalDate.of(2026, 10, 2)).isEmpty());
+    }
+
+    @Test
+    void 공시_원본_ZIP에서_본문_XML을_꺼낸다() {
+        TestableDartClient client = new TestableDartClient(null, null);
+        client.documentResponse = DartFixtures.bytes("20260928000402.zip");
+
+        Optional<String> xml = client.fetchDocument("20260928000402");
+
+        assertTrue(xml.isPresent());
+        assertTrue(xml.get().contains("수요예측 참여내역") || xml.get().contains("의무보유확약기간별"));
+    }
+
+    @Test
+    void 공시_원본이_ZIP이_아니면_빈_값이다() {
+        TestableDartClient client = new TestableDartClient(null, null);
+        client.documentResponse = "{\"status\":\"014\",\"message\":\"파일이 존재하지 않습니다.\"}"
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8);
+
+        assertTrue(client.fetchDocument("20260101000000").isEmpty());
+    }
+
+    @Test
+    void 회사별_목록도_증권신고서_지분증권만_돌려준다() throws Exception {
+        TestableDartClient client = new TestableDartClient(null, null);
+        client.corpListResponse = JSON.readValue("""
+                {"status":"000","message":"정상","list":[
+                  {"corp_code":"01801026","corp_name":"브릴스","stock_code":"","corp_cls":"E",
+                   "report_nm":"[발행조건확정]증권신고서(지분증권)","rcept_no":"20260916000234","rcept_dt":"20260916"},
+                  {"corp_code":"01801026","corp_name":"브릴스","stock_code":"","corp_cls":"E",
+                   "report_nm":"투자설명서","rcept_no":"20260916000240","rcept_dt":"20260916"}
+                ]}
+                """, Map.class);
+
+        List<DartClient.DealNotice> filings = client.fetchCorpEquityFilings(
+                "01801026", LocalDate.of(2026, 8, 1), LocalDate.of(2026, 10, 2));
+
+        assertEquals(1, filings.size());
+        assertTrue(filings.get(0).reportName().contains(DartClient.CONFIRMED_TERMS_PREFIX));
+    }
+
     /** callList/callDetail을 오버라이드해 고정 응답을 돌려주는 테스트 전용 서브클래스. */
     private static class TestableDartClient extends DartClient {
         private final Map<String, Object> listResponse;
         private final Map<String, Object> detailResponse;
+        Map<String, Object> corpListResponse;
+        byte[] documentResponse;
 
         TestableDartClient(Map<String, Object> listResponse, Map<String, Object> detailResponse) {
             super(WebClient.builder(), ClientHttpConnectorSettings.defaults(), new DartProperties(true, "test-key", 14));
@@ -114,6 +188,16 @@ class DartClientTest {
         @Override
         protected Map<String, Object> callDetail(String corpCode, LocalDate since, LocalDate until) {
             return detailResponse;
+        }
+
+        @Override
+        protected Map<String, Object> callCorpList(String corpCode, LocalDate since, LocalDate until) {
+            return corpListResponse;
+        }
+
+        @Override
+        protected byte[] callDocument(String rceptNo) {
+            return documentResponse;
         }
     }
 

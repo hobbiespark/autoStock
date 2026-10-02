@@ -154,6 +154,7 @@
     - 기본 설정 `ignoreMigrationPatterns=*:future` 덕분이다.
     - 2026-10-02 실측: 내장 PostgreSQL 16.15에 V1~V10을 적용한 뒤 V1~V9만으로 migrate를 돌렸고 통과했다.
   - 단, V11 이후가 들어온 뒤에 V10만 빼면 "missing"으로 기동이 실패한다. 그때는 V10 파일을 남겨 둔다.
+    - 2026-10-02 같은 날 V11(공모주 공모 종류·지표 출처, `ipo-demand-forecast.md`)이 들어왔다. 이제 이 변경만 되돌릴 때는 V10 파일을 남겨 둔다.
   - 테이블까지 지우려면 백업 후 수동으로 지운다: `DROP TABLE stock_names;`, `DELETE FROM flyway_schema_history WHERE version = '10';`
 - **API:** 필드를 추가만 했다. 그래서 화면만 먼저 되돌려도 동작한다.
 

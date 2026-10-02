@@ -48,7 +48,8 @@ public class IpoController {
         List<IpoDealEntity> entities = status == null || status.isBlank()
                 ? repository.findAllByOrderBySubscriptionStartDesc()
                 : repository.findByStatusOrderBySubscriptionStartAsc(parseStatus(status));
-        return entities.stream().map(IpoController::toView).toList();
+        // 상장사 유상증자로 판정된 딜은 공모주가 아니다 — 행은 남기고 목록에서만 뺀다(2026-10-02, aiDoc/ipo-demand-forecast.md)
+        return entities.stream().filter(e -> !e.isRightsOffering()).map(IpoController::toView).toList();
     }
 
     /** 내 청약/배정/매도 기록 upsert — 부분 갱신(null 필드는 기존 값 유지). */
@@ -60,9 +61,9 @@ public class IpoController {
     }
 
     /**
-     * 기관경쟁률·의무보유확약비율·상장(예정)일 수동 입력 — 자동 수집 불가 경로(ipo.DartClient Javadoc).
-     * null 필드는 기존 값 유지(부분 갱신). 입력 즉시 필터(권고)와 상태(상장일 → LISTED)를 재평가한다
-     * (다음 배치까지 기다리지 않음).
+     * 기관경쟁률·의무보유확약비율·상장(예정)일 수동 입력. 지표는 [발행조건확정] 수요예측 결과에서 자동으로도 채워지며,
+     * 여기서 넣은 지표는 자동 입력이 덮지 않는다(2026-10-02). null 필드는 기존 값 유지(부분 갱신). 입력 즉시 필터(권고)와
+     * 상태(상장일 → LISTED)를 재평가한다(다음 배치까지 기다리지 않음).
      */
     @PostMapping("/{id}/metrics")
     public ResponseEntity<IpoDealView> metrics(@PathVariable Long id, @Valid @RequestBody IpoMetricsRequest request) {
@@ -91,6 +92,7 @@ public class IpoController {
                 e.getOfferPriceLow(), e.getOfferPriceHigh(), e.getOfferPriceConfirmed(),
                 e.getSubscriptionStart(), e.getSubscriptionEnd(), e.getRefundDate(), e.getListingDate(),
                 e.getLeadManager(), e.getInstitutionalCompetitionRate(), e.getLockupCommitRate(),
+                e.getMetricsSource() == null ? null : e.getMetricsSource().name(), e.getMetricsRceptNo(),
                 e.getStatus().name(), e.getRecommendation().name(), e.getRecommendReason(),
                 e.getAppliedQty(), e.getDeposit(), e.getAllocatedQty(), e.getSellPrice(), e.getSellDate(),
                 e.getMemo());

@@ -67,6 +67,8 @@ class IpoDealCommandServiceTest {
 
         assertEquals(IpoRecommendation.RECOMMEND, result.getRecommendation());
         assertEquals(IpoStatus.LISTED, result.getStatus()); // 과거 상장일 → 즉시 LISTED
+        assertEquals(IpoDealEntity.MetricsSource.MANUAL, result.getMetricsSource()); // 자동 입력이 덮지 않는다
+        assertTrue(result.getRecommendReason().contains("(수동 입력)"), result.getRecommendReason());
         verify(repository).save(entity);
     }
 
