@@ -8,6 +8,7 @@ import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.portfolio.PositionBook;
@@ -20,9 +21,10 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * 리스크 게이트 — <b>모든 주문이 반드시 통과해야 하는 유일한 관문</b>.
@@ -37,7 +39,8 @@ import java.util.Map;
  *       외부 상태(시계)만 보면 되는 가장 값싼 검사라 맨 앞에 둔다.</li>
  *   <li><b>킬스위치</b>: 비상 정지 상태면 무조건 거부.</li>
  *   <li><b>사이징</b>: 몇 주를 살/팔 수 있는지 계산. 0주면 여기서 끝 —
- *       주문 슬롯(일 한도)을 낭비하지 않기 위해 한도 검사보다 먼저 한다.</li>
+ *       주문 슬롯(일 한도)을 낭비하지 않기 위해 한도 검사보다 먼저 한다. 매수는 이 단계에서
+ *       보유·<b>미체결 매수</b>({@link OpenOrderQuery}, 실행 계획 1.2)·동시 보유 한도도 함께 본다.</li>
  *   <li><b>일 주문 한도</b>: 하루 주문 횟수 상한. 폭주(버그로 인한 연속 주문)의 마지막 방어선.</li>
  * </ol>
  *
@@ -88,6 +91,7 @@ public class RiskGate {
     private final MarketCalendarService marketCalendarService;
     private final MacroGuard macroGuard;
     private final DisclosureBlacklist disclosureBlacklist;
+    private final OpenOrderQuery openOrderQuery;
 
     public RiskGate(ApplicationEventPublisher publisher,
                     KillSwitch killSwitch,
@@ -99,7 +103,8 @@ public class RiskGate {
                     Clock clock,
                     MarketCalendarService marketCalendarService,
                     MacroGuard macroGuard,
-                    DisclosureBlacklist disclosureBlacklist) {
+                    DisclosureBlacklist disclosureBlacklist,
+                    OpenOrderQuery openOrderQuery) {
         this.publisher = publisher;
         this.killSwitch = killSwitch;
         this.properties = properties;
@@ -111,6 +116,7 @@ public class RiskGate {
         this.marketCalendarService = marketCalendarService;
         this.macroGuard = macroGuard;
         this.disclosureBlacklist = disclosureBlacklist;
+        this.openOrderQuery = openOrderQuery;
     }
 
     /**
@@ -175,7 +181,8 @@ public class RiskGate {
 
         // ── 3단계: 일 주문 한도 ─────────────────────────────────────────
         // 사이징까지 통과한 "진짜 주문 후보"만 슬롯을 소비한다.
-        if (!dailyLimits.tryAcquireOrderSlot()) {
+        Optional<DailyLimitTracker.OrderSlot> slot = dailyLimits.tryAcquireOrderSlot();
+        if (slot.isEmpty()) {
             log.warn("일 주문 한도 초과 — 거부: {}", StockNames.label(signal.symbol()));
             publishRejected(signal, "일 주문 한도 초과 — 거부",
                     Map.of("quantity", String.valueOf(quantity)));
@@ -187,15 +194,14 @@ public class RiskGate {
         // PLAN.md ADR-6 7절 — UUID 대신 사람이 읽을 수 있는 ClientOrderId 포맷을 쓴다
         // ("20260813-BREAKOUT-005930-BUY-005"). OrderRequest.idempotencyKey 필드 자체는
         // 스키마 변경 없이 그대로 재사용한다 — 담기는 문자열의 "형식"만 바뀐 것이다.
-        // 일련번호는 dailyLimits.todayOrderCount()를 그대로 쓴다 — 바로 위에서
-        // tryAcquireOrderSlot()이 이미 카운터를 증가시켰으므로, 이 시점의 값이 곧
-        // "이 주문이 오늘 몇 번째인지"와 같다(다시 증가시키지 않는다).
+        // 날짜와 일련번호는 슬롯이 함께 준 값을 그대로 쓴다(실행 계획 1.2) — 예전처럼 증가 뒤
+        // todayOrderCount()를 다시 읽으면 동시에 통과한 두 주문이 같은 번호를 받을 수 있었다.
         String clientOrderId = ClientOrderId.generate(
-                LocalDate.now(clock.withZone(MarketConstants.KST)),
+                slot.get().day(),
                 signal.strategyId(),
                 signal.symbol().value(),
                 signal.side(),
-                dailyLimits.todayOrderCount()
+                slot.get().serial()
         ).value();
 
         publisher.publishEvent(new OrderRequest(
@@ -214,10 +220,11 @@ public class RiskGate {
     }
 
     /**
-     * 매수 수량 결정. 다음 세 가지를 모두 만족해야 0보다 큰 수량이 나온다.
+     * 매수 수량 결정. 다음을 모두 만족해야 0보다 큰 수량이 나온다.
      * <ul>
      *   <li>미보유 종목일 것 — 물타기(추가 매수)는 의도적으로 금지</li>
-     *   <li>동시 보유 종목 수가 한도 미만일 것 — 분산 한도 (기본 5종목)</li>
+     *   <li>그 종목에 결과가 확정되지 않은 매수 주문이 없을 것 — 전송~체결 사이 중복 매수 방지(실행 계획 1.2)</li>
+     *   <li>동시 보유 종목 수(+ 미보유 종목의 미체결 매수 수)가 한도 미만일 것 — 분산 한도 (기본 5종목)</li>
      *   <li>고정비율 사이징 결과가 1주 이상일 것</li>
      * </ul>
      *
@@ -247,11 +254,32 @@ public class RiskGate {
             publishRejected(signal, "이미 보유 중 — 추가 매수 차단", Map.of());
             return 0;
         }
-        if (positionBook.openPositionCount() >= properties.maxConcurrentPositions()) {
-            log.info("동시 보유 한도 도달({}) — 매수 거부: {}",
-                    properties.maxConcurrentPositions(), StockNames.label(signal.symbol()));
+        // ── 미체결 매수(실행 계획 1.2, BE-P1-2) ─────────────────────────────
+        // 장부(PositionBook)는 체결된 것만 안다 — 전송~체결 사이의 매수도 "보유 예정"으로 보고 같은 두 검사에 넣는다.
+        // 조회가 실패하면 모르는 채로 사지 않는다(매도는 이 경로를 거치지 않으므로 청산은 막히지 않는다).
+        Set<StockCode> openBuys;
+        try {
+            openBuys = openOrderQuery.symbolsWithOpenBuy();
+        } catch (RuntimeException e) {
+            log.warn("미체결 주문 조회 실패 — 매수 거부: {}", StockNames.label(signal.symbol()), e);
+            publishRejected(signal, "미체결 주문 조회 실패 — 매수 거부", Map.of());
+            return 0;
+        }
+        if (openBuys.contains(signal.symbol())) {
+            log.info("미체결 매수 주문 있음 — 추가 매수 차단: {}", StockNames.label(signal.symbol()));
+            publishRejected(signal, "미체결 매수 주문 있음 — 추가 매수 차단", Map.of());
+            return 0;
+        }
+        // 이미 보유한 종목의 미체결 매수(부분 체결 등)는 두 번 세지 않는다
+        long pendingBuyCount = openBuys.stream().filter(symbol -> !positionBook.holds(symbol)).count();
+        int openPositionCount = positionBook.openPositionCount();
+        if (openPositionCount + pendingBuyCount >= properties.maxConcurrentPositions()) {
+            log.info("동시 보유 한도 도달({}) — 매수 거부: {} (보유 {}, 미체결 매수 {})",
+                    properties.maxConcurrentPositions(), StockNames.label(signal.symbol()),
+                    openPositionCount, pendingBuyCount);
             publishRejected(signal, "동시 보유 한도 도달(" + properties.maxConcurrentPositions() + ") — 매수 거부",
-                    Map.of("openPositionCount", String.valueOf(positionBook.openPositionCount())));
+                    Map.of("openPositionCount", String.valueOf(openPositionCount),
+                            "pendingBuyCount", String.valueOf(pendingBuyCount)));
             return 0;
         }
         // equity 조회는 EquitySource에 위임한다 — SIM은 설정값 고정(PaperEquitySource),

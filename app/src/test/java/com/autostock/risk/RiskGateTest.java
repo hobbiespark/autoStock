@@ -22,7 +22,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -49,6 +51,9 @@ class RiskGateTest {
     private MacroGuard macroGuard;
     private DisclosureBlacklist disclosureBlacklist;
     private DailyLimitTracker dailyLimits;
+    /** 미체결 매수 종목(실행 계획 1.2) — 테스트가 직접 채운다. */
+    private final Set<StockCode> openBuys = new HashSet<>();
+    private final OpenOrderQuery openOrderQuery = () -> openBuys;
     private RiskGate gate;
 
     @BeforeEach
@@ -70,7 +75,7 @@ class RiskGateTest {
         gate = new RiskGate(publisher, killSwitch, properties,
                 new PositionSizer(properties), positionBook, dailyLimits,
                 new PaperEquitySource(properties), ANY_CLOCK, marketCalendarService,
-                macroGuard, disclosureBlacklist);
+                macroGuard, disclosureBlacklist, openOrderQuery);
     }
 
     /** macro-intel 관련 테스트는 이 기본 임계치를 공유한다(PLAN 5절 기본값과 동일). */
@@ -222,7 +227,7 @@ class RiskGateTest {
         return new RiskGate(publisher, killSwitch, guardedProperties,
                 new PositionSizer(guardedProperties), positionBook, new DailyLimitTracker(guardedProperties, clock),
                 new PaperEquitySource(guardedProperties), clock, marketCalendarService,
-                macroGuard, disclosureBlacklist);
+                macroGuard, disclosureBlacklist, openOrderQuery);
     }
 
     @Test
@@ -292,5 +297,106 @@ class RiskGateTest {
         gate.onSignal(manualSignal(Side.SELL, "70000", 23));
 
         assertEquals(new Quantity(10), onlyOrders(published).get(0).quantity());
+    }
+
+    // ── 미체결 매수 인지(실행 계획 1.2, BE-P1-2) — 장부는 체결된 것만 안다 ──────────────────
+
+    private void holdSymbol(String symbol) {
+        positionBook.onFill(new Fill("k" + symbol, new BrokerOrderId("b" + symbol), new StockCode(symbol), Side.BUY,
+                new Quantity(1), new Price(new BigDecimal("1000")), Instant.now()));
+    }
+
+    private SignalDecision lastDecision() {
+        return (SignalDecision) published.get(published.size() - 1);
+    }
+
+    @Test
+    void 같은_종목에_미체결_매수가_있으면_매수를_거부하고_주문_슬롯을_쓰지_않는다() {
+        openBuys.add(new StockCode("005930"));
+
+        gate.onSignal(buySignal("005930", "70000"));
+
+        assertTrue(onlyOrders(published).isEmpty());
+        assertEquals("미체결 매수 주문 있음 — 추가 매수 차단", lastDecision().reason());
+        assertEquals(0, dailyLimits.todayOrderCount());
+    }
+
+    @Test
+    void 다른_종목의_미체결_매수는_매수를_막지_않는다() {
+        openBuys.add(new StockCode("000660"));
+
+        gate.onSignal(buySignal("005930", "70000"));
+
+        assertEquals(1, onlyOrders(published).size());
+    }
+
+    @Test
+    void 동시_보유_한도는_미체결_매수_종목도_센다() {
+        // 보유 4 + 미체결 매수 1(미보유 종목) = 5 = 한도 → 새 종목 매수 거부
+        for (String s : new String[]{"000001", "000002", "000003", "000004"}) {
+            holdSymbol(s);
+        }
+        openBuys.add(new StockCode("000005"));
+
+        gate.onSignal(buySignal("005930", "70000"));
+
+        assertTrue(onlyOrders(published).isEmpty());
+        SignalDecision decision = lastDecision();
+        assertEquals("동시 보유 한도 도달(5) — 매수 거부", decision.reason());
+        assertEquals("4", decision.metrics().get("openPositionCount"));
+        assertEquals("1", decision.metrics().get("pendingBuyCount"));
+    }
+
+    @Test
+    void 이미_보유한_종목의_미체결_매수는_한도에서_두_번_세지_않는다() {
+        for (String s : new String[]{"000001", "000002", "000003", "000004"}) {
+            holdSymbol(s);
+        }
+        openBuys.add(new StockCode("000001")); // 부분 체결 등 — 이미 장부에 있다
+
+        gate.onSignal(buySignal("005930", "70000"));
+
+        assertEquals(1, onlyOrders(published).size());
+    }
+
+    @Test
+    void 미체결_주문_조회가_실패하면_매수는_거부하고_매도는_그대로_낸다() {
+        RiskGate failing = new RiskGate(publisher, killSwitch, properties,
+                new PositionSizer(properties), positionBook, dailyLimits,
+                new PaperEquitySource(properties), ANY_CLOCK, marketCalendarService,
+                macroGuard, disclosureBlacklist, () -> {
+                    throw new IllegalStateException("DB 연결 끊김");
+                });
+        hold(10, "70000");
+
+        failing.onSignal(buySignal("000660", "200000"));
+        assertTrue(onlyOrders(published).isEmpty());
+        assertEquals("미체결 주문 조회 실패 — 매수 거부", lastDecision().reason());
+
+        failing.onSignal(new Signal("test-strategy", new StockCode("005930"), Side.SELL,
+                new Price(new BigDecimal("71000")), 1.0, Instant.now()));
+        assertEquals(1, onlyOrders(published).size());
+        assertEquals(Side.SELL, onlyOrders(published).get(0).side());
+    }
+
+    @Test
+    void 수동_매수는_미체결_매수_검사를_받지_않는다() {
+        // 수동 지정은 물타기 금지·동시 보유 한도를 적용하지 않는다(운영자 의도) — 미체결 매수도 같은 성격
+        openBuys.add(new StockCode("005930"));
+
+        gate.onSignal(manualSignal(Side.BUY, "70000", 1));
+
+        assertEquals(1, onlyOrders(published).size());
+    }
+
+    @Test
+    void 주문_ID는_슬롯이_준_날짜와_일련번호로_만든다() {
+        gate.onSignal(buySignal("005930", "70000"));
+        gate.onSignal(buySignal("000660", "200000"));
+
+        List<OrderRequest> orders = onlyOrders(published);
+        // ANY_CLOCK = 2026-08-13T02:00Z = KST 08-13 11:00
+        assertEquals("20260813-TEST-STRATEGY-005930-BUY-001", orders.get(0).idempotencyKey());
+        assertEquals("20260813-TEST-STRATEGY-000660-BUY-002", orders.get(1).idempotencyKey());
     }
 }

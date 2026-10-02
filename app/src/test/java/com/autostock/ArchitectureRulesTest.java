@@ -80,6 +80,14 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void risk는_trading을_모른다() {
+        // 실행 계획 1.2: 미체결 매수는 risk.OpenOrderQuery 포트로만 본다 — trading이 구현(trading → risk 단방향)
+        noClasses().that().resideInAPackage("com.autostock.risk..")
+                .should().dependOnClassesThat().resideInAPackage("com.autostock.trading..")
+                .check(classes);
+    }
+
+    @Test
     void execution은_trading을_모른다() {
         // ARCHITECTURE.md 2절: trading → execution(BrokerPort) 단방향
         noClasses().that().resideInAPackage("com.autostock.execution..")
