@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
@@ -117,13 +118,34 @@ public class KiwoomRestClient {
      * @throws KiwoomApiException 4xx/5xx 오류 응답 시
      */
     public Map<String, Object> call(TrId trId, String path, Map<String, Object> body) {
+        return exchange(trId, path, body, null).body();
+    }
+
+    /**
+     * 연속 조회 한 페이지 — 요청 헤더 {@code cont-yn}·{@code next-key}로 다음 페이지를 이어 받는다(키움 REST 공통 규약).
+     * 첫 페이지는 {@code nextKey = null}. 응답 헤더가 {@code cont-yn: Y}면 {@link Page#nextKey()}에 다음 키를 담는다.
+     * 실측(scripts/probe_ka10080_depth.ps1, 2026-09-11): ka10080 1분봉은 페이지당 900행, 005930 1년치 107페이지.
+     * 첫 사용처는 분봉 1년 되채우기(market.MinuteBarArchiver, 2026-10-02 aiDoc/minute-bars-db.md).
+     */
+    public Page callPage(TrId trId, String path, Map<String, Object> body, String nextKey) {
+        return exchange(trId, path, body, nextKey);
+    }
+
+    /** 연속 조회 한 페이지 — 응답 본문과 다음 페이지 키(마지막 페이지면 null). */
+    public record Page(Map<String, Object> body, String nextKey) {
+        public boolean hasNext() {
+            return nextKey != null;
+        }
+    }
+
+    private Page exchange(TrId trId, String path, Map<String, Object> body, String nextKey) {
         // kiwoom.api.latency: TR(api_id)별 지연 분포를 태그로 나눠 기록한다. rate limiter 대기
         // 시간까지 포함해서 재는데(의도적) — "얼마나 기다렸는지"가 rate limit 튜닝의 원천이고,
         // 체결까지 걸린 총 시간은 슬리피지 분석의 기초 데이터이기 때문이다 (PLAN ADR-5).
         Timer.Sample sample = Timer.start(meterRegistry);
         try {
             // 바깥: rate limiter (통과할 때까지 대기) → 토큰 거부 시 1회 재발급 → 429 재시도 → 최심부: 실제 HTTP 호출
-            return rateLimiter.execute(trId, () -> callRefreshingRejectedToken(trId, path, body));
+            return rateLimiter.execute(trId, () -> callRefreshingRejectedToken(trId, path, body, nextKey));
         } catch (KiwoomApiException e) {
             reportAuthFailure(trId, e);
             throw e;
@@ -156,26 +178,32 @@ public class KiwoomRestClient {
      * 서버가 인증 단계에서 거절해 요청을 처리하지 않았으므로 주문 TR이어도 중복 위험이 없다(1700 재시도와 같은 근거).
      * 실측 2026-09-30: 절전 복귀 직후 만료 전 토큰이 8005로 거부돼 리포트·분봉 적재가 전부 실패했다.
      */
-    private Map<String, Object> callRefreshingRejectedToken(TrId trId, String path, Map<String, Object> body) {
+    private Page callRefreshingRejectedToken(TrId trId, String path, Map<String, Object> body, String nextKey) {
         String token = tokenManager.accessToken();
         try {
-            return callWithRateLimitRetry(trId, path, body, token);
+            return callWithRateLimitRetry(trId, path, body, nextKey, token);
         } catch (KiwoomApiException e) {
             if (!isTokenRejected(e)) {
                 throw e;
             }
             tokenManager.invalidate(token);
-            return callWithRateLimitRetry(trId, path, body, tokenManager.accessToken());
+            return callWithRateLimitRetry(trId, path, body, nextKey, tokenManager.accessToken());
         }
     }
 
-    @SuppressWarnings("unchecked")
-    private Map<String, Object> callWithRateLimitRetry(TrId trId, String path, Map<String, Object> body, String token) {
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    private Page callWithRateLimitRetry(TrId trId, String path, Map<String, Object> body, String nextKey, String token) {
         return Retry.decorateSupplier(retry, () -> {
-            Map<String, Object> response = (Map<String, Object>) webClient.post()
+            ResponseEntity<Map> entity = webClient.post()
                     .uri(path)
                     .header("authorization", "Bearer " + token)
                     .header("api-id", trId.apiId())
+                    .headers(headers -> {
+                        if (nextKey != null) {   // 연속 조회 — 첫 페이지는 헤더 없이 보낸다(지금까지의 단건 호출과 같다)
+                            headers.set("cont-yn", "Y");
+                            headers.set("next-key", nextKey);
+                        }
+                    })
                     .contentType(MediaType.valueOf("application/json;charset=UTF-8"))
                     .bodyValue(body)
                     .retrieve()
@@ -183,12 +211,18 @@ public class KiwoomRestClient {
                     .onStatus(HttpStatusCode::isError, resp ->
                             resp.bodyToMono(String.class).map(msg ->
                                     new KiwoomApiException("키움 API 오류 [" + trId.apiId() + "] " + msg)))
-                    .bodyToMono(Map.class)
+                    .toEntity(Map.class)
                     .timeout(REQUEST_TIMEOUT, Mono.error(() -> new KiwoomTimeoutException(
                             "키움 API 응답 없음 [" + trId.apiId() + "] " + REQUEST_TIMEOUT.toSeconds()
                                     + "초 내 응답 없음 — 망 단절/절전 복귀 여부 확인")))
                     .block();
-            return checkReturnCode(trId, response);
+            Map<String, Object> response = entity == null ? null : (Map<String, Object>) entity.getBody();
+            String next = null;
+            if (entity != null && "Y".equalsIgnoreCase(entity.getHeaders().getFirst("cont-yn"))) {
+                String key = entity.getHeaders().getFirst("next-key");
+                next = key == null || key.isBlank() ? null : key;
+            }
+            return new Page(checkReturnCode(trId, response), next);
         }).get();
     }
 

@@ -102,6 +102,7 @@ autostock.ws.enabled: true
 - [ ] 09:05 C3 요약 1줄 확인 — `C3 판단 YYYY-MM-DD — 국면 ON/OFF(지수 종목명(코드) 종가 / SMA200) · 매수 · 매도 · 보유 유지 · 미진입 · 주기 전 · 데이터 부족 · 오류 · 다음 판단 …`(2026-10-01 추가, `aiDoc/run-summary-logs.md`). 종목별 근거는 대시보드 판단 근거 탭
 - [ ] 08:20(·기동 시) `공모주 수집 완료 — … 증권신고(지분증권) N건(신규 딜 …)` 1줄. 공시 블랙리스트는 매매 대상·보유 종목만 즉시 WARN, 나머지는 1분 뒤 요약 INFO 1건(`aiDoc/alert-digest.md`)
 - [ ] 첫 주문 발생 시: ClientOrderId 포맷, orders 상태 전이(SUBMITTING→SUBMITTED→FILLED), WS 체결통보→Fill→포지션 일치
+- [ ] 15:45 `분봉 적재: 종목명(코드) N행 추가(1페이지 …)` 종목별 + `분봉 적재 완료(정기 적재) — 5종목 중 실패 0 …` 1줄. 분봉은 DB `minute_bars`(V12)에 쌓이고, 기동·매시 점검이 놓친 날을 따라잡는다. 장외 첫 기동 때는 1년 되채우기(약 10분, `분봉 되채우기: …`) — `aiDoc/minute-bars-db.md`
 - [ ] 15:50 일일 리포트 수신
 - [ ] **운영 규칙**: 게이트 ② 기준 = 2주+ 무인 운영, 치명 오류 0, 슬리피지 계측. 성과는 C3의 "새 데이터 검증"으로 축적(PROGRESS 3절)
 - [ ] paper A/B: 판단 주기 21일(기본) vs 5일 비교 원하면 두 인스턴스/설정 기간 교차 운영
@@ -129,7 +130,8 @@ autostock.ws.enabled: true
 | 재기동 직후 "재기동 복원: …" 알림·DEGRADED | 끄기 전에 킬스위치가 켜져 있었음 | 의도된 동작 — 원 사유 확인 후 사람이 해제. 앱이 뜨지 않아 DB에서 풀어야 하면 `UPDATE risk_state SET kill_switch_engaged=false, changed_by='manual-sql', changed_at=now();` 후 재기동 |
 | Healthchecks "DOWN" 알림 | 앱 중단·PC 절전/재부팅·네트워크 단절 | PC·Docker·앱 상태 확인 → `start_autostock.bat`. 휴장일이면 체크 Pause를 잊은 것 |
 | 보수 모드 ON | VIX≥25 or 환율≥1450 | 정상 동작(매수만 금지) — 임계치는 macrointel.* 설정 |
-| Flyway 마이그레이션 실패 | DB 초기화 필요 | **먼저 `scripts\backup_db.ps1`로 백업**(주문·판단 근거·일별 성과·킬스위치 상태가 사라진다) → `docker compose down -v` 후 재기동 |
+| Flyway 마이그레이션 실패 | 새 마이그레이션 오류, 또는 TimescaleDB가 없는 옛 DB(16-alpine)에서 V12 이후 코드 기동 | **먼저 `scripts\backup_db.ps1`로 백업** → 로그의 실패 버전·SQL 오류 확인 → 코드 수정 후 재기동, DB가 망가졌으면 직전 백업 복원(`restore_check.ps1 -Lab`으로 먼저 확인). 옛 DB면 `switch_db_timescale.ps1`. **`docker compose down -v` 금지** — 주문 이력·분봉(1년 지나면 다시 못 받음)까지 지운다 |
+| DB 전환(TimescaleDB) 뒤 이상 | 새 이미지·설정 문제 | 앱을 끄고 `scripts\rollback_db_pg16.ps1`(새 DB 덤프 → 옛 볼륨으로 복귀). V12 이후 코드면 그 이전 커밋으로 되돌린 뒤 기동 — `aiDoc/db-switch-timescale.md` 6절 |
 
 ## 7. 절대 금지
 

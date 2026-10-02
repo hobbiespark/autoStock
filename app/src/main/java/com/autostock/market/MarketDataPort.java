@@ -23,8 +23,12 @@ public interface MarketDataPort {
     /** 기준일부터 과거 방향 일봉, 날짜 오름차순. 한 페이지 분량(연속조회 미구현). */
     List<Candle> dailyCandles(String symbol, LocalDate baseDate);
 
-    /** 최근 1분봉 한 페이지(약 2.3거래일). 정렬은 보장하지 않는다. */
-    List<MinuteBar> minuteBars(String symbol);
+    /**
+     * 1분봉 한 페이지(약 900행 ≈ 2.3거래일) — 최신부터 과거 방향. 첫 페이지는 {@code nextKey = null},
+     * 다음 페이지는 앞 페이지의 {@link MinuteBarPage#nextKey()}. 브로커가 주는 가장 오래된 분봉까지 가면 nextKey가 null이다
+     * (키움 ka10080은 최근 1년 — 2026-09-11 실측). 페이지 안 정렬은 보장하지 않는다.
+     */
+    MinuteBarPage minuteBarPage(String symbol, String nextKey);
 
     /** 값이 없으면 필드는 null. */
     record StockQuote(String name, BigDecimal current, BigDecimal open, BigDecimal high, BigDecimal low) {
@@ -34,6 +38,13 @@ public interface MarketDataPort {
     /** 값이 없으면 필드는 null. */
     record BestQuote(BigDecimal bestAsk, BigDecimal bestBid) {
         public static final BestQuote EMPTY = new BestQuote(null, null);
+    }
+
+    /** 분봉 한 페이지와 다음 페이지 키(마지막 페이지면 null). */
+    record MinuteBarPage(List<MinuteBar> bars, String nextKey) {
+        public boolean hasNext() {
+            return nextKey != null;
+        }
     }
 
     /** 1분봉. time은 KST 체결 시각(분 시작). */
