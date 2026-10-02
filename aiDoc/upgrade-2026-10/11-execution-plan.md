@@ -33,7 +33,7 @@
 1. **작은 커밋 하나에 목적 하나**, 한국어 한 줄 메시지, AI 작성 표기 없음(CLAUDE.md §2, 코딩 규칙 §14). 커밋·push는 사용자 요청 시(push는 묶음 — aiDoc/claude-memory).
 2. **테스트 먼저**(코딩 규칙 §18.1): 지킬 동작을 테스트로 적고 → 구현 → `.\gradlew.bat test` 전체 통과(`ModularityTests`·`ArchitectureRulesTest` 포함).
 3. **Expand-Contract**: 스키마·API·설정은 추가 → 사용처 이동 → 옛것 제거(별도 커밋·별도 배포). 이벤트 JSON 형식 변경 금지.
-4. **Flyway 번호는 착수 순서대로 부여**(사전 예약 금지 — 번호가 역전되면 기본 `outOfOrder=false`에서 validate 실패). 현재 최종 V8.
+4. **Flyway 번호는 착수 순서대로 부여**(사전 예약 금지 — 번호가 역전되면 기본 `outOfOrder=false`에서 validate 실패). 현재 최종 V16(2026-10-02 — V9 Phase 0.2, V10 종목명, V11 공모 종류, V12 분봉, V13~V16 Phase 1 장외 묶음).
 5. **새 동작은 설정 키로 켜고 끈다**: 위험한 새 동작은 기본값을 "현행 유지"로 두고 장외에 켜서 다음 거래일에 확인한다. 새 키 목록은 규약-6.
 6. FE 소스를 바꾸면 `npm run build` 산출물(`app/src/main/resources/static`)을 같은 커밋에 넣는다(aiDoc/README 인계 메모).
 7. 작업마다 `aiDoc/<주제>.md` 근거 문서(코딩 규칙 §15 9항목)와 `aiDoc/README.md` 목록 한 줄, PROGRESS.md 해당 트랙 한 줄.
@@ -442,3 +442,4 @@ Boot 4.0.x 경유(OSS 2026-12-31 종료), PostgreSQL 18 즉시 승급(16은 2028
 
 ## 변경 이력
 - 2026-10-01: 최초 작성(조사 02~08, 감사 09·10, 보강 확인 반영).
+- 2026-10-02: Phase 1 중 장외에 할 수 있는 1.1~1.5·1.7~1.9를 앞당겨 구현(사용자 지시, D-03·D-07 권고안) — `aiDoc/phase1-offhours-2026-10-02.md`. 근거 문서 이름은 13절 권고와 다르다: 1.1 `c3-trading-day-cycle.md`, 1.2 `open-order-aware-risk.md`, 1.3 `async-notification.md`, 1.4 `macro-staleness.md`, 1.8 `audit-reliability.md`, 1.9 `small-fixes-2026-10-02.md`. 남은 Phase 1: 1.6(장중 실측), 1.10(복구 훈련).
