@@ -56,3 +56,4 @@
 - [macro-staleness.md](macro-staleness.md) — Phase 1.4: 거시 지표(VIX·원/달러) 7일 넘게 못 받으면 보수 모드(매수만 금지)+하루 1회 경고, 지표 ID 단일화
 - [position-reconcile.md](position-reconcile.md) — Phase 1.5: 잔고 보유 타입(BrokerHolding)으로 키움 필드를 어댑터 안에, 잔고↔장부 5분 대사(연속 2회 같으면 알림, 자동 교정 없음, 기본 꺼짐)
 - [observability.md](observability.md) — Phase 1.7: 헬스 kiwoomWs·kiwoomAuth·killSwitch, 게이지·카운터 9종, 일별 주문·취소 건수(V14 OTR 관측)
+- [audit-reliability.md](audit-reliability.md) — Phase 1.8: 감사 유실 보완 문구 정정, audit.write.failure, 이벤트 타입별 스키마 버전, event_publication Modulith 2 컬럼(V15, D-07 권고안)
