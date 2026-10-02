@@ -44,4 +44,6 @@
 - [backup.md](backup.md) — Phase 0.8: DB 백업(scripts/backup_db.ps1 — 컨테이너 내 pg_dump, 목차 확인, 14일+12개월 보존)과 복원 리허설(scripts/restore_check.ps1)
 - [alert-digest.md](alert-digest.md) — 10/1 로그 점검 F-1: 공시 블랙리스트 알림을 매매 대상·보유 종목만 즉시 WARN, 나머지는 1분 요약 INFO 1건으로. 텔레그램 429는 retry_after 대기 후 1회 재시도(상한 10초)
 - [run-summary-logs.md](run-summary-logs.md) — 10/1 로그 점검 F-2·F-4·F-5: C3 09:05 실행 요약 1줄, 공모주 수집 완료 요약 1줄, kt00018 실측 키 로그 DEBUG화
+- [external-data-files.md](external-data-files.md) — 외부 데이터 파일 현황(data/ 579MB·aiDoc/market-data·docs/measured)과 파일·DB 관리 비교. 분봉은 유일 원천인데 백업 누락·빈 날 많음 → DB 이전 확정(TimescaleDB, 10/1)·1년치 되채우기, aiDoc/market-data 공개 커밋 제거 권고(결정 대기)
+- [data-platform-postgres.md](data-platform-postgres.md) — PostgreSQL 최대 활용 설계: TimescaleDB·pgvector·pg_trgm·UNLOGGED·pg_prewarm을 한 DB에(시계열·AI 지식·메모리·학습), 매매 경로 분리·시점 정합성(available_at)·랩 컨테이너, HA 이미지(PG 17)·전환 실측, 결정 D-15~D-19
 - [stock-names.md](stock-names.md) — 2026-10-02 종목코드와 종목명 함께 표시: 표기 "삼성전자(005930)"(모르면 "종목명 미확인(코드)"), 이름 출처(키움 ka10001·kt00018 > DART 기업명), 메모리 사전 + V10 `stock_names`, 알림·리포트·API(symbolName)·화면·로그 적용
