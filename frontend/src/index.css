@@ -699,3 +699,16 @@ select {
 .live-confirm input {
   margin-top: 8px;
 }
+
+/* 종목 표기(2026-10-02, aiDoc/stock-names.md) — "삼성전자(005930)". 이름을 앞에, 코드를 흐리게 뒤에 붙인다. */
+.stock-label {
+  white-space: nowrap;
+}
+.stock-name-unknown {
+  color: var(--dim);
+  font-style: italic;
+}
+.stock-code {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}

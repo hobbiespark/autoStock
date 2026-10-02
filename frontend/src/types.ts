@@ -13,6 +13,7 @@ export type EventType = 'SIGNAL' | 'ORDER' | 'FILL' | string;
 
 export interface Position {
   symbol: string;
+  symbolName: string | null; // 종목명 — 코드와 함께 표시한다(2026-10-02). 서버가 아직 모르면 null
   quantity: number;
   avgPrice: string | number | null; // null = 평단 미상(잔고 복원에서 매입가를 못 찾음)
 }
@@ -44,7 +45,8 @@ export interface SlippageInfo {
   fills: number;
   avgBps: number;
   maxBps: number;
-  maxBpsSymbol: string;
+  maxBpsSymbol: string | null;
+  maxBpsSymbolName: string | null; // 최대 슬리피지 종목의 이름(모르면 null)
 }
 
 export interface DashboardView {
@@ -67,7 +69,7 @@ export interface TestSignalResponse {
 // 일부(특히 호가)가 null일 수 있다 — 화면은 "-"로 표시한다.
 export interface QuoteView {
   symbol: string;
-  name: string | null; // 종목명 (ka10001 stk_nm)
+  name: string | null; // 종목명 (ka10001 stk_nm, 조회 실패 시 서버 종목명 사전 값)
   currentPrice: string | number | null;
   openPrice: string | number | null;
   highPrice: string | number | null;
@@ -94,6 +96,7 @@ export type OrderStatus =
 export interface OrderHistoryItem {
   clientOrderId: string;
   symbol: string;
+  symbolName: string | null; // 종목명 — 코드와 함께 표시한다(2026-10-02). 서버가 아직 모르면 null
   side: Side;
   quantity: number;
   filledQuantity: number;
@@ -132,6 +135,7 @@ export interface DecisionItem {
   horizon: Horizon;
   strategyId: string;
   symbol: string;
+  symbolName: string | null; // 종목명 — 코드와 함께 표시한다(2026-10-02). 서버가 아직 모르면 null
   conclusion: DecisionConclusion;
   reason: string;
   metrics: Record<string, string>;

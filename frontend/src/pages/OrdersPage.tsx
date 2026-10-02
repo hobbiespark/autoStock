@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { cancelOrder, fetchOrders } from '../api';
 import OrderStatusBadge from '../components/OrderStatusBadge';
+import StockLabel from '../components/StockLabel';
+import { stockLabel } from '../stock';
 import type { OrderStatus } from '../types';
 
 const DAY_OPTIONS = [7, 30, 90] as const;
@@ -102,7 +104,9 @@ export default function OrdersPage() {
               orders.map((o) => (
                 <tr key={o.clientOrderId}>
                   <td>{new Date(o.submittedAt).toLocaleString()}</td>
-                  <td>{o.symbol}</td>
+                  <td>
+                    <StockLabel code={o.symbol} name={o.symbolName} />
+                  </td>
                   <td className={o.side === 'BUY' ? 'side-buy' : 'side-sell'}>{o.side}</td>
                   <td>
                     {o.quantity} / {o.filledQuantity}
@@ -119,7 +123,8 @@ export default function OrdersPage() {
                         className="secondary"
                         disabled={cancelMutation.isPending}
                         onClick={() => {
-                          if (window.confirm(`미체결 주문을 취소할까요?\n${o.clientOrderId}`)) {
+                          const target = `${stockLabel(o.symbol, o.symbolName)} ${o.side} ${o.quantity}주`;
+                          if (window.confirm(`미체결 주문을 취소할까요?\n${target}\n${o.clientOrderId}`)) {
                             cancelMutation.mutate(o.clientOrderId);
                           }
                         }}

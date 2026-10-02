@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { fetchDecisions } from '../api';
 import DecisionConclusionBadge from '../components/DecisionConclusionBadge';
+import StockLabel from '../components/StockLabel';
 import type { DecisionItem, Horizon } from '../types';
 
 // 지평 탭 순서·라벨(ADR-11) — TEST는 아직 지평 프레임에 편입되지 않은 전략(테스트 시그널
@@ -115,7 +116,9 @@ function DecisionRow({ item }: { item: DecisionItem }) {
   return (
     <div className="decision-row">
       <div className="decision-row-head">
-        <span className="decision-row-symbol">{item.symbol}</span>
+        <span className="decision-row-symbol">
+          <StockLabel code={item.symbol} name={item.symbolName} />
+        </span>
         <DecisionConclusionBadge conclusion={item.conclusion} />
         <span className="muted">{HORIZON_LABELS[item.horizon] ?? item.horizon}</span>
         <span className="muted">{item.strategyId}</span>
