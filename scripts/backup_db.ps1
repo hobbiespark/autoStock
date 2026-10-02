@@ -1,7 +1,10 @@
 ﻿# autoStock DB 백업 (Phase 0.8 — aiDoc/backup.md, RUNBOOK 8절)
 #
 # 동작: 운영 컨테이너(autostock-db) 안에서 pg_dump(-Fc, 압축 사용자 지정 형식) → 호스트로 docker cp → 목차(pg_restore --list)로
-#       파일이 읽히는지 확인 → 보존 규칙 적용(최근 N개 + 월별 마지막 M개). 실패하면 종료 코드 1(작업 스케줄러에 실패로 표시).
+#       파일이 읽히는지 확인 → 버전 기록(같은 이름의 .versions.txt: 이미지·PostgreSQL·확장 버전) → 보존 규칙 적용
+#       (최근 N개 + 월별 마지막 M개). 실패하면 종료 코드 1(작업 스케줄러에 실패로 표시).
+# 버전 기록 이유(2026-10-02 TimescaleDB 전환, aiDoc/db-switch-timescale.md): TimescaleDB 덤프는 덤프 때와 같은 확장 버전으로
+#       복원해야 한다(공식 문서). 복원 리허설(restore_check.ps1)은 운영 컨테이너와 같은 이미지를 쓴다.
 # 바이너리를 PowerShell 파이프로 받지 않는다 — Windows PowerShell 5.1은 파이프 출력을 텍스트로 다뤄 덤프가 깨진다.
 #
 # 사용:   powershell -NoProfile -ExecutionPolicy Bypass -File D:\myApp\autoStock\scripts\backup_db.ps1
@@ -33,8 +36,12 @@ function Log([string]$message) {
 $inContainer = "/tmp/autostock_$stamp.dump"
 $target = Join-Path $BackupDir "autostock_$stamp.dump"
 try {
-    docker exec $Container pg_dump -U autostock -d autostock -Fc -f $inContainer
-    if ($LASTEXITCODE -ne 0) { throw "pg_dump 실패(exit $LASTEXITCODE) — 컨테이너 $Container 실행 여부 확인" }
+    # TimescaleDB DB의 덤프는 "circular foreign-key constraints … continuous_agg" 경고를 늘 낸다 — 공식 문서상 정상이라 걸러 낸다
+    $dumpOutput = @(docker exec $Container pg_dump -U autostock -d autostock -Fc -f $inContainer 2>&1 | ForEach-Object { "$_" })
+    $dumpExit = $LASTEXITCODE
+    $dumpOutput | Where-Object { $_ -and $_ -notmatch "circular foreign-key|continuous_agg|--disable-triggers|data-only dump" } |
+            ForEach-Object { Write-Host "    $_" }
+    if ($dumpExit -ne 0) { throw "pg_dump 실패(exit $dumpExit) — 컨테이너 $Container 실행 여부 확인" }
 
     # 목차를 읽어 덤프가 온전한지 확인(항목 0이면 실패)
     $entries = @(docker exec $Container pg_restore --list $inContainer | Where-Object { $_ -and -not $_.StartsWith(";") })
@@ -45,6 +52,22 @@ try {
     $size = (Get-Item $target -ErrorAction Stop).Length
     if ($size -le 0) { throw "백업 파일 크기 0: $target" }
     Log ("[O] 백업 완료 {0} ({1:N0} bytes, 목차 {2}개)" -f $target, $size, $entries.Count)
+
+    # 버전 기록 — 실패해도 백업 자체는 유효하므로 경고만 남긴다
+    $versionFile = $target -replace '\.dump$', '.versions.txt'
+    $image = (docker inspect -f "{{.Config.Image}}" $Container) -join ""
+    $imageId = (docker inspect -f "{{.Image}}" $Container) -join ""
+    $versions = @(docker exec $Container psql -X -U autostock -d autostock -tA `
+            -c "select 'server ' || current_setting('server_version')" `
+            -c "select 'extension ' || extname || ' ' || extversion from pg_extension order by extname")
+    if ($LASTEXITCODE -eq 0) {
+        $content = @("# autoStock 백업 버전 기록 — 복원은 같은 PostgreSQL 메이저·TimescaleDB 버전의 이미지로 한다",
+                     "dump $(Split-Path -Leaf $target)", "image $image", "image_id $imageId") + $versions
+        Set-Content -Path $versionFile -Value $content -Encoding UTF8 -ErrorAction Stop
+        Log ("[O] 버전 기록 {0} ({1})" -f (Split-Path -Leaf $versionFile), (($versions | Where-Object { $_ -like "extension timescaledb *" }) -join ", "))
+    } else {
+        Log "[!] 버전 기록 실패(psql exit $LASTEXITCODE) — 백업 파일은 유효"
+    }
 
     if ($OffsiteDir) {
         New-Item -ItemType Directory -Force -Path $OffsiteDir -ErrorAction Stop | Out-Null
@@ -71,6 +94,8 @@ $removed = 0
 foreach ($file in $all) {
     if (-not $keep.Contains($file.Name)) {
         Remove-Item -Path $file.FullName -Force -ErrorAction Stop
+        $versionFile = $file.FullName -replace '\.dump$', '.versions.txt'
+        if (Test-Path $versionFile) { Remove-Item -Path $versionFile -Force -ErrorAction Stop }
         $removed++
     }
 }
