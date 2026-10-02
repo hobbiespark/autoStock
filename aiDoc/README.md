@@ -50,6 +50,7 @@
 - [ipo-demand-forecast.md](ipo-demand-forecast.md) — 2026-10-02 공모주 기관경쟁률·의무보유확약비율(수량 기준) 자동 입력: [발행조건확정] 신고서 원본(document.xml)의 수요예측 결과, 실측 14건·언론 대조, 상장사 유상증자를 공모주에서 제외(주요정보 모집방법·공시 본문 판정, V11), 수동 입력 우선
 - [db-switch-timescale.md](db-switch-timescale.md) — 2026-10-02 S1 1단계: DB를 TimescaleDB HA 이미지(PostgreSQL 17, 다이제스트 고정)로 전환하는 스크립트(덤프·복원·행 수 대조·자동 되돌림·끊김 복구)와 되돌리기, 백업 버전 기록·복원 리허설 pre/post restore·랩(-Lab), DB 테스트는 운영 이미지로만(zonky 제거), 결정 D-15~D-19 권고안 적용
 - [minute-bars-db.md](minute-bars-db.md) — 2026-10-02 S1 2단계: 분봉을 DB로(V12 `minute_bars` 하이퍼테이블·월 청크·18시 열 압축, `daily_bars` KST 일봉 연속 집계), 적재 잡 따라잡기·장외 1년 되채우기·빈 구간 메우기·검증 제외·CSV 이관, 키움 연속 조회(cont-yn·next-key)
+- [phase1-offhours-2026-10-02.md](phase1-offhours-2026-10-02.md) — 2026-10-02 장마감 후 Phase 1 당겨 하기 묶음(1.1~1.5·1.7~1.9 + 알림 결함 2건): 변경 요약, 새 설정 키·마이그레이션(V13~V16), 운영 변경 이벤트, 재기동·장중 확인 목록
 - [c3-trading-day-cycle.md](c3-trading-day-cycle.md) — Phase 1.1: C3 판단 주기를 21거래일로(백테스트 21봉과 같게), 마지막 판단일 영속화(V13 `strategy_state`), D-03 권고안(카운트 유지·성과 변경일 기준 분리)
 - [open-order-aware-risk.md](open-order-aware-risk.md) — Phase 1.2: RiskGate가 미체결 매수를 안다(risk.OpenOrderQuery 포트, 같은 종목 중복 매수 차단·동시 보유 한도 포함), 주문 슬롯 날짜+일련번호 원자 발급(BE-P2-17 포함)
 - [async-notification.md](async-notification.md) — Phase 1.3: 체결·주문·킬스위치 알림을 전용 작업자 1개 대기열로(발행 스레드 무대기·순서 보존·상한 500·종료 단계에서 비우기)
