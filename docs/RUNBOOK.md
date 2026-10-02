@@ -21,6 +21,7 @@ git push                                  # 미푸시 커밋 반영
 - [ ] GitHub Actions 첫 CI **초록불** 확인 (gradlew 권한 수정 후 첫 실행 — 스모크 테스트까지 통과해야 함)
 - [ ] `.env` 존재 확인 (모의투자 일반 계좌 키). ⚠️ 채팅에 노출됐던 키이므로 **키움 홈페이지에서 재발급 권장**
 - [ ] PostgreSQL 기동 — 원클릭: `powershell -ExecutionPolicy Bypass -File .\scripts\setup_docker.ps1` (기본 실행 정책이 Restricted라 Bypass 필요; 영구 허용은 `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`) (Docker 설치/기동 확인 → postgres up → healthy 대기 → 접속 스모크까지 자동. Docker 미설치 시 `winget install -e --id Docker.DockerDesktop` 안내 출력). 수동으로 하려면: `docker compose -f infra/docker-compose.yml up -d postgres`
+- DB 이미지(2026-10-02~): TimescaleDB HA(PostgreSQL 17, `timescale/timescaledb-ha` 다이제스트 고정). 옛 `postgres:16-alpine`에서 옮길 때는 앱을 끄고 `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\switch_db_timescale.ps1`(덤프·복원·행 수 대조·자동 되돌림, 먼저 `-CheckOnly`로 점검 가능). 되돌리기는 `scripts\rollback_db_pg16.ps1` — 근거 `aiDoc/db-switch-timescale.md`
 - 참고: 이 PC는 JDK 21이 `D:\jdks\jdk-21.0.12.101-hotspot`에 있음(시스템 기본은 Java 11 + `JAVA_TOOL_OPTIONS` 전역 설정). Gradle 실행 전 창마다 `$env:JAVA_HOME="D:\jdks\jdk-21.0.12.101-hotspot"; $env:Path="$env:JAVA_HOME\bin;$env:Path"` 지정, 또는 사용자 환경변수 `JAVA_HOME` 영구 등록
 - 참고: Windows에서는 `gradlew.bat` 사용(셸스크립트 gradlew는 CRLF 상태 — WSL/Git Bash에서 실행 시 `bash -c "tr -d '\r' < gradlew | bash -s -- test"` 또는 `git config core.autocrlf` 정리 필요)
 
@@ -94,7 +95,7 @@ autostock.ws.enabled: true
   2. **Healthchecks.io**(무료): 체크 1개 생성 → Schedule **Cron** `* 9-15 * * 1-5`, Time zone **Asia/Seoul**, Grace **3분** → Integrations에서 **Telegram** 연결 → ping URL을 `.env`의 `MONITOR_HEARTBEAT_URL`로. 앱이 장중(ACTIVE) 1분마다 핑한다(`monitor.HeartbeatPinger`). **휴장일 전날 체크를 Pause**(다음 핑이 오면 자동 재개) — 안 하면 휴장일 09시에 오탐 알림
   - 실측(1회): 장중 앱을 일부러 3분 이상 멈춰 텔레그램 알림이 오는지 확인 → 8절 점검 기록에 남긴다
 - **Windows 전원·업데이트 (Phase 0.9, 관리자 PowerShell 1회)**: `powercfg /change standby-timeout-ac 0` · `powercfg /change hibernate-timeout-ac 0` · 장치 관리자 → 네트워크 어댑터 → 전원 관리 → "전원을 절약하기 위해 컴퓨터가 이 장치를 끌 수 있음" 해제 · 설정 → Windows 업데이트 → 사용 시간 06:00~24:00, 업데이트는 주말에 수동 설치. 확인: 장중 `powercfg /requests`에 java.exe, `powercfg /a`로 대기 상태 확인. 앱의 JNA 절전 차단(`SleepGuard`)은 그대로 둔다
-- **DB 백업 (Phase 0.8)**: `scripts\backup_db.ps1` — 컨테이너 안 `pg_dump -Fc` → `D:\backup\autostock\autostock_yyyyMMdd_HHmm.dump`, 목차 확인, 보존(최근 14개 + 월별 마지막 12개), 로그 `backup.log`. **작업 스케줄러 등록(1회)**: 동작 `powershell.exe`, 인수 `-NoProfile -ExecutionPolicy Bypass -File D:\myApp\autoStock\scripts\backup_db.ps1`, 트리거 평일 16:30(15:45 분봉·15:50 리포트 뒤). 오프사이트 복사는 `-OffsiteDir <OneDrive 폴더>`(선택). 복원 리허설은 8절(월 1회)
+- **DB 백업 (Phase 0.8)**: `scripts\backup_db.ps1` — 컨테이너 안 `pg_dump -Fc` → `D:\backup\autostock\autostock_yyyyMMdd_HHmm.dump`, 목차 확인, 같은 이름 `.versions.txt`(이미지·PostgreSQL·TimescaleDB 버전 — 복원은 같은 버전으로), 보존(최근 14개 + 월별 마지막 12개), 로그 `backup.log`. **작업 스케줄러 등록(1회)**: 동작 `powershell.exe`, 인수 `-NoProfile -ExecutionPolicy Bypass -File D:\myApp\autoStock\scripts\backup_db.ps1`, 트리거 평일 16:30(15:45 분봉·15:50 리포트 뒤). 오프사이트 복사는 `-OffsiteDir <OneDrive 폴더>`(선택). 복원 리허설은 8절(월 1회)
 - 사전(수동 기동 시): 새 창이면 위 2절의 .env 로더를 먼저 실행(미로드 시 KiwoomProperties 바인딩 실패로 기동 불가)
 - [ ] 앱 시작 → Reconciliation 로그(잔고 대사) 정상 → RUNNING
 - [ ] **WS 로그인 성공(sor_yn=Y) — 재구독 N종목** 로그 확인 (LOGIN→REG 순서 실전 검증 포인트)
@@ -141,10 +142,11 @@ autostock.ws.enabled: true
 | 주기 | 항목 | 방법 | 통과 기준 |
 |---|---|---|---|
 | 매일(자동) | DB 백업 | 작업 스케줄러 16:30 → `scripts\backup_db.ps1` | `D:\backup\autostock\backup.log`에 `[O] 백업 완료` |
-| 월 1회 | 복원 리허설 | `scripts\restore_check.ps1`(최신 덤프를 임시 컨테이너 `postgres:16-alpine`에 복원 → 주요 테이블 행 수 대조) | `[O] 결과: 복원 가능`, 테이블 누락 0 |
+| 월 1회 | 복원 리허설 | `scripts\restore_check.ps1`(최신 덤프를 운영과 같은 이미지의 임시 컨테이너에 복원 — TimescaleDB면 pre/post restore → public 테이블 전부 행 수 대조). `-Lab`이면 복원본을 랩 `autostock-lab`(127.0.0.1:5433)으로 남긴다 — 학습·실험은 운영 DB가 아니라 여기서(D-19) | `[O] 결과: 복원 가능`, 테이블 누락 0 |
 | 월 1회(매월 1영업일 **전**) | 키움 실서버 접속 기록(D-02) | **키움 고객센터에 "토큰 발급만으로 접속 인정되는지" 확인한 뒤 시작.** 실전 키 파일로 토큰 발급(au10001) → 즉시 폐기(au10002), **주문 없음**. 아래 스니펫 | `return_code 0` 두 번 |
 | 월 1회 | 키움 포털 | openapi.kiwoom.com → App Key 관리: 서비스 상태, 허용 IP 목록에 현재 공인 IP(최대 10개) | 해지 아님, 현재 IP 등록됨 |
 | 휴장일 전날 | Healthchecks 체크 Pause | healthchecks.io → 체크 → Pause | 다음 거래일 첫 핑에서 자동 재개 |
+| DB 전환 2주 뒤(1회) | 옛 볼륨 정리 | 문제 없으면 `docker volume rm infra_pgdata`(16-alpine 시절 데이터, 롤백용) — 지우기 전 사용자 확인 | 전환 전 덤프 `autostock_preswitch_*.dump`는 남긴다 |
 | 12월 | 2027 휴장일·연말휴장(12/31) | KRX 공지 확인 → `scripts\sql`에 MANUAL 등록(예: `20261001_holidays_2026q4.sql` 형식) | `market_holidays`에 반영 |
 
 실서버 토큰 점검 스니펫(PowerShell, 키 값은 화면에 찍지 않는다 — 실전 키는 `.env`에 넣지 않고 키 파일 경로만 쓴다):

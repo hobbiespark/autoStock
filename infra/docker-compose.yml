@@ -1,20 +1,42 @@
+# autoStock 로컬 인프라 — TimescaleDB HA 이미지(PostgreSQL 17) 정의 (2026-10-02, aiDoc/db-switch-timescale.md)
+#
+# 이 파일은 전환 대기본이다. scripts\switch_db_timescale.ps1이 덤프·복원·행 수 대조를 마친 뒤에
+#   docker-compose.yml(postgres:16-alpine) → docker-compose.pg16.yml(롤백용)
+#   docker-compose.timescale.yml(이 파일)    → docker-compose.yml
+# 로 바꿔 놓는다. 그 전에 이 파일로 직접 up 하지 않는다 — 빈 DB가 새로 만들어진다.
 services:
   postgres:
-    image: postgres:16-alpine
+    # D-15 이미지·D-16 PostgreSQL 17. 다이제스트로 고정해 태그가 다른 빌드로 바뀌어도 같은 이미지를 받는다.
+    # 바꿀 때는 테스트 이미지(app/src/test/.../support/PostgresTestDatabase.IMAGE)도 함께 바꾼다.
+    image: timescale/timescaledb-ha:pg17.11-ts2.30.2@sha256:2fcc39a5d4c8a65f58691ef92c7819df5773db72397b2dd8493f114659b519c2
     container_name: autostock-db
     environment:
       POSTGRES_DB: autostock
       POSTGRES_USER: autostock
       POSTGRES_PASSWORD: autostock
+      POSTGRES_INITDB_ARGS: "--data-checksums"   # 데이터 페이지 손상 감지(첫 초기화 때만 적용)
+      TIMESCALEDB_TELEMETRY: "off"               # 기본 'basic' — 외부로 사용 통계를 보내지 않는다
+      # timescaledb-tune 기준값. 비우면 Docker VM 메모리의 25%를 shared_buffers로 잡는다(실측 7.8GB → 2GB).
+      # 2GB 기준 → shared_buffers 512MB·work_mem 16MB·maintenance_work_mem 256MB(실측). 연결 수를 안 주면 25로 줄어든다.
+      TS_TUNE_MEMORY: "2GB"
+      TS_TUNE_NUM_CPUS: "2"
+      TS_TUNE_MAX_CONNS: "50"
+    # 이미지 기본(timescaledb,pg_textsearch)에 느린 질의 통계·재기동 뒤 버퍼 복원을 더한다
+    command: ["postgres", "-c", "shared_preload_libraries=timescaledb,pg_textsearch,pg_stat_statements,pg_prewarm"]
     ports:
       - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      # HA 이미지의 데이터 경로는 /home/postgres/pgdata/data(uid 1000). 상위 폴더에 붙여야 소유권이 맞는다.
+      # 옛 볼륨 pgdata(16-alpine)와 이름이 달라 서로 건드리지 않는다 — 롤백은 옛 볼륨으로 되돌아간다.
+      - pgdata17:/home/postgres/pgdata
+    shm_size: 256mb   # 기본 64MB — 병렬 질의의 동적 공유 메모리 부족 방지
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U autostock"]
+      # TCP로 확인한다. 초기화 중 임시 서버는 소켓만 열므로(listen_addresses='') 초기화가 끝나야 healthy가 된다.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U autostock -d autostock"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 30
+      start_period: 30s
 
   sidecar-nlp:
     build: ../sidecar-nlp
@@ -26,4 +48,4 @@ services:
   # app 컨테이너는 Phase 2에서 추가 (개발 중엔 IDE/gradle bootRun 사용)
 
 volumes:
-  pgdata:
+  pgdata17:

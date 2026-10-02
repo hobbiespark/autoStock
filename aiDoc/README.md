@@ -31,7 +31,7 @@
   - `.env` — 비밀값, 커밋 금지
   - `.claude/settings.local.json` — 개인 권한 설정
 - [large-classes.md](large-classes.md) — B3: 큰 클래스 조사(측정표, 후보별 판단, 결정 요청)
-- [db-integration-test.md](db-integration-test.md) — P3: DB 통합 테스트(Docker면 postgres:16-alpine, 없으면 내장 PG 16.15), 첫 검증 4건
+- [db-integration-test.md](db-integration-test.md) — P3: DB 통합 테스트(2026-10-02부터 운영 이미지 TimescaleDB HA로만 — Testcontainers 또는 외부 주소, 없으면 건너뜀. 9/30에는 Docker면 postgres:16-alpine, 없으면 내장 PG 16.15), 첫 검증 4건
 - [time.md](time.md) — A5: 시간대 명시(저장 UTC·업무 날짜 KST 변환 층 표, DATE 영향 실측, cron zone 규칙 테스트)
 - [sleep-resume.md](sleep-resume.md) — 2026-09-30 로그: 장중 PC 절전 방지·복귀 감지, 토큰 거부(8005) 재발급, 로그 소음 정리
 - [upgrade-2026-10/](upgrade-2026-10/00-README.md) — 2026-10-01 고도화 조사(FE·BE·기획·디자인·인프라·주식거래 6관점)·코드 감사(BE·FE)·실행 계획(Phase 0~6, 충돌 방지 규약)·사용자 결정 목록(D-01~D-14)
@@ -48,3 +48,4 @@
 - [data-platform-postgres.md](data-platform-postgres.md) — PostgreSQL 최대 활용 설계: TimescaleDB·pgvector·pg_trgm·UNLOGGED·pg_prewarm을 한 DB에(시계열·AI 지식·메모리·학습), 매매 경로 분리·시점 정합성(available_at)·랩 컨테이너, HA 이미지(PG 17)·전환 실측, 결정 D-15~D-19
 - [stock-names.md](stock-names.md) — 2026-10-02 종목코드와 종목명 함께 표시: 표기 "삼성전자(005930)"(모르면 "종목명 미확인(코드)"), 이름 출처(키움 ka10001·kt00018 > DART 기업명), 메모리 사전 + V10 `stock_names`, 알림·리포트·API(symbolName)·화면·로그 적용
 - [ipo-demand-forecast.md](ipo-demand-forecast.md) — 2026-10-02 공모주 기관경쟁률·의무보유확약비율(수량 기준) 자동 입력: [발행조건확정] 신고서 원본(document.xml)의 수요예측 결과, 실측 14건·언론 대조, 상장사 유상증자를 공모주에서 제외(주요정보 모집방법·공시 본문 판정, V11), 수동 입력 우선
+- [db-switch-timescale.md](db-switch-timescale.md) — 2026-10-02 S1 1단계: DB를 TimescaleDB HA 이미지(PostgreSQL 17, 다이제스트 고정)로 전환하는 스크립트(덤프·복원·행 수 대조·자동 되돌림·끊김 복구)와 되돌리기, 백업 버전 기록·복원 리허설 pre/post restore·랩(-Lab), DB 테스트는 운영 이미지로만(zonky 제거), 결정 D-15~D-19 권고안 적용

@@ -4,6 +4,13 @@
 - 계획: `refactoring-plan.md` P3 표 "Testcontainers 통합 테스트"
 - 사용자 결정(2026-09-30): **운영 정확도 우선, Docker가 없을 때도 대응.**
 
+> **2026-10-02 변경(결정 D-18, `db-switch-timescale.md`):** 운영 DB가 TimescaleDB HA 이미지(PostgreSQL 17)로 바뀌어 **운영 이미지로만 검증한다.**
+> - 외부 DB 주소(`AUTOSTOCK_TEST_DB_URL`)가 있으면 그 DB를 쓴다.
+> - 없으면 Docker가 있을 때 Testcontainers로 `timescale/timescaledb-ha@sha256:2fcc39a5…`(운영과 같은 다이제스트·사전 적재 설정)를 띄운다.
+> - 둘 다 없으면 DB 테스트를 건너뛴다(`PostgresAvailableCondition`, 경고 로그 1줄). CI는 `AUTOSTOCK_TEST_DB_REQUIRED=true`로 건너뛰지 않고 실패시킨다.
+> - zonky 내장 PostgreSQL은 TimescaleDB 확장을 올릴 수 없어 뺐다. 아래 1~3절은 2026-09-30 기록으로 남긴다.
+> - Claude 작업 환경은 HA 이미지 파일시스템으로 띄운 PostgreSQL 17.11을 외부 주소로 쓴다. 10/2 전체 app 655건, common 63건 통과.
+
 ## 1. 결정
 
 - `support/PostgresTestDatabase`가 테스트 JVM당 PostgreSQL 하나를 띄운다.
