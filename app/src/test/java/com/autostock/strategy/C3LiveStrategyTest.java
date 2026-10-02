@@ -59,6 +59,37 @@ class C3LiveStrategyTest {
     /** 시세 조회 포트 — 강제 청산 기준가(최우선 매수호가) 조회용. 스텁하지 않은 조회는 null → "호가 없음"으로 처리된다. */
     private final MarketDataPort marketData = mock(MarketDataPort.class);
 
+    /** strategy_state 대역(실행 계획 1.1) — 메모리 맵. 여러 전략 인스턴스가 공유하면 "재기동"을 흉내 낸다. */
+    private final FakeStateStore stateStore = new FakeStateStore();
+
+    static final class FakeStateStore extends StrategyStateStore {
+        final Map<String, LocalDate> saved = new HashMap<>();
+        RuntimeException loadFailure;
+        RuntimeException saveFailure;
+        int loads;
+
+        FakeStateStore() {
+            super(null);
+        }
+
+        @Override
+        public Map<String, LocalDate> loadLastDecisionDates(String strategyId) {
+            loads++;
+            if (loadFailure != null) {
+                throw loadFailure;
+            }
+            return Map.copyOf(saved);
+        }
+
+        @Override
+        public void saveLastDecisionDate(String strategyId, String symbol, LocalDate date, Instant now) {
+            if (saveFailure != null) {
+                throw saveFailure;
+            }
+            saved.put(symbol, date);
+        }
+    }
+
     /**
      * 운영 상태기계가 RUNNING이라고 가정하는 스텁 — 이 테스트 파일은 C3LiveStrategy의
      * 매매 판단 로직만 검증하므로, 이중 가드(클래스 설명 "운영 상태기계와의 이중 가드" 참고)
@@ -168,7 +199,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(false, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                mock(TradingSystemManager.class), OCT_1_0905); // enabled=false는 상태 조회 전에 반환되므로 스텁 불필요
+                mock(TradingSystemManager.class), OCT_1_0905, stateStore); // enabled=false는 상태 조회 전에 반환되므로 스텁 불필요
 
         strategy.run();
 
@@ -190,7 +221,7 @@ class C3LiveStrategyTest {
 
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                notRunning, OCT_1_0905);
+                notRunning, OCT_1_0905, stateStore);
 
         strategy.run();
 
@@ -210,7 +241,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         when(marketData.bestQuote("000660")).thenReturn(new MarketDataPort.BestQuote(
                 new BigDecimal("49550"), new BigDecimal("49500")));
@@ -242,7 +273,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         strategy.run();
 
@@ -262,7 +293,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         when(marketData.bestQuote("005930")).thenReturn(new MarketDataPort.BestQuote(
                 new BigDecimal("10100"), new BigDecimal("10050")));
@@ -292,7 +323,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         when(marketData.bestQuote("005930")).thenReturn(new MarketDataPort.BestQuote(
                 new BigDecimal("9100"), new BigDecimal("9050")));
@@ -319,7 +350,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         strategy.run();
 
@@ -337,7 +368,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         assertDoesNotThrow(strategy::run, "한 종목의 예외가 전체 배치 실행을 중단시키면 안 됨");
 
@@ -362,7 +393,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         strategy.run();
 
@@ -395,7 +426,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         strategy.run();
 
@@ -418,7 +449,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         strategy.run();
 
@@ -441,7 +472,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
-                runningManager(), OCT_1_0905);
+                runningManager(), OCT_1_0905, stateStore);
 
         strategy.run();
 
@@ -475,7 +506,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660", "035420", "035720", "051910"), 5), chart, marketData,
-                positionBook, published::add, marketCalendarService, runningManager(), OCT_1_0905);
+                positionBook, published::add, marketCalendarService, runningManager(), OCT_1_0905, stateStore);
 
         C3LiveStrategy.RunSummary summary = strategy.execute();
 
@@ -485,11 +516,11 @@ class C3LiveStrategyTest {
         assertEquals(1, summary.count(C3LiveStrategy.Outcome.HOLD));
         assertEquals(1, summary.count(C3LiveStrategy.Outcome.SKIP));
         assertEquals(1, summary.errors());
-        assertEquals(LocalDate.of(2026, 10, 22), summary.nextDue(), "판단한 종목은 10/1 + 21일");
+        assertEquals(LocalDate.of(2026, 11, 3), summary.nextDue(), "판단한 종목은 10/1에서 21거래일 뒤(10/5·10/9 휴장 제외)");
         assertEquals(1, summary.retrySymbols(), "실패한 051910은 다음 스케줄에 다시 판단");
         assertEquals("C3 판단 2026-10-01 — 국면 ON(KODEX 200(069500) 종가 11000 / SMA200 10005)"
                         + " · 매수 1 · 매도 1 · 보유 유지 1 · 미진입 1 · 주기 전 0 · 데이터 부족 0 · 오류 1"
-                        + " · 다음 판단 2026-10-22부터 · 다음 스케줄에 재판단 1종목",
+                        + " · 다음 판단 2026-11-03부터 · 다음 스케줄에 재판단 1종목",
                 summary.toLogLine());
     }
 
@@ -501,7 +532,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("035720"), 5), chart, marketData, new PositionBook(), published::add,
-                marketCalendarService, runningManager(), OCT_1_0905);
+                marketCalendarService, runningManager(), OCT_1_0905, stateStore);
 
         strategy.execute();
         C3LiveStrategy.RunSummary second = strategy.execute();
@@ -517,7 +548,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, new PositionBook(), published::add,
-                marketCalendarService, runningManager(), OCT_1_0905);
+                marketCalendarService, runningManager(), OCT_1_0905, stateStore);
 
         C3LiveStrategy.RunSummary summary = strategy.execute();
 
@@ -535,7 +566,7 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy strategy = new C3LiveStrategy(
                 properties(true, List.of("005930", "000660"), 5), chart, marketData, positionBook, published::add,
-                marketCalendarService, runningManager(), OCT_1_0905);
+                marketCalendarService, runningManager(), OCT_1_0905, stateStore);
 
         C3LiveStrategy.RunSummary summary = strategy.execute();
 
@@ -553,15 +584,101 @@ class C3LiveStrategyTest {
         List<Object> published = new ArrayList<>();
         C3LiveStrategy disabled = new C3LiveStrategy(
                 properties(false, List.of("005930"), 5), chart, marketData, new PositionBook(), published::add,
-                marketCalendarService, runningManager(), OCT_1_0905);
+                marketCalendarService, runningManager(), OCT_1_0905, stateStore);
         // 2026-10-05(월) — 개천절 대체공휴일(폴백 달력)
         C3LiveStrategy holiday = new C3LiveStrategy(
                 properties(true, List.of("005930"), 5), chart, marketData, new PositionBook(), published::add,
                 marketCalendarService, runningManager(),
-                Clock.fixed(Instant.parse("2026-10-05T00:05:00Z"), ZoneOffset.UTC));
+                Clock.fixed(Instant.parse("2026-10-05T00:05:00Z"), ZoneOffset.UTC), stateStore);
 
         assertNull(disabled.execute());
         assertNull(holiday.execute());
         assertTrue(published.isEmpty());
+    }
+
+    // ── 판단 주기 21거래일 + 마지막 판단일 영속화(실행 계획 1.1, D-03) ─────────────────────────
+
+    private static Clock kst0905(int year, int month, int day) {
+        return Clock.fixed(LocalDate.of(year, month, day).atTime(9, 5).atZone(java.time.ZoneId.of("Asia/Seoul")).toInstant(),
+                ZoneOffset.UTC);
+    }
+
+    private C3LiveStrategy downtrendStrategy(String symbol, Clock clock) {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put(symbol, downtrendSymbolCandles(symbol));
+        return new C3LiveStrategy(properties(true, List.of(symbol), 5), chart, marketData, new PositionBook(),
+                event -> { }, marketCalendarService, runningManager(), clock, stateStore);
+    }
+
+    @Test
+    void 판단_주기는_휴장일을_뺀_21거래일이다() {
+        // 10/1 판단 → 10/5·10/9 휴장을 빼면 21거래일째는 11/3(역일 21일인 10/22가 아니다)
+        stateStore.saved.put("035720", LocalDate.of(2026, 10, 1));
+
+        C3LiveStrategy.RunSummary oct22 = downtrendStrategy("035720", kst0905(2026, 10, 22)).execute();
+        C3LiveStrategy.RunSummary nov2 = downtrendStrategy("035720", kst0905(2026, 11, 2)).execute();
+        assertEquals(1, oct22.count(C3LiveStrategy.Outcome.NOT_DUE));
+        assertEquals(1, nov2.count(C3LiveStrategy.Outcome.NOT_DUE), "20거래일째 — 아직");
+        assertEquals(LocalDate.of(2026, 11, 3), nov2.nextDue());
+
+        C3LiveStrategy.RunSummary nov3 = downtrendStrategy("035720", kst0905(2026, 11, 3)).execute();
+        assertEquals(1, nov3.count(C3LiveStrategy.Outcome.SKIP), "21거래일째 — 판단");
+        assertEquals(LocalDate.of(2026, 11, 3), stateStore.saved.get("035720"));
+    }
+
+    @Test
+    void 재기동해도_저장된_판단일을_읽어_다시_판단하지_않는다() {
+        C3LiveStrategy first = downtrendStrategy("035720", OCT_1_0905);
+        assertEquals(1, first.execute().count(C3LiveStrategy.Outcome.SKIP));
+        assertEquals(LocalDate.of(2026, 10, 1), stateStore.saved.get("035720"));
+
+        // 새 인스턴스 = 재기동. 같은 날·다음 거래일 모두 주기 전
+        assertEquals(1, downtrendStrategy("035720", OCT_1_0905).execute().count(C3LiveStrategy.Outcome.NOT_DUE));
+        assertEquals(1, downtrendStrategy("035720", kst0905(2026, 10, 2)).execute().count(C3LiveStrategy.Outcome.NOT_DUE));
+    }
+
+    @Test
+    void 데이터_부족으로_건너뛴_종목은_판단일을_저장하지_않는다() {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles()); // 005930은 캔들 없음
+        C3LiveStrategy strategy = new C3LiveStrategy(properties(true, List.of("005930"), 5), chart, marketData,
+                new PositionBook(), event -> { }, marketCalendarService, runningManager(), OCT_1_0905, stateStore);
+
+        assertEquals(1, strategy.execute().count(C3LiveStrategy.Outcome.NO_DATA));
+        assertTrue(stateStore.saved.isEmpty());
+    }
+
+    @Test
+    void 판단일_복원이_실패하면_예전처럼_다시_판단하고_다음_실행에서_다시_읽는다() {
+        stateStore.saved.put("035720", LocalDate.of(2026, 10, 1));
+        stateStore.loadFailure = new IllegalStateException("DB 연결 끊김(테스트)");
+        C3LiveStrategy strategy = downtrendStrategy("035720", OCT_1_0905);
+
+        assertEquals(1, strategy.execute().count(C3LiveStrategy.Outcome.SKIP), "복원 실패 — 기록 없는 종목처럼 판단");
+
+        stateStore.loadFailure = null;
+        assertEquals(1, strategy.execute().count(C3LiveStrategy.Outcome.NOT_DUE));
+        assertEquals(2, stateStore.loads, "성공할 때까지 실행마다 다시 읽는다");
+        strategy.execute();
+        assertEquals(2, stateStore.loads, "한 번 성공하면 다시 읽지 않는다");
+    }
+
+    @Test
+    void 판단일_저장이_실패해도_판단과_신호는_그대로_나간다() {
+        stateStore.saveFailure = new IllegalStateException("DB 연결 끊김(테스트)");
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put("005930", uptrendSymbolCandles("005930"));
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(properties(true, List.of("005930"), 5), chart, marketData,
+                new PositionBook(), published::add, marketCalendarService, runningManager(), OCT_1_0905, stateStore);
+
+        C3LiveStrategy.RunSummary summary = strategy.execute();
+
+        assertEquals(1, summary.count(C3LiveStrategy.Outcome.BUY));
+        assertEquals(0, summary.errors());
+        assertEquals(1, onlySignals(published).size());
+        assertEquals(1, strategy.execute().count(C3LiveStrategy.Outcome.NOT_DUE), "메모리에는 남아 같은 날 다시 사지 않는다");
     }
 }

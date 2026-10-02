@@ -30,6 +30,7 @@ import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -39,7 +40,7 @@ import java.util.stream.Collectors;
  *
  * <h2>왜 스케줄 기반인가(MarketTick 리스너가 아니라)</h2>
  * 이 전략이 쓰는 판단(모멘텀·국면·변동성)은 전부 "일봉" 단위이고, 판단 주기도
- * {@link C3StrategyProperties#decisionIntervalDays}일(기본 21영업일)에 한 번뿐이다.
+ * {@link C3StrategyProperties#decisionIntervalDays}거래일(기본 21)에 한 번뿐이다.
  * 장중 틱을 볼 이유가 전혀 없으므로, {@code StrategyEngine}의 {@code MarketTick} 이벤트
  * 리스너 경로를 쓰지 않고 하루 한 번(정규장 시작 직후 09:05 KST) 스스로 판단을 내린다.
  *
@@ -57,7 +58,7 @@ import java.util.stream.Collectors;
  *   <li>OFF면: 이 전략이 관리하는 종목 중 보유 중인 것 전부 SELL Signal을 발행하고
  *       종료한다(신규 진입은 아예 판단하지 않는다).</li>
  *   <li>ON이면: 종목별로 "판단일"(마지막 판단 후 decisionIntervalDays가 지났는지)인지
- *       확인하고, 판단일이면 일봉을 조회해 {@link MomentumMath}로 상승/하락 추세를 가른다.
+ *       확인하고(거래일 기준), 판단일이면 일봉을 조회해 {@link MomentumMath}로 상승/하락 추세를 가른다.
  *       상승 전환+미보유면 {@link VolTargetMath}로 투입 비중을 계산해 BUY, 하락 전환+보유면
  *       SELL을 발행한다.</li>
  * </ol>
@@ -68,12 +69,14 @@ import java.util.stream.Collectors;
  * 방법이다. {@code risk.RiskGate}가 이 값을 사이징(equity × 종목당한도 × confidence)에
  * 곱한다({@code PositionSizer.sizeBuy} 참고).
  *
- * <h2>21일 주기 카운터 — 인메모리, 영속화 TODO</h2>
- * {@link #lastDecisionDate}는 종목별 "마지막 판단일"을 인메모리 맵으로만 들고 있다.
- * 앱을 재시작하면 이 상태가 사라져, 재시작 직후 스케줄에서는 모든 종목을 다시 판단하게
- * 된다(원래 예정보다 이를 수 있음). TODO: DB 테이블로 영속화해 재시작 후에도 원래
- * 판단 주기를 유지하도록 개선해야 한다 — 지금은 "판단을 건너뛰기보다 한 번 더 하는 쪽이
- * 안전하다"는 보수적 방향으로 남겨둔다.
+ * <h2>판단 주기 — 21거래일, 마지막 판단일 영속화(실행 계획 1.1, 2026-10-02)</h2>
+ * 판단 주기는 백테스트와 같은 "봉(거래일)" 단위다 — 마지막 판단일 다음 거래일부터 세어
+ * {@link C3StrategyProperties#decisionIntervalDays}번째 거래일에 다시 판단한다
+ * ({@link MarketCalendarService#tradingDaysBetween}). 예전에는 역일(plusDays)로 세어 휴장일이 낀 달엔
+ * 백테스트보다 일찍 판단했다. 종목별 마지막 판단일은 {@link StrategyStateStore}(strategy_state, V13)에 저장하고
+ * 재기동 뒤 첫 실행에서 읽는다 — 예전에는 메모리에만 있어 재기동할 때마다 전 종목을 다시 판단했다
+ * (아침 자동 기동이면 사실상 매일 판단). 저장·복원이 실패해도 매매를 막지 않는다 — 그때는 예전처럼
+ * "판단을 건너뛰기보다 한 번 더 하는 쪽"으로 동작한다(aiDoc/c3-trading-day-cycle.md).
  *
  * <h2>예외 격리</h2>
  * 종목 하나의 조회·계산 실패(네트워크 오류, 데이터 부족 등)가 나머지 종목 판단을 막지
@@ -107,11 +110,14 @@ public class C3LiveStrategy {
     private final TradingSystemManager tradingSystemManager;
 
     /**
-     * 종목별 "마지막 판단일" — decisionIntervalDays 주기 카운터의 인메모리 상태.
-     * 클래스 설명 "21일 주기 카운터" 절 참고(영속화 TODO).
+     * 종목별 "마지막 판단일" — 판단 주기 카운터. strategy_state의 사본이다(클래스 설명 "판단 주기" 절).
      */
     private final Map<String, LocalDate> lastDecisionDate = new ConcurrentHashMap<>();
     private final Clock clock;
+    private final StrategyStateStore stateStore;
+
+    /** 저장된 마지막 판단일을 읽었는지 — 재기동 뒤 첫 실행에서 한 번 읽는다(실패하면 다음 실행에서 다시). */
+    private volatile boolean stateLoaded;
 
     public C3LiveStrategy(C3StrategyProperties properties,
                           KiwoomDailyChartService chartService,
@@ -119,8 +125,10 @@ public class C3LiveStrategy {
                           PositionBook positionBook,
                           ApplicationEventPublisher publisher,
                           MarketCalendarService marketCalendarService,
-                          TradingSystemManager tradingSystemManager, Clock clock) {
+                          TradingSystemManager tradingSystemManager, Clock clock,
+                          StrategyStateStore stateStore) {
         this.clock = clock;
+        this.stateStore = stateStore;
         this.properties = properties;
         this.chartService = chartService;
         this.marketData = marketData;
@@ -167,6 +175,7 @@ public class C3LiveStrategy {
             log.info("C3: 휴장일({}) — 이번 스케줄 스킵", today);
             return null;
         }
+        loadStateOnce();
 
         RegimeSnapshot regime = judgeRegime();
         if (!regime.on()) {
@@ -201,7 +210,8 @@ public class C3LiveStrategy {
         int retrySymbols = 0;
         for (String symbol : properties.symbols()) {
             LocalDate last = lastDecisionDate.get(symbol);
-            LocalDate due = last == null ? null : last.plusDays(properties.decisionIntervalDays());
+            LocalDate due = last == null ? null
+                    : marketCalendarService.plusTradingDays(last, properties.decisionIntervalDays());
             if (due == null || !due.isAfter(today)) {
                 retrySymbols++;
             } else if (nextDue == null || due.isBefore(nextDue)) {
@@ -406,6 +416,7 @@ public class C3LiveStrategy {
 
         // 조회에 성공해 실제로 판단을 내렸을 때만 "판단일"을 갱신한다.
         lastDecisionDate.put(symbol, today);
+        saveDecisionDate(symbol, today);
 
         boolean uptrend = MomentumMath.shouldHold(closes, properties.lookbackN());
         boolean holding = positionBook.holds(new StockCode(symbol));
@@ -468,10 +479,42 @@ public class C3LiveStrategy {
                 HORIZON, STRATEGY_ID, new StockCode(symbol), conclusion, reason, metrics, clock.instant()));
     }
 
-    /** decisionIntervalDays 주기 판정 — 마지막 판단일이 없거나(첫 판단) 주기가 지났으면 true. */
+    /**
+     * 판단 주기 판정 — 마지막 판단일이 없거나(첫 판단) 그 뒤 거래일이 decisionIntervalDays개 이상 지났으면 true
+     * (백테스트의 21봉과 같은 단위, 실행 계획 1.1).
+     */
     private boolean isJudgmentDay(String symbol, LocalDate today) {
         LocalDate last = lastDecisionDate.get(symbol);
-        return last == null || !last.plusDays(properties.decisionIntervalDays()).isAfter(today);
+        return last == null
+                || marketCalendarService.tradingDaysBetween(last, today) >= properties.decisionIntervalDays();
+    }
+
+    /**
+     * 재기동 뒤 첫 실행에서 저장된 마지막 판단일을 읽는다. 메모리에 더 늦은 날짜가 있으면(복원 실패 뒤 판단한 경우)
+     * 그쪽을 남긴다. 실패하면 경고만 남기고 이번엔 메모리 값으로 진행한다 — 기록 없는 종목은 다시 판단한다(기존 방향).
+     */
+    private void loadStateOnce() {
+        if (stateLoaded) {
+            return;
+        }
+        try {
+            Map<String, LocalDate> saved = stateStore.loadLastDecisionDates(STRATEGY_ID);
+            saved.forEach((symbol, date) -> lastDecisionDate.merge(symbol, date, (a, b) -> a.isAfter(b) ? a : b));
+            stateLoaded = true;
+            log.info("C3: 마지막 판단일 복원 {}종목 {}", saved.size(), new TreeMap<>(saved));
+        } catch (RuntimeException e) {
+            log.warn("C3: 마지막 판단일 복원 실패 — 이번 실행은 메모리 기준(기록 없는 종목은 다시 판단), 다음 실행에서 재시도", e);
+        }
+    }
+
+    /** 판단일 저장 — 실패해도 판단은 계속한다(재기동하면 이 종목을 한 번 더 판단할 뿐이다). */
+    private void saveDecisionDate(String symbol, LocalDate today) {
+        try {
+            stateStore.saveLastDecisionDate(STRATEGY_ID, symbol, today, clock.instant());
+        } catch (RuntimeException e) {
+            log.warn("C3: 종목 {} 마지막 판단일 저장 실패 — 판단은 계속(재기동하면 이 종목을 다시 판단)",
+                    StockNames.label(symbol), e);
+        }
     }
 
     /**

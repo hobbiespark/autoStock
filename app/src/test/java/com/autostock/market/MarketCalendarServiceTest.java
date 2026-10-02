@@ -6,6 +6,7 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -89,5 +90,37 @@ class MarketCalendarServiceTest {
 
         assertTrue(service.isMarketHours(LocalDate.of(2026, 8, 13).atTime(10, 0)));
         assertFalse(service.isMarketHours(LocalDate.of(2026, 8, 13).atTime(20, 0)));
+    }
+
+    // ── 거래일 세기(실행 계획 1.1 — C3 판단 주기를 백테스트와 같은 21봉으로) ─────────────────
+
+    @Test
+    void 거래일_수는_주말과_휴장일을_빼고_끝날만_포함해_센다() {
+        MarketHolidayRepository repository = mock(MarketHolidayRepository.class);
+        when(repository.findByHolidayDateBetween(any(), any())).thenReturn(List.of()); // 폴백 달력(추석·10/5·10/9 포함)
+        MarketCalendarService service = new MarketCalendarService(repository);
+
+        // 9/22(화) 다음 날부터 10/2(금)까지: 9/23, 9/28, 9/29, 9/30, 10/1, 10/2 — 9/24~26 추석 연휴·주말 제외
+        assertEquals(6, service.tradingDaysBetween(LocalDate.of(2026, 9, 22), LocalDate.of(2026, 10, 2)));
+        // 10/2(금) → 10/6(화): 주말·10/5 대체공휴일을 건너 1일
+        assertEquals(1, service.tradingDaysBetween(LocalDate.of(2026, 10, 2), LocalDate.of(2026, 10, 6)));
+        // 같거나 거꾸로 된 구간은 0
+        assertEquals(0, service.tradingDaysBetween(LocalDate.of(2026, 10, 6), LocalDate.of(2026, 10, 6)));
+        assertEquals(0, service.tradingDaysBetween(LocalDate.of(2026, 10, 6), LocalDate.of(2026, 10, 2)));
+    }
+
+    @Test
+    void 거래일_n개_뒤는_휴장일을_건너뛴_n번째_거래일이다() {
+        MarketHolidayRepository repository = mock(MarketHolidayRepository.class);
+        when(repository.findByHolidayDateBetween(any(), any())).thenReturn(List.of());
+        MarketCalendarService service = new MarketCalendarService(repository);
+
+        // 10/1(목)에서 21거래일 — 10/5·10/9 휴장 포함, 역일 21일(10/22)이 아니라 11/3(화)
+        LocalDate due = service.plusTradingDays(LocalDate.of(2026, 10, 1), 21);
+
+        assertEquals(LocalDate.of(2026, 11, 3), due);
+        assertEquals(21, service.tradingDaysBetween(LocalDate.of(2026, 10, 1), due));
+        assertEquals(20, service.tradingDaysBetween(LocalDate.of(2026, 10, 1), due.minusDays(1)));
+        assertEquals(LocalDate.of(2026, 10, 1), service.plusTradingDays(LocalDate.of(2026, 10, 1), 0));
     }
 }

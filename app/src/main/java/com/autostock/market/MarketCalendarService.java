@@ -81,6 +81,36 @@ public class MarketCalendarService {
         return !holidays.get().contains(date);
     }
 
+    /**
+     * (fromExclusive, toInclusive] 구간의 거래일 수 — C3 판단 주기를 백테스트와 같은 "봉(거래일)" 단위로 세는 데 쓴다
+     * (실행 계획 1.1, aiDoc/c3-trading-day-cycle.md). to가 from 이전이거나 같으면 0.
+     */
+    public int tradingDaysBetween(LocalDate fromExclusive, LocalDate toInclusive) {
+        int count = 0;
+        for (LocalDate day = fromExclusive.plusDays(1); !day.isAfter(toInclusive); day = day.plusDays(1)) {
+            if (isTradingDay(day)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    /**
+     * from 다음 거래일부터 세어 n번째 거래일 — {@link #tradingDaysBetween}(from, 결과) == n인 첫 거래일.
+     * n이 0 이하이면 from을 그대로 돌려준다.
+     */
+    public LocalDate plusTradingDays(LocalDate from, int n) {
+        LocalDate day = from;
+        int remaining = n;
+        while (remaining > 0) {
+            day = day.plusDays(1);
+            if (isTradingDay(day)) {
+                remaining--;
+            }
+        }
+        return day;
+    }
+
     /** 정규장 시간대(09:00~15:30 KST) 판정 — 클래스 설명 참고, TradingCalendar에 그대로 위임. */
     public boolean isMarketHours(LocalDateTime dateTime) {
         return TradingCalendar.isMarketHours(dateTime);
