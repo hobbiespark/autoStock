@@ -5,6 +5,7 @@ import com.autostock.common.event.MacroIndicator;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
+import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.StockCode;
 import com.autostock.macrointel.MacroIntelProperties;
 import com.autostock.market.MarketCalendarService;
@@ -23,6 +24,7 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -56,7 +58,7 @@ class RiskGateMacroTest {
         killSwitch = new KillSwitch(event -> { }, mock(RiskStateStore.class), Clock.systemUTC());
         positionBook = new PositionBook();
         macroGuard = new MacroGuard(
-                new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0), killSwitch);
+                new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0, 7), killSwitch, event -> { }, Clock.systemUTC());
         disclosureBlacklist = new DisclosureBlacklist(
                 mock(DisclosureBlacklistRepository.class), publisher, ANY_CLOCK);
         MarketCalendarService marketCalendarService = new MarketCalendarService(mock(MarketHolidayRepository.class));
@@ -130,5 +132,47 @@ class RiskGateMacroTest {
 
         assertEquals(1, published.size());
         assertEquals(Side.SELL, ((OrderRequest) published.get(0)).side());
+    }
+
+    @Test
+    void 거시_지표가_오래되면_매수는_오래됨_사유로_거부하고_매도는_허용한다() {
+        // 수집 켜짐 + 기동 뒤 8일 동안 지표를 한 번도 받지 못함(실행 계획 1.4)
+        Instant boot = Instant.parse("2026-08-05T02:00:00Z");
+        Instant[] now = {boot};
+        Clock movable = new Clock() {
+            @Override
+            public java.time.ZoneId getZone() {
+                return ZoneOffset.UTC;
+            }
+
+            @Override
+            public Clock withZone(java.time.ZoneId zone) {
+                return this;
+            }
+
+            @Override
+            public Instant instant() {
+                return now[0];
+            }
+        };
+        MacroGuard guard = new MacroGuard(new MacroIntelProperties(true, "fk", "ek", 25.0, 35.0, 1450.0, 7),
+                killSwitch, event -> { }, movable);
+        RiskGate staleGate = new RiskGate(publisher, killSwitch, properties,
+                new PositionSizer(properties), positionBook, new DailyLimitTracker(properties, ANY_CLOCK),
+                new PaperEquitySource(properties), ANY_CLOCK, new MarketCalendarService(mock(MarketHolidayRepository.class)),
+                guard, disclosureBlacklist, () -> java.util.Set.of());
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(14),
+                new Price(new BigDecimal("70000")), Instant.now()));
+        assertEquals(Optional.empty(), guard.buyBlockReason(), "기동 직후는 신선");
+
+        now[0] = boot.plus(java.time.Duration.ofDays(8));
+        staleGate.onSignal(buySignal("000660", "200000"));
+        assertTrue(onlyOrders(published).isEmpty());
+        SignalDecision decision = (SignalDecision) published.get(published.size() - 1);
+        assertEquals(MacroGuard.REASON_STALE, decision.reason());
+
+        staleGate.onSignal(sellSignal("005930", "71000"));
+        assertEquals(1, onlyOrders(published).size());
+        assertEquals(Side.SELL, onlyOrders(published).get(0).side());
     }
 }

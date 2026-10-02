@@ -70,8 +70,8 @@ import java.util.Set;
  * 허용할지"는 risk가 답한다(책임 분리, ARCHITECTURE.md 2절). 일 손실 한도·킬스위치 등 리스크
  * 한도 판단 장치({@link DailyPnlTracker}, {@link KillSwitch})는 이 클래스와 함께 risk에 남는다.
  *
- * <p><b>거시 국면·공시 배제(PLAN 5절, macro-intel 1단계)</b>: {@link MacroGuard#isConservativeMode()}가
- * true면 매수({@link #sizeBuy})를 거부한다(매도는 영향받지 않는다 — 청산은 항상 허용, 보수 모드는
+ * <p><b>거시 국면·공시 배제(PLAN 5절, macro-intel 1단계)</b>: {@link MacroGuard#buyBlockReason()}이 있으면(임계 초과
+ * 보수 모드 또는 지표 오래됨 — 실행 계획 1.4) 매수({@link #sizeBuy})를 거부한다(매도는 영향받지 않는다 — 청산은 항상 허용, 보수 모드는
  * "신규 진입만 금지"). {@link DisclosureBlacklist}에 등록된 종목도 같은 자리에서 매수를 거부한다.
  * 두 장치 모두 macrointel이 아니라 risk 소유다 — "한도·차단 판단은 risk 소유" 원칙(risk/package-info.java).
  */
@@ -238,9 +238,11 @@ public class RiskGate {
         // ── 거시 국면 보수 모드(PLAN 5절) ──────────────────────────────────
         // 킬스위치와 달리 매도는 막지 않는다 — sizeSell 경로는 이 검사를 거치지 않으므로
         // 청산 시그널은 그대로 통과한다(MacroGuard 클래스 설명 "보수 모드 vs 킬스위치" 참고).
-        if (macroGuard.isConservativeMode()) {
-            log.info("보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부: {}", StockNames.label(signal.symbol()));
-            publishRejected(signal, "보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부", Map.of());
+        // 사유는 임계 초과 또는 지표 오래됨(실행 계획 1.4) — MacroGuard가 정한 문구를 그대로 쓴다.
+        Optional<String> macroBlock = macroGuard.buyBlockReason();
+        if (macroBlock.isPresent()) {
+            log.info("{}: {}", macroBlock.get(), StockNames.label(signal.symbol()));
+            publishRejected(signal, macroBlock.get(), Map.of());
             return 0;
         }
         // ── DART 공시 배제(PLAN 5절, 골격) ─────────────────────────────────
@@ -348,9 +350,10 @@ public class RiskGate {
             return qty;
         }
         // BUY
-        if (macroGuard.isConservativeMode()) {
-            log.info("보수 모드 — 수동 매수도 거부: {}", StockNames.label(signal.symbol()));
-            publishRejected(signal, "보수 모드(거시 국면 경계, VIX/환율 임계 초과) — 신규 매수 거부", Map.of());
+        Optional<String> macroBlock = macroGuard.buyBlockReason();
+        if (macroBlock.isPresent()) {
+            log.info("{} — 수동 매수도 거부: {}", macroBlock.get(), StockNames.label(signal.symbol()));
+            publishRejected(signal, macroBlock.get(), Map.of());
             return 0;
         }
         if (disclosureBlacklist.isBlacklisted(signal.symbol().value())) {

@@ -39,7 +39,7 @@ class MacroSyncSchedulerTest {
     }
 
     private MacroSyncScheduler schedulerWithEnabled(boolean enabled) {
-        MacroIntelProperties properties = new MacroIntelProperties(enabled, "fk", "ek", 25.0, 35.0, 1450.0);
+        MacroIntelProperties properties = new MacroIntelProperties(enabled, "fk", "ek", 25.0, 35.0, 1450.0, 7);
         return new MacroSyncScheduler(properties, fredClient, ecosClient, publisher, Clock.systemUTC());
     }
 

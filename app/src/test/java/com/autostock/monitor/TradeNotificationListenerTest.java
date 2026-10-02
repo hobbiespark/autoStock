@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.KillSwitchChanged;
+import com.autostock.common.event.MacroIndicatorStale;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
@@ -83,5 +84,15 @@ class TradeNotificationListenerTest {
 
         assertEquals(1, sent().size());
         assertEquals(NoticeLevel.WARN, notices.get(0).level());
+    }
+
+    @Test
+    void 거시_지표_오래됨은_WARN으로_발송된다() {
+        listener.onMacroIndicatorStale(new MacroIndicatorStale(List.of("FRED_VIX", "ECOS_USDKRW"), 9, 7, Instant.now()));
+
+        assertEquals(1, sent().size());
+        assertEquals(NoticeLevel.WARN, notices.get(0).level());
+        assertEquals("거시 지표 오래됨: FRED_VIX, ECOS_USDKRW — 가장 오래된 것 9일(기준 7일). 수집(FRED·ECOS) 확인 필요"
+                + " — 그동안 신규 매수 금지", notices.get(0).message());
     }
 }

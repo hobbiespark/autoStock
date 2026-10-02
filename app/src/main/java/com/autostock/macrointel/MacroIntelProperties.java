@@ -26,6 +26,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param vixCautionThreshold     VIX 보수 모드 진입 임계치(기본 25.0)
  * @param vixSevereThreshold      VIX 킬스위치 작동 임계치(기본 35.0) — 보수모드보다 높은 극단 국면
  * @param usdKrwCautionThreshold  원/달러 환율 보수 모드 진입 임계치(기본 1450.0)
+ * @param maxStalenessDays        판정 지표(VIX·원/달러)를 이 일수보다 오래 받지 못하면 "알 수 없음"으로 보고 보수 모드(기본 7,
+ *                               실행 계획 1.4 — risk.MacroGuard). 연휴(추석 5일)에도 수집은 매일 성공하므로 걸리지 않는다
  */
 @ConfigurationProperties(prefix = "macrointel")
 public record MacroIntelProperties(
@@ -34,6 +36,7 @@ public record MacroIntelProperties(
         @DefaultValue("") String ecosApiKey,
         @DefaultValue("25.0") double vixCautionThreshold,
         @DefaultValue("35.0") double vixSevereThreshold,
-        @DefaultValue("1450.0") double usdKrwCautionThreshold
+        @DefaultValue("1450.0") double usdKrwCautionThreshold,
+        @DefaultValue("7") int maxStalenessDays
 ) {
 }

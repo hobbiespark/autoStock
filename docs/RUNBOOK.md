@@ -130,6 +130,7 @@ autostock.ws.enabled: true
 | 재기동 직후 "재기동 복원: …" 알림·DEGRADED | 끄기 전에 킬스위치가 켜져 있었음 | 의도된 동작 — 원 사유 확인 후 사람이 해제. 앱이 뜨지 않아 DB에서 풀어야 하면 `UPDATE risk_state SET kill_switch_engaged=false, changed_by='manual-sql', changed_at=now();` 후 재기동 |
 | Healthchecks "DOWN" 알림 | 앱 중단·PC 절전/재부팅·네트워크 단절 | PC·Docker·앱 상태 확인 → `start_autostock.bat`. 휴장일이면 체크 Pause를 잊은 것 |
 | 보수 모드 ON | VIX≥25 or 환율≥1450 | 정상 동작(매수만 금지) — 임계치는 macrointel.* 설정 |
+| 텔레그램 "거시 지표 오래됨: …" (2026-10-02~) | VIX·원/달러를 7일 넘게 못 받음(FRED·ECOS 키 만료·네트워크·원천 장애) — 그동안 신규 매수 금지(보수 모드) | 로그 `FRED … 수집 실패`·`ECOS … 수집 실패` 확인 → 키(.env `FRED_API_KEY`·`ECOS_API_KEY`)·네트워크 점검 → 앱 재기동(기동 따라잡기가 바로 수집). 수집이 돌아오면 `거시 지표 다시 수신 — 오래됨 해제`(`aiDoc/macro-staleness.md`) |
 | 매수가 "미체결 매수 주문 있음 — 추가 매수 차단"으로 거부 (2026-10-02~) | 같은 종목 매수가 아직 체결·취소로 확정되지 않음(전송 중·접수·부분 체결·취소 요청·UNKNOWN) | 정상 — 중복 매수 방지. 오래 남은 주문은 `SELECT client_order_id, symbol, status, updated_at FROM orders WHERE side='BUY' AND status IN ('SUBMITTING','SUBMITTED','ACCEPTED','PARTIALLY_FILLED','CANCEL_REQUESTED','UNKNOWN');`로 보고 대사·수동 확정(`aiDoc/open-order-aware-risk.md`) |
 | Flyway 마이그레이션 실패 | 새 마이그레이션 오류, 또는 TimescaleDB가 없는 옛 DB(16-alpine)에서 V12 이후 코드 기동 | **먼저 `scripts\backup_db.ps1`로 백업** → 로그의 실패 버전·SQL 오류 확인 → 코드 수정 후 재기동, DB가 망가졌으면 직전 백업 복원(`restore_check.ps1 -Lab`으로 먼저 확인). 옛 DB면 `switch_db_timescale.ps1`. **`docker compose down -v` 금지** — 주문 이력·분봉(1년 지나면 다시 못 받음)까지 지운다 |
 | DB 전환(TimescaleDB) 뒤 이상 | 새 이미지·설정 문제 | 앱을 끄고 `scripts\rollback_db_pg16.ps1`(새 DB 덤프 → 옛 볼륨으로 복귀). V12 이후 코드면 그 이전 커밋으로 되돌린 뒤 기동 — `aiDoc/db-switch-timescale.md` 6절 |
