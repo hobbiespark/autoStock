@@ -4,8 +4,8 @@ import com.autostock.common.event.DisclosureBlacklisted;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.portfolio.PositionBook;
-import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -34,9 +34,17 @@ import java.util.stream.Collectors;
  * </ul>
  * 매매 대상 목록은 strategy 모듈 타입이 아니라 설정값({@code @Value})으로 읽는다 — strategy가 이미 monitor를
  * 참조하므로 반대 방향 타입 의존은 순환이 된다(package-info 참고).
+ *
+ * <p><b>종료 때 남은 요약(2026-10-02 실측 결함 수정, aiDoc/small-fixes-2026-10-02.md)</b>: 예전에는 {@code @PreDestroy}에서
+ * 보냈는데, 그 시점엔 Reactor Netty 이벤트 루프(단계 0의 {@code ReactorResourceFactory})가 이미 닫혀 텔레그램 발송이
+ * "event executor terminated"로 실패했다(18:56 재기동 때 13건 요약 유실). 이제 {@link SmartLifecycle} 종료 단계
+ * {@value #SHUTDOWN_PHASE}에서 보낸다 — 스케줄러·웹 서버가 먼저 멈추고(더 높은 단계), Reactor 자원은 그 뒤에 닫힌다.
  */
 @Component
-public class DisclosureBlacklistListener {
+public class DisclosureBlacklistListener implements SmartLifecycle {
+
+    /** 종료 단계 — 스케줄러(기본 단계)·웹 서버보다 늦게, Reactor Netty 자원(0)과 알림 발송기(1024)보다 먼저. */
+    static final int SHUTDOWN_PHASE = 2048;
 
     /** 요약에 이름을 싣는 종목 수 상한 — 넘으면 "외 N종목"(텔레그램 메시지 4096자 제한 여유). */
     static final int DIGEST_MAX_SYMBOLS = 30;
@@ -88,10 +96,31 @@ public class DisclosureBlacklistListener {
         notifier.notify(NoticeLevel.INFO, digest(batch));
     }
 
-    /** 종료 직전 남은 대기열도 보낸다(best-effort — Notifier가 실패를 삼킨다). */
-    @PreDestroy
-    public void flushOnShutdown() {
-        flushDigest();
+    private volatile boolean running;
+
+    @Override
+    public void start() {
+        running = true;
+    }
+
+    /** 종료 — 남은 대기열을 요약으로 보낸다(best-effort — Notifier가 실패를 삼킨다). */
+    @Override
+    public void stop() {
+        try {
+            flushDigest();
+        } finally {
+            running = false;
+        }
+    }
+
+    @Override
+    public boolean isRunning() {
+        return running;
+    }
+
+    @Override
+    public int getPhase() {
+        return SHUTDOWN_PHASE;
     }
 
     private String relevance(String symbol) {
