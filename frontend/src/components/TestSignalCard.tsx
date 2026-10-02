@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { describeError, fetchQuote, sendTestSignal } from '../api';
+import { stockLabel } from '../stock';
 import type { Side, SystemInfo } from '../types';
 import ConfirmDialog from './ConfirmDialog';
 
@@ -67,7 +68,10 @@ export default function TestSignalCard({ system }: Props) {
 
   const fmt = (v: string | number | null | undefined) =>
     v == null ? '-' : Number(v).toLocaleString();
-  const stockName = quote.data?.name ?? (quote.isError ? '종목명 조회 실패' : '종목명 조회 중');
+  // 확인 창의 종목 표기 — 코드와 종목명을 함께("삼성전자(005930)", 2026-10-02). 시세 응답에 이름이 없으면 "종목명 미확인".
+  const symbolText = quote.data
+    ? stockLabel(trimmedSymbol, quote.data.name)
+    : `${quote.isError ? '종목명 조회 실패' : '종목명 조회 중'}(${trimmedSymbol})`;
 
   const openReview = () => {
     mutation.reset();
@@ -125,7 +129,7 @@ export default function TestSignalCard({ system }: Props) {
           {quote.isError
             ? '시세 조회 실패'
             : quote.data
-              ? `${quote.data.name ?? trimmedSymbol} · 현재가 ${fmt(quote.data.currentPrice)} · 시 ${fmt(quote.data.openPrice)} · 고 ${fmt(
+              ? `${stockLabel(trimmedSymbol, quote.data.name)} · 현재가 ${fmt(quote.data.currentPrice)} · 시 ${fmt(quote.data.openPrice)} · 고 ${fmt(
                   quote.data.highPrice,
                 )} · 저 ${fmt(quote.data.lowPrice)} · 매도호가 ${fmt(quote.data.bestAsk)} · 매수호가 ${fmt(
                   quote.data.bestBid,
@@ -168,9 +172,7 @@ export default function TestSignalCard({ system }: Props) {
       >
         <dl className="confirm-summary">
           <dt>종목</dt>
-          <dd>
-            {stockName} ({trimmedSymbol})
-          </dd>
+          <dd>{symbolText}</dd>
           <dt>방향</dt>
           <dd className={side === 'BUY' ? 'pnl-pos' : 'pnl-neg'}>{side === 'BUY' ? '매수' : '매도'}</dd>
           <dt>기준가</dt>

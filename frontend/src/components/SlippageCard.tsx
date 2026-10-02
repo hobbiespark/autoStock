@@ -1,4 +1,5 @@
 import type { SlippageInfo } from '../types';
+import StockLabel from './StockLabel';
 
 interface Props {
   slippage?: SlippageInfo;
@@ -28,7 +29,13 @@ export default function SlippageCard({ slippage }: Props) {
             </span>
           </p>
           <p title="양수=불리(체결가가 기준가보다 불리한 방향)">
-            최대: {slippage.maxBps.toFixed(1)} bps ({slippage.maxBpsSymbol})
+            최대: {slippage.maxBps.toFixed(1)} bps
+            {slippage.maxBpsSymbol && (
+              <>
+                {' — '}
+                <StockLabel code={slippage.maxBpsSymbol} name={slippage.maxBpsSymbolName} />
+              </>
+            )}
           </p>
           <p className="muted">
             백테스트 가정 평균 {BACKTEST_ASSUMED_AVG_BPS}bps 초과 시 경고 — 양수는 체결가가 기준가보다 불리했다는 뜻입니다.

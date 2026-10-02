@@ -1,4 +1,5 @@
 import type { Position } from '../types';
+import StockLabel from './StockLabel';
 
 interface Props {
   positions?: Position[];
@@ -28,7 +29,9 @@ export default function PositionsCard({ positions }: Props) {
           ) : (
             positions.map((p) => (
               <tr key={p.symbol}>
-                <td>{p.symbol}</td>
+                <td>
+                  <StockLabel code={p.symbol} name={p.symbolName} />
+                </td>
                 <td>{p.quantity}</td>
                 <td>{p.avgPrice == null ? '—' : Number(p.avgPrice).toLocaleString()}</td>
               </tr>
