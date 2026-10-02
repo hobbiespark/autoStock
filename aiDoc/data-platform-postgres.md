@@ -5,7 +5,7 @@
   - 사용자 방향(10/1 밤): "TimescaleDB는 나중에 옮기기보다 지금부터 구축", "현재 데이터량만이 아니라 AI·LLM·지식 구축까지 고려", "메모리 DB 등 현재 DB가 지원하는 것을 최대한 활용, 기술·노하우 습득 이점 고려"
   - 컨테이너 실측(6절) — Docker Hub의 실제 이미지를 받아 그 파일시스템으로 기동했다
   - 공식 문서·변경 기록(12절)
-- 상태: 설계. **운영 변경 없음.** 사용자 결정 5건 대기(9절, D-15~D-19)
+- 상태: 설계 → **S1 진행 중(2026-10-02).** D-15~D-19 권고안 적용(9절 끝). 전환 스크립트 준비·컨테이너 리허설 완료, 운영 DB 전환은 PC 실행 대기(`db-switch-timescale.md`)
 - 관련 문서: `external-data-files.md`(분봉 DB 이전 — 이 문서로 저장소 확정), `upgrade-2026-10/12-decisions.md`(D-10 LLM 범위)
 
 ## 1. 결론
@@ -298,15 +298,15 @@ CROSS JOIN LATERAL (SELECT close FROM daily_bars        -- 비교: 알려진 뒤
 | S4 | Phase 7 이후 | 뉴스·감성(sidecar-nlp), 국면 벡터, 교훈 | — |
 | 랩 | 상시(장외) | 복원 리허설을 겸하는 랩 컨테이너 | — |
 
-**S1 작업**
+**S1 작업** (1~4·8은 2026-10-02 18:54 운영 전환 완료 — `db-switch-timescale.md`. 5~7은 같은 날 구현 — `minute-bars-db.md`, 앱 재기동으로 적용)
 1. HA 이미지로 전환한다. compose에 다이제스트를 고정하고 설정을 명시한다.
-2. 현 DB를 덤프해 새 이미지에 복원한다.
+2. 현 DB를 덤프해 새 이미지에 복원한다. → `scripts/switch_db_timescale.ps1`(되돌리기 `rollback_db_pg16.ps1`)
 3. 백업·복원 리허설 스크립트를 고친다. pre/post 복원을 넣고 확장 버전을 기록한다.
 4. 테스트 DB를 바꾼다. Testcontainers로 운영 이미지를 쓰고, 외부 DB 주소도 받는다.
 5. V12를 추가한다. `minute_bars` 하이퍼테이블과 `daily_bars` 연속 집계다(V10은 종목명 사전 `stock_names`, V11은 공모주 공모 종류·지표 출처 — 둘 다 2026-10-02, `stock-names.md`·`ipo-demand-forecast.md`).
 6. 적재 잡을 DB로 바꾼다. 기동 따라잡기를 넣고 기존 CSV를 옮긴다.
 7. ka10080으로 1년치를 되채운 뒤 해당 구간을 refresh한다.
-8. pg_stat_statements를 켠다.
+8. pg_stat_statements를 켠다. → 전환 스크립트가 사전 적재와 확장 생성을 했다.
 
 **S2 작업**
 - F-3 판단 주기 테이블(D-03).
@@ -329,6 +329,8 @@ CROSS JOIN LATERAL (SELECT close FROM daily_bars        -- 비교: 알려진 뒤
 | D-17 | 전환 시점 | 10/3~10/5 연휴 | 10/2 |
 | D-18 | DB 테스트 환경 | 운영 이미지(Testcontainers) + 외부 DB 주소, 내장 PG(zonky) 제거 | 10/2 |
 | D-19 | 학습 실험 위치 | 랩 컨테이너(복원 리허설 겸용) | 10/9 |
+
+- **2026-10-02 18시: 다섯 건 모두 권고안대로 진행.** 사용자가 장 마감 뒤 앱을 끄고 "다음 작업 가능"이라고 해, 낮에 고르지 않았던 권장 작업(DB 전환 준비)을 이어서 했다. 반영 내용은 `db-switch-timescale.md` 2절. 되돌리기 스크립트로 되돌릴 수 있다.
 
 ### D-15. DB 이미지
 

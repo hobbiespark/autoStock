@@ -22,6 +22,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -173,6 +174,38 @@ class KiwoomRestClientTest {
         assertTrue(KiwoomErrorCodes.find("키움 API 논리 오류 [ka10081] 정상", KiwoomErrorCodes.RATE_LIMIT).isEmpty());
         assertTrue(KiwoomErrorCodes.find("[17001:다른 코드]", KiwoomErrorCodes.RATE_LIMIT).isEmpty());
         assertEquals("8103", KiwoomErrorCodes.find("x[8103]y", KiwoomErrorCodes.AUTH_FAILURE).orElseThrow());
+    }
+
+    @Test
+    void 연속_조회는_다음_키를_헤더로_보내고_응답의_다음_키를_돌려준다() {
+        // 키움 REST 규약(scripts/probe_ka10080_depth.ps1 실측): 요청 헤더 cont-yn·next-key, 응답 헤더 cont-yn=Y면 next-key
+        List<HttpHeaders> sent = new ArrayList<>();
+        AtomicInteger index = new AtomicInteger();
+        WebClient.Builder builder = WebClient.builder().exchangeFunction(request -> {
+            sent.add(request.headers());
+            boolean last = index.getAndIncrement() > 0;
+            ClientResponse.Builder response = ClientResponse.create(HttpStatus.OK)
+                    .header(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
+                    .header("cont-yn", last ? "N" : "Y")
+                    .body(OK);
+            if (!last) {
+                response.header("next-key", "20260930090100-page2");
+            }
+            return Mono.just(response.build());
+        });
+        KiwoomRestClient client = new KiwoomRestClient(builder, PROPERTIES, new IssuingTokenManager(), new TrRateLimiter(),
+                new SimpleMeterRegistry(), published::add, Clock.systemUTC());
+
+        KiwoomRestClient.Page first = client.callPage(TrId.MINUTE_CHART, "/api/dostk/chart", Map.of(), null);
+        KiwoomRestClient.Page second = client.callPage(TrId.MINUTE_CHART, "/api/dostk/chart", Map.of(), first.nextKey());
+
+        assertEquals("20260930090100-page2", first.nextKey());
+        assertTrue(first.hasNext());
+        assertNull(second.nextKey());
+        assertEquals(0, ((Number) second.body().get("return_code")).intValue());
+        assertNull(sent.get(0).getFirst("cont-yn"));   // 첫 페이지는 지금까지의 단건 호출과 같다
+        assertEquals("Y", sent.get(1).getFirst("cont-yn"));
+        assertEquals("20260930090100-page2", sent.get(1).getFirst("next-key"));
     }
 
     /** 응답 본문을 순서대로 돌려주는 가짜 서버를 끼운 클라이언트. */

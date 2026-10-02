@@ -97,13 +97,15 @@ public class KiwoomMarketDataAdapter implements MarketDataPort {
         return candles;
     }
 
+    /** 캐시하지 않는다 — 페이지 키는 한 번만 쓰고, 적재 잡이 하루 몇 번만 부른다. */
     @Override
-    public List<MinuteBar> minuteBars(String symbol) {
-        Map<String, Object> r = client.call(TrId.MINUTE_CHART, "/api/dostk/chart",
-                Map.of("stk_cd", symbol, "tic_scope", "1", "upd_stkpc_tp", "1"));
+    public MinuteBarPage minuteBarPage(String symbol, String nextKey) {
+        KiwoomRestClient.Page page = client.callPage(TrId.MINUTE_CHART, "/api/dostk/chart",
+                Map.of("stk_cd", symbol, "tic_scope", "1", "upd_stkpc_tp", "1"), nextKey);
+        Map<String, Object> r = page.body() == null ? Map.of() : page.body();
         if (!(r.get(MINUTE_FIELD) instanceof List<?> rows)) {
             log.warn("분봉 응답에 배열 없음({}): 키={}", StockNames.label(symbol), r.keySet());
-            return List.of();
+            return new MinuteBarPage(List.of(), null);
         }
         List<MinuteBar> bars = new ArrayList<>(rows.size());
         for (Object row : rows) {
@@ -120,7 +122,7 @@ public class KiwoomMarketDataAdapter implements MarketDataPort {
                 }
             }
         }
-        return bars;
+        return new MinuteBarPage(bars, page.nextKey());
     }
 
     private static LocalDateTime parseMinuteTime(Object raw) {

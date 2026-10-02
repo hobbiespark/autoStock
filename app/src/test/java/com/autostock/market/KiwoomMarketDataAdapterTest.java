@@ -106,16 +106,19 @@ class KiwoomMarketDataAdapterTest {
 
     @Test
     void 분봉은_체결시각과_부호를_벗긴_값으로_번역하고_해석할_수_없는_행은_건너뛴다() {
-        when(client.call(TrId.MINUTE_CHART, "/api/dostk/chart",
-                Map.of("stk_cd", "005930", "tic_scope", "1", "upd_stkpc_tp", "1")))
-                .thenReturn(Map.of("stk_min_pole_chart_qry", List.of(
+        when(client.callPage(TrId.MINUTE_CHART, "/api/dostk/chart",
+                Map.of("stk_cd", "005930", "tic_scope", "1", "upd_stkpc_tp", "1"), null))
+                .thenReturn(new KiwoomRestClient.Page(Map.of("stk_min_pole_chart_qry", List.of(
                         Map.of("cntr_tm", "20260930090100", "open_pric", "+258000", "high_pric", "+258500",
                                 "low_pric", "-257500", "cur_prc", "+258000", "trde_qty", "1200", "acc_trde_qty", "3400"),
                         Map.of("cntr_tm", "", "cur_prc", "1"),
-                        "not-a-row")));
+                        "not-a-row")), "next-page-key"));
 
-        List<MarketDataPort.MinuteBar> bars = adapter.minuteBars("005930");
+        MarketDataPort.MinuteBarPage page = adapter.minuteBarPage("005930", null);
+        List<MarketDataPort.MinuteBar> bars = page.bars();
 
+        assertEquals("next-page-key", page.nextKey());   // 연속 조회 키를 그대로 넘긴다(되채우기가 다음 페이지를 받는다)
+        assertTrue(page.hasNext());
         assertEquals(1, bars.size());
         MarketDataPort.MinuteBar bar = bars.get(0);
         assertEquals(LocalDateTime.of(2026, 9, 30, 9, 1, 0), bar.time());
@@ -123,5 +126,17 @@ class KiwoomMarketDataAdapterTest {
         assertEquals(new BigDecimal("258000"), bar.close());
         assertEquals(1200L, bar.volume());
         assertEquals(3400L, bar.accumulatedVolume());
+    }
+
+    @Test
+    void 분봉_다음_페이지는_받은_키로_요청하고_배열이_없으면_빈_마지막_페이지다() {
+        when(client.callPage(TrId.MINUTE_CHART, "/api/dostk/chart",
+                Map.of("stk_cd", "005930", "tic_scope", "1", "upd_stkpc_tp", "1"), "next-page-key"))
+                .thenReturn(new KiwoomRestClient.Page(Map.of("return_code", 0), "ignored"));
+
+        MarketDataPort.MinuteBarPage page = adapter.minuteBarPage("005930", "next-page-key");
+
+        assertTrue(page.bars().isEmpty());
+        assertNull(page.nextKey());
     }
 }
