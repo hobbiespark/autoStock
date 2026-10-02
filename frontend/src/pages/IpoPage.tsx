@@ -20,6 +20,19 @@ function formatPrice(v: string | number | null): string {
   return Number.isFinite(n) ? `${n.toLocaleString()}원` : String(v);
 }
 
+// 기관경쟁률 "1,187.74:1", 확약률(0~1) "21.75%" — 값이 없으면 "-"
+function formatRate(v: string | number | null): string {
+  if (v === null || v === undefined) return '-';
+  const n = Number(v);
+  return Number.isFinite(n) ? `${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}:1` : String(v);
+}
+
+function formatLockup(v: string | number | null): string {
+  if (v === null || v === undefined) return '-';
+  const n = Number(v);
+  return Number.isFinite(n) ? `${(n * 100).toFixed(2)}%` : String(v);
+}
+
 function formatBand(deal: IpoDeal): string {
   if (deal.offerPriceLow != null && deal.offerPriceHigh != null) {
     return `${formatPrice(deal.offerPriceLow)} ~ ${formatPrice(deal.offerPriceHigh)}`;
@@ -164,18 +177,27 @@ function MetricsSection({ deal }: { deal: IpoDeal }) {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['ipo'] }),
   });
 
-  const hasMetrics = deal.institutionalCompetitionRate != null && deal.lockupCommitRate != null;
+  const hasMetrics = deal.institutionalCompetitionRate != null || deal.lockupCommitRate != null;
+  const sourceText =
+    deal.metricsSource === 'DART'
+      ? `자동 입력 — DART [발행조건확정] 수요예측 결과(접수 ${deal.metricsRceptNo ?? '-'})`
+      : deal.metricsSource === 'MANUAL'
+        ? '수동 입력'
+        : null;
 
   return (
     <div className="ipo-section">
       <h3 className="chart-title">지표 (기관경쟁률·의무보유확약률)</h3>
       {hasMetrics && !mutation.isPending && (
         <p className="muted">
-          기관경쟁률 {String(deal.institutionalCompetitionRate)}:1 · 확약률{' '}
-          {String(deal.lockupCommitRate)}
+          기관경쟁률 {formatRate(deal.institutionalCompetitionRate)} · 확약률 {formatLockup(deal.lockupCommitRate)}
+          {sourceText && ` · ${sourceText}`}
         </p>
       )}
-      <p className="muted">DART가 자동 제공하지 않는 지표입니다 — 수동 입력하면 즉시 권고가 재평가됩니다.</p>
+      <p className="muted">
+        [발행조건확정] 신고서가 나오면 다음 수집(평일 08:20)이 수요예측 결과에서 자동으로 채웁니다(확약률은 신청 수량 기준).
+        직접 입력하면 그 값이 우선하고 즉시 권고가 재평가됩니다.
+      </p>
       <div className="row">
         <input
           value={competitionRate}
