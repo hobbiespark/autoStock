@@ -109,6 +109,49 @@ class IpoSyncSchedulerTest {
         assertEquals("한울반도체", captor.getValue().corpName());
     }
 
+    // ── 알림 중복 방지(2026-10-02, V16) — 회사 단위 1회, 재기동해도 같은 날 다시 보내지 않는다 ─────────────
+
+    private static IpoDealEntity dealStarting(String corpCode, String corpName, String rceptNo, LocalDate start,
+                                              String price) {
+        IpoDealEntity entity = new IpoDealEntity(corpCode, corpName, rceptNo, "DART", Instant.now());
+        entity.applyOfferingDetail(new DartClient.OfferingDetail(rceptNo, start, start.plusDays(1), null, "SK증권",
+                new BigDecimal(price), 3_800_000L), Instant.now());
+        return entity;
+    }
+
+    @Test
+    void 같은_회사_신고서가_여러_건이면_청약_알림은_가장_최근_신고서로_한_번만_보낸다() {
+        LocalDate today = LocalDate.of(2026, 10, 5);
+        IpoDealEntity original = dealStarting("01158632", "진코스텍", "20260910000579", today.plusDays(1), "9000");
+        IpoDealEntity amended = dealStarting("01158632", "진코스텍", "20261001000586", today.plusDays(1), "10000");
+        when(repository.findAll()).thenReturn(List.of(original, amended));
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of());
+
+        schedulerAt(today).syncNow();
+
+        var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
+        verify(publisher, times(1)).publishEvent(captor.capture());
+        assertTrue(captor.getValue().message().contains("10000원"), "최근(발행조건확정) 신고서의 공모가: " + captor.getValue().message());
+        assertTrue(original.alreadyAlerted("D-1", today) && amended.alreadyAlerted("D-1", today), "회사의 모든 딜에 표시");
+    }
+
+    @Test
+    void 재기동해도_같은_날_같은_단계_알림은_다시_보내지_않고_다음_단계는_보낸다() {
+        LocalDate today = LocalDate.of(2026, 10, 5);
+        IpoDealEntity deal = dealStarting("01359815", "한울반도체", "20260910000583", today.plusDays(1), "5030");
+        when(repository.findAll()).thenReturn(List.of(deal));
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(List.of());
+
+        schedulerAt(today).syncNow();
+        schedulerAt(today).syncNow();     // 새 인스턴스 = 재기동(메모리 기록 없음) — DB 표시로 막는다
+        verify(publisher, times(1)).publishEvent(any(IpoAlert.class));
+
+        schedulerAt(today.plusDays(1)).syncNow();   // 청약 당일 — START는 따로 보낸다
+        var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
+        verify(publisher, times(2)).publishEvent(captor.capture());
+        assertEquals("START", captor.getAllValues().get(1).phase());
+    }
+
     @Test
     void 청약기간_중이_아니고_D_1_당일도_아니면_알림을_발행하지_않는다() {
         LocalDate today = LocalDate.of(2026, 9, 11);
