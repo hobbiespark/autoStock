@@ -22,6 +22,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -134,5 +135,27 @@ class RequestValidationTest {
         postJson("/api/ipo/1/metrics", "{\"institutionalCompetitionRate\":123456789.123}")
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(ipoCommands);
+    }
+    // ── 경로 변수 형식(실행 계획 1.9, BE-P2-9) — 형식이 틀리면 브로커·이벤트까지 가지 않고 400 ─────────────
+
+    @Test
+    void 시세_조회의_종목코드_형식이_틀리면_400이다() throws Exception {
+        mvc.perform(get("/api/dashboard/quote/59 30")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.detail").value("입력값을 확인하세요."))
+                .andExpect(jsonPath("$.errors[0].field").value("symbol"));
+        mvc.perform(get("/api/dashboard/quote/0059300")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"));
+    }
+
+    @Test
+    void 주문_취소의_주문_ID_형식이_틀리면_400이고_취소_요청을_내지_않는다() throws Exception {
+        mvc.perform(post("/api/dashboard/orders/abc/cancel")).andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("VALIDATION_FAILED"))
+                .andExpect(jsonPath("$.errors[0].field").value("clientOrderId"));
+        verify(publisher, never()).publishEvent(any(Object.class));
+
+        mvc.perform(post("/api/dashboard/orders/20261006-C3-MOMENTUM-005930-BUY-001/cancel")).andExpect(status().isOk());
+        verify(publisher).publishEvent(any(com.autostock.common.event.CancelRequest.class));
     }
 }

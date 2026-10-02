@@ -29,13 +29,18 @@ public record ClientOrderId(String value) {
     private static final DateTimeFormatter DATE_FORMAT = DateTimeFormatter.BASIC_ISO_DATE; // yyyyMMdd
 
     /**
+     * 형식 규칙의 단일 원천 — 경로 변수 검증({@code @Pattern}, 실행 계획 1.9 BE-P2-9)도 이 상수를 참조한다
+     * ({@link StockCode#PATTERN}과 같은 방식). 아래 {@link #FORMAT}은 이 식에 시작·끝 표시만 붙인 것이다.
+     */
+    public static final String PATTERN = "(\\d{8})-(.+)-([0-9A-Za-z]{6})-(BUY|SELL)-(\\d{3})";
+
+    /**
      * 파싱용 정규식. 전략ID 구간에 하이픈이 섞여 있어도(예: "TEST-STRATEGY") 뒤쪽
      * 고정 포맷(6자리 종목코드-BUY|SELL-3자리 일련번호)을 기준으로 역산해 잘라낸다.
      * {@code .+}가 탐욕적(greedy)으로 매칭한 뒤 뒤 구간에 맞춰 백트래킹하기 때문에
      * 전략ID에 하이픈이 있어도 올바르게 분리된다.
      */
-    private static final Pattern FORMAT = Pattern.compile(
-            "^(\\d{8})-(.+)-([0-9A-Za-z]{6})-(BUY|SELL)-(\\d{3})$");
+    private static final Pattern FORMAT = Pattern.compile("^" + ClientOrderId.PATTERN + "$");
 
     /** 전략ID로 허용하는 문자 집합 — 대문자·숫자·하이픈·언더스코어. */
     private static final Pattern STRATEGY_ID_CHARS = Pattern.compile("^[A-Z0-9_-]+$");

@@ -4,11 +4,13 @@ import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.StockNames;
 import com.autostock.execution.BrokerBalance;
 import com.autostock.execution.BrokerPort;
+import com.autostock.market.MarketCalendarService;
 import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.MacroGuard;
 import com.autostock.portfolio.PositionBook;
+import com.autostock.trading.TradingProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -46,6 +48,8 @@ public class DailyReportScheduler {
     private final SlippageTracker slippageTracker;
     private final Notifier notifier;
     private final DailyPerformanceRecorder performanceRecorder;
+    private final MarketCalendarService marketCalendar;
+    private final TradingProperties tradingProperties;
     private final Clock clock;
 
     public DailyReportScheduler(PositionBook positionBook,
@@ -57,6 +61,8 @@ public class DailyReportScheduler {
                                 SlippageTracker slippageTracker,
                                 Notifier notifier,
                                 DailyPerformanceRecorder performanceRecorder,
+                                MarketCalendarService marketCalendar,
+                                TradingProperties tradingProperties,
                                 Clock clock) {
         this.positionBook = positionBook;
         this.brokerPort = brokerPort;
@@ -67,6 +73,8 @@ public class DailyReportScheduler {
         this.slippageTracker = slippageTracker;
         this.notifier = notifier;
         this.performanceRecorder = performanceRecorder;
+        this.marketCalendar = marketCalendar;
+        this.tradingProperties = tradingProperties;
         this.clock = clock;
     }
 
@@ -117,8 +125,18 @@ public class DailyReportScheduler {
         return v == null ? 0L : v.longValue();
     }
 
-    /** kt00018 잔고 한 줄 — 실패해도 리포트는 나가야 하므로 예외는 삼키고 사유만 남긴다. */
+    /**
+     * kt00018 잔고 한 줄 — 실패해도 리포트는 나가야 하므로 예외는 삼키고 사유만 남긴다.
+     * SIM이거나 휴장일이면 조회하지 않는다(실행 계획 1.9, BE-P2-8) — SIM은 브로커 잔고가 의미 없고, 휴장일엔 모의 서버
+     * 점검으로 실패 로그만 남았다.
+     */
     private String balanceLine() {
+        if (tradingProperties.mode() != TradingProperties.Mode.LIVE) {
+            return "계좌 평가액: SIM — 잔고 조회 생략";
+        }
+        if (!marketCalendar.isTradingDay(LocalDate.now(clock.withZone(MarketConstants.KST)))) {
+            return "계좌 평가액: 휴장일 — 잔고 조회 생략";
+        }
         try {
             BrokerBalance b = brokerPort.balance();
             return "계좌 평가액(추정예탁자산): %,d원 / 보유 총평가 %,d원 / 총평가손익 %,d원"

@@ -15,7 +15,6 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -42,8 +41,9 @@ class OrderHistoryControllerTest {
 
         controller.orders(null);
 
+        // 오늘(9/11 KST) 포함 7개 날짜 — 9/5 00:00 KST부터(실행 계획 1.9, BE-P2-11)
         verify(repository).findBySubmittedAtGreaterThanEqualOrderBySubmittedAtDesc(
-                Instant.parse("2026-09-11T00:00:00Z").minus(7, ChronoUnit.DAYS));
+                Instant.parse("2026-09-04T15:00:00Z"));
     }
 
     @Test
@@ -52,8 +52,9 @@ class OrderHistoryControllerTest {
 
         controller.orders(365);
 
+        // 90개 날짜 — 6/14 00:00 KST부터
         verify(repository).findBySubmittedAtGreaterThanEqualOrderBySubmittedAtDesc(
-                Instant.parse("2026-09-11T00:00:00Z").minus(90, ChronoUnit.DAYS));
+                Instant.parse("2026-06-13T15:00:00Z"));
     }
 
     @Test
@@ -63,7 +64,7 @@ class OrderHistoryControllerTest {
         controller.orders(-5);
 
         verify(repository).findBySubmittedAtGreaterThanEqualOrderBySubmittedAtDesc(
-                Instant.parse("2026-09-11T00:00:00Z").minus(7, ChronoUnit.DAYS));
+                Instant.parse("2026-09-04T15:00:00Z"));
     }
 
     @Test
@@ -90,5 +91,16 @@ class OrderHistoryControllerTest {
         assertEquals("SUBMITTED", item.status());
         assertEquals("C3", item.strategyId());
         assertTrue(item.limitPrice().compareTo(new BigDecimal("70000")) == 0);
+    }
+    @Test
+    void 최근_1일은_오늘_KST_자정부터다() {
+        // UTC로는 아직 9/10인 9/11 08:30 KST — 경계는 9/11 00:00 KST(= 9/10 15:00Z)
+        OrderHistoryController early = new OrderHistoryController(repository,
+                Clock.fixed(Instant.parse("2026-09-10T23:30:00Z"), ZoneOffset.UTC));
+        when(repository.findBySubmittedAtGreaterThanEqualOrderBySubmittedAtDesc(any())).thenReturn(List.of());
+
+        early.orders(1);
+
+        verify(repository).findBySubmittedAtGreaterThanEqualOrderBySubmittedAtDesc(Instant.parse("2026-09-10T15:00:00Z"));
     }
 }

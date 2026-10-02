@@ -383,6 +383,26 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         }
     }
 
+    /**
+     * 연결 종료 로그(실행 계획 1.9, BE-P2-20) — 종료 코드·사유를 남긴다. 동작은 바꾸지 않는다(재연결은 watchdog 몫).
+     * 장외 대기 진입의 정상 종료(1000)는 INFO, 그 밖은 WARN.
+     */
+    @Override
+    public void afterConnectionClosed(WebSocketSession closed, CloseStatus status) {
+        // 상태 플래그는 건드리지 않는다 — 늦게 온 옛 세션의 종료 콜백이 새 세션의 로그인 상태를 지우면 안 된다
+        if (CloseStatus.NORMAL.equalsCode(status)) {
+            log.info("WS 연결 종료 — 코드 {} 사유 {}", status.getCode(), status.getReason());
+        } else {
+            log.warn("WS 연결 끊김 — 코드 {} 사유 {} (재연결은 watchdog이 한다)", status.getCode(), status.getReason());
+        }
+    }
+
+    /** 전송 오류 로그(실행 계획 1.9, BE-P2-20) — 동작은 바꾸지 않는다. */
+    @Override
+    public void handleTransportError(WebSocketSession errored, Throwable exception) {
+        log.warn("WS 전송 오류 — {}: {}", exception.getClass().getSimpleName(), exception.getMessage());
+    }
+
     @Override
     protected void handleTextMessage(WebSocketSession current, TextMessage message) throws Exception {
         lastMessageAt.set(clock.instant());

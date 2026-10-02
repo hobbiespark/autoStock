@@ -4,6 +4,7 @@ import com.autostock.common.event.CancelRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.util.Price;
+import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.market.MarketDataPort;
@@ -144,7 +145,7 @@ public class DashboardController {
      * trading.TradingService 소관(비동기). FE는 잠시 후 주문 이력을 재조회해 결과를 본다.
      */
     @PostMapping("/orders/{clientOrderId}/cancel")
-    public TestSignalResponse cancelOrder(@PathVariable String clientOrderId) {
+    public TestSignalResponse cancelOrder(@PathVariable @Pattern(regexp = ClientOrderId.PATTERN) String clientOrderId) {
         publisher.publishEvent(new CancelRequest(clientOrderId, "dashboard", clock.instant()));
         return new TestSignalResponse(true, tradingProperties.mode().name());
     }
@@ -162,7 +163,7 @@ public class DashboardController {
      * (9/18 "기본값 그대로 193주 매수" 사고 참고). 로그는 한 줄 WARN, 스택 없음.
      */
     @GetMapping("/quote/{symbol}")
-    public QuoteView quote(@PathVariable String symbol) {
+    public QuoteView quote(@PathVariable @Pattern(regexp = StockCode.PATTERN) String symbol) {
         MarketDataPort.StockQuote price;
         try {
             price = marketData.stockQuote(symbol);
