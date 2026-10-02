@@ -33,7 +33,7 @@ class SchemaAndTimeZoneDbTest extends PostgresDataJpaTest {
                 String.class);
 
         assertEquals(0, failed);
-        assertEquals("12", latest, "새 마이그레이션을 추가했으면 이 기대값도 올린다 — " + PostgresTestDatabase.kind());
+        assertEquals("13", latest, "새 마이그레이션을 추가했으면 이 기대값도 올린다 — " + PostgresTestDatabase.kind());
     }
 
     @Test
