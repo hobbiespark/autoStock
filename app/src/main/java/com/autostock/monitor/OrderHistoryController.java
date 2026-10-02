@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.StockNames;
 import com.autostock.monitor.view.OrderHistoryItemView;
 import com.autostock.monitor.view.OrderHistoryView;
@@ -12,7 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.time.Clock;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -41,10 +42,15 @@ public class OrderHistoryController {
         this.clock = clock;
     }
 
+    /**
+     * 최근 N일 주문 — 오늘(KST)을 포함한 N개 달력 날짜(KST 자정부터)다(실행 계획 1.9, BE-P2-11). 예전에는 "지금부터 N×24시간
+     * 전"이라 경계가 조회 시각마다 움직였고, 화면의 "최근 1일"이 어제 오후 주문을 섞거나 오늘 새벽 주문을 날짜와 다르게 보여 줬다.
+     */
     @GetMapping
     public OrderHistoryView orders(@RequestParam(required = false) Integer days) {
         int effectiveDays = clampDays(days);
-        Instant since = Instant.now(clock).minus(effectiveDays, ChronoUnit.DAYS);
+        LocalDate firstDay = LocalDate.now(clock.withZone(MarketConstants.KST)).minusDays(effectiveDays - 1L);
+        Instant since = firstDay.atStartOfDay(MarketConstants.KST).toInstant();
         List<OrderHistoryItemView> items = orderRepository
                 .findBySubmittedAtGreaterThanEqualOrderBySubmittedAtDesc(since)
                 .stream()

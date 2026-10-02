@@ -4,6 +4,7 @@ import com.autostock.common.util.SecretMasking;
 import com.autostock.kiwoom.KiwoomApiException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.core.MethodParameter;
 import org.springframework.dao.OptimisticLockingFailureException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatusCode;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.context.request.WebRequest;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
 import java.util.List;
@@ -69,15 +71,46 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return handleExceptionInternal(e, body, headers, status, request);
     }
 
-    /** 상위 클래스가 만든 ProblemDetail에 code가 없으면 상태 코드로 채운다. */
+    /**
+     * 경로 변수·요청 파라미터 검증 실패(@Pattern 등, 실행 계획 1.9 BE-P2-9)도 본문 검증과 같은 VALIDATION_FAILED로 맞춘다.
+     * 상위 클래스 기본값은 detail이 영어 "Validation failure"이고 code가 상태 코드로 채운 MALFORMED_REQUEST였다(10/2 실측).
+     * 반환값 검증 실패는 서버 잘못(500)이므로 상위 클래스에 맡긴다.
+     */
+    @Override
+    protected ResponseEntity<Object> handleHandlerMethodValidationException(HandlerMethodValidationException e,
+                                                                           HttpHeaders headers, HttpStatusCode status,
+                                                                           WebRequest request) {
+        if (e.isForReturnValue()) {
+            return super.handleHandlerMethodValidationException(e, headers, status, request);
+        }
+        ProblemDetail body = problem(ErrorCode.VALIDATION_FAILED, "입력값을 확인하세요.");
+        List<Map<String, String>> errors = e.getParameterValidationResults().stream()
+                .flatMap(result -> result.getResolvableErrors().stream()
+                        .map(error -> Map.of("field", parameterName(result.getMethodParameter()),
+                                "message", error.getDefaultMessage() == null ? "올바르지 않은 값" : error.getDefaultMessage())))
+                .toList();
+        body.setProperty("errors", errors); // 거부된 값은 싣지 않는다(본문 검증과 같음)
+        return handleExceptionInternal(e, body, headers, status, request);
+    }
+
+    /**
+     * 상위 클래스가 만든 ProblemDetail에 code가 없으면 상태 코드로 채운다. 본문은 상위 클래스가 만든 뒤에 본다 — 경로 변수 검증
+     * 실패(HandlerMethodValidationException, 실행 계획 1.9 BE-P2-9)처럼 본문 없이(null) 들어와 상위 클래스가 만드는 경우가 있다.
+     */
     @Override
     protected ResponseEntity<Object> handleExceptionInternal(Exception e, @Nullable Object body, HttpHeaders headers,
                                                              HttpStatusCode status, WebRequest request) {
-        if (body instanceof ProblemDetail problem
+        ResponseEntity<Object> response = super.handleExceptionInternal(e, body, headers, status, request);
+        if (response != null && response.getBody() instanceof ProblemDetail problem
                 && (problem.getProperties() == null || !problem.getProperties().containsKey("code"))) {
-            problem.setProperty("code", ErrorCode.fromStatus(status.value()).name());
+            problem.setProperty("code", ErrorCode.fromStatus(response.getStatusCode().value()).name());
         }
-        return super.handleExceptionInternal(e, body, headers, status, request);
+        return response;
+    }
+
+    private static String parameterName(MethodParameter parameter) {
+        String name = parameter.getParameterName();
+        return name != null ? name : "arg" + parameter.getParameterIndex();
     }
 
     private static ProblemDetail problem(ErrorCode code, String detail) {

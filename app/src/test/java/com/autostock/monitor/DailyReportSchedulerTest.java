@@ -14,7 +14,9 @@ import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.RiskStateStore;
+import com.autostock.market.MarketCalendarService;
 import com.autostock.risk.MacroGuard;
+import com.autostock.trading.TradingProperties;
 import com.autostock.risk.PaperEquitySource;
 import com.autostock.risk.RiskProperties;
 import com.autostock.common.util.Price;
@@ -88,8 +90,40 @@ class DailyReportSchedulerTest {
                 new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0, 7), killSwitch, event -> { }, java.time.Clock.systemUTC());
         slippageTracker = new SlippageTracker(java.time.Clock.systemUTC(),
                 new io.micrometer.core.instrument.simple.SimpleMeterRegistry());
-        scheduler = new DailyReportScheduler(positionBook, fakeBroker, dailyLimits, killSwitch, dailyPnl, macroGuard,
-                slippageTracker, fakeNotifier, fakeRecorder, clock);
+        this.macroGuard = macroGuard;
+        scheduler = scheduler(TradingProperties.Mode.LIVE, clock);
+    }
+
+    private MacroGuard macroGuard;
+
+    /** 휴장일은 폴백 달력(2026 하드코딩)으로 판정한다 — 저장소는 빈 목록. */
+    private DailyReportScheduler scheduler(TradingProperties.Mode mode, Clock at) {
+        return new DailyReportScheduler(positionBook, fakeBroker, dailyLimits, killSwitch, dailyPnl, macroGuard,
+                slippageTracker, fakeNotifier, fakeRecorder,
+                new MarketCalendarService(mock(com.autostock.market.MarketHolidayRepository.class)),
+                new TradingProperties(mode, java.time.Duration.ofMinutes(5)), at);
+    }
+
+    @Test
+    void SIM이면_잔고를_조회하지_않는다() {
+        balanceFailure = new IllegalStateException("호출되면 안 됨");
+
+        scheduler(TradingProperties.Mode.SIM, clock).sendDailyReport();
+
+        String notice = (String) notices.get(0);
+        assertTrue(notice.contains("계좌 평가액: SIM — 잔고 조회 생략"), notice);
+    }
+
+    @Test
+    void 휴장일이면_잔고를_조회하지_않는다() {
+        // 2026-10-05(월) 개천절 대체공휴일 15:50 KST — 실행 계획 1.9, BE-P2-8
+        balanceFailure = new IllegalStateException("호출되면 안 됨");
+
+        scheduler(TradingProperties.Mode.LIVE, Clock.fixed(Instant.parse("2026-10-05T06:50:00Z"), ZoneOffset.UTC))
+                .sendDailyReport();
+
+        String notice = (String) notices.get(0);
+        assertTrue(notice.contains("계좌 평가액: 휴장일 — 잔고 조회 생략"), notice);
     }
 
     @Test

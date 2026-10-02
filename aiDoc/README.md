@@ -57,3 +57,4 @@
 - [position-reconcile.md](position-reconcile.md) — Phase 1.5: 잔고 보유 타입(BrokerHolding)으로 키움 필드를 어댑터 안에, 잔고↔장부 5분 대사(연속 2회 같으면 알림, 자동 교정 없음, 기본 꺼짐)
 - [observability.md](observability.md) — Phase 1.7: 헬스 kiwoomWs·kiwoomAuth·killSwitch, 게이지·카운터 9종, 일별 주문·취소 건수(V14 OTR 관측)
 - [audit-reliability.md](audit-reliability.md) — Phase 1.8: 감사 유실 보완 문구 정정, audit.write.failure, 이벤트 타입별 스키마 버전, event_publication Modulith 2 컬럼(V15, D-07 권고안)
+- [small-fixes-2026-10-02.md](small-fixes-2026-10-02.md) — Phase 1.9 소규모 정리(휴장일·SIM 잔고 생략, 경로 변수 400, 주문 이력 KST 날짜, WS 종료 로그 등)와 오늘 발견한 결함 2건(공시 요약 종료 유실 → 수명주기 단계, 공모주 청약 알림 회사 단위 1회·재기동 중복 방지 V16)

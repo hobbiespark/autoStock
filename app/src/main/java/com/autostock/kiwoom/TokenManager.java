@@ -1,6 +1,7 @@
 package com.autostock.kiwoom;
 
 import com.autostock.common.event.BrokerAuthFailure;
+import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -15,7 +16,6 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
-import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.Optional;
@@ -69,7 +69,6 @@ public class TokenManager {
      * 이 가정이 빠지면 만료시각이 9시간 어긋난다.)
      */
     private static final DateTimeFormatter EXPIRES_DT_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
-    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
 
     private final WebClient webClient;
     private final KiwoomProperties properties;
@@ -247,7 +246,7 @@ public class TokenManager {
             return clock.instant().plusSeconds(23 * 3600);
         }
         return LocalDateTime.parse(String.valueOf(expiresDt), EXPIRES_DT_FORMAT)
-                .atZone(KST)
+                .atZone(MarketConstants.KST)
                 .toInstant();
     }
 

@@ -10,13 +10,17 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * 매도 거래세 0.20% — 2026 세율)과 동일한 값이다 — 다만 여기서는 "체결가 그대로 왔다고 가정한 뒤
  * 수수료·세금만 뺀 실현손익 추정"에 쓰인다({@link DailyPnlTracker}). 슬리피지는 이미
  * fillPrice(체결가)에 반영되어 있으므로 별도로 다루지 않는다.
+ *
+ * <p><b>stopLossPct·takeProfitPct는 지금 쓰지 않는다</b>(실행 계획 1.9, BE-P2-13): ADR-7 E4(손절·익절 청산 규칙)에서 쓸 예정이라
+ * 키는 남겨 둔다. C3는 손절 없이 판단일 청산만 한다({@code backtest.TimeSeriesMomentumStrategy} 설명). 값을 바꿔도 지금은
+ * 아무 동작도 바뀌지 않는다.
  */
 @ConfigurationProperties(prefix = "risk")
 public record RiskProperties(
         double maxPositionPctPerSymbol,   // 종목당 최대 계좌 비중 (기본 0.10)
         int maxConcurrentPositions,       // 동시 보유 종목 수 (기본 5)
-        double stopLossPct,               // 손절 (기본 -0.03)
-        double takeProfitPct,             // 익절 (기본 +0.05)
+        double stopLossPct,               // 손절 (기본 -0.03) — 미사용, ADR-7 E4 사용 예정
+        double takeProfitPct,             // 익절 (기본 +0.05) — 미사용, ADR-7 E4 사용 예정
         double dailyMaxLossPct,           // 일 최대 손실 (기본 -0.02) — DailyPnlTracker가 이 한도로 킬스위치를 켠다
         int dailyMaxOrders,               // 일 주문 횟수 상한
         double paperEquity,               // 모의/시뮬레이션 계좌 평가액 (KRW) — PaperEquitySource, LIVE 폴백에도 쓰인다
