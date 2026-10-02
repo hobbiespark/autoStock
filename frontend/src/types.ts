@@ -163,7 +163,10 @@ export interface IpoDeal {
   listingDate: string | null;
   leadManager: string | null;
   institutionalCompetitionRate: string | number | null;
-  lockupCommitRate: string | number | null;
+  lockupCommitRate: string | number | null; // 의무보유확약비율 0~1(수량 기준)
+  // 지표 출처(2026-10-02) — DART: [발행조건확정] 수요예측 결과 자동 입력, MANUAL: 수동 입력, null: 아직 없음
+  metricsSource: 'DART' | 'MANUAL' | null;
+  metricsRceptNo: string | null; // 자동 입력에 쓴 [발행조건확정] 접수번호
   status: IpoStatus;
   recommendation: IpoRecommendation;
   recommendReason: string | null;
