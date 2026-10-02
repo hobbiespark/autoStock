@@ -85,4 +85,44 @@ class OrderRepositoryDbTest extends PostgresDataJpaTest {
             jdbc.update("delete from orders where client_order_id = ?", key);
         }
     }
+    @Test
+    void 상태별_수와_KST_하루_구간의_상태별_수를_센다() {
+        // 게이지 orders.unknown.count·일별 OTR(실행 계획 1.7) — 경계: [10/6 00:00 KST, 10/7 00:00 KST)
+        save("T20001", "2026-10-05T14:59:59Z", OrderStatus.UNKNOWN);     // 10/5 23:59:59 KST — 밖
+        save("T20002", "2026-10-05T15:00:00Z", OrderStatus.UNKNOWN);     // 10/6 00:00 KST — 안
+        save("T20003", "2026-10-06T06:00:00Z", OrderStatus.CANCELLED);   // 10/6 15:00 KST — 안
+        save("T20004", "2026-10-06T06:00:00Z", OrderStatus.VALIDATED);   // 전송 전 — 상태로 빠진다
+        save("T20005", "2026-10-06T15:00:00Z", OrderStatus.CANCELLED);   // 10/7 00:00 KST — 밖
+        orders.flush();
+        Instant from = Instant.parse("2026-10-05T15:00:00Z");
+        Instant to = Instant.parse("2026-10-06T15:00:00Z");
+
+        long unknown = orders.countByStatus(OrderStatus.UNKNOWN);
+        long submitted = orders.countBySubmittedAtGreaterThanEqualAndSubmittedAtLessThanAndStatusIn(from, to,
+                java.util.EnumSet.complementOf(java.util.EnumSet.of(OrderStatus.CREATED, OrderStatus.VALIDATED)));
+        long cancelled = orders.countBySubmittedAtGreaterThanEqualAndSubmittedAtLessThanAndStatusIn(from, to,
+                java.util.EnumSet.of(OrderStatus.CANCELLED, OrderStatus.CANCEL_REQUESTED));
+
+        assertTrue(unknown >= 2, "외부 시험 DB에 다른 행이 있어도 최소 2건: " + unknown);
+        assertEquals(2, submitted);   // T20002(UNKNOWN), T20003(CANCELLED)
+        assertEquals(1, cancelled);   // T20003
+    }
+
+    private void save(String symbol, String submittedAt, OrderStatus target) {
+        Instant at = Instant.parse(submittedAt);
+        OrderEntity order = new OrderEntity("20261006-OTR-" + symbol + "-BUY-001", new StockCode(symbol), Side.BUY,
+                new Quantity(1), new Price(new BigDecimal("1000")), "OTR-TEST", at);
+        order.transitionTo(OrderStatus.VALIDATED, at);
+        if (target != OrderStatus.VALIDATED) {
+            order.transitionTo(OrderStatus.SUBMITTING, at);
+            order.markSubmitted(new BrokerOrderId("B" + symbol), at);
+            if (target == OrderStatus.UNKNOWN) {
+                order.transitionTo(OrderStatus.UNKNOWN, at);
+            } else if (target == OrderStatus.CANCELLED) {
+                order.transitionTo(OrderStatus.CANCEL_REQUESTED, at);
+                order.transitionTo(OrderStatus.CANCELLED, at);
+            }
+        }
+        orders.save(order);
+    }
 }

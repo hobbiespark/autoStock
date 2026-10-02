@@ -10,6 +10,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -63,6 +64,9 @@ public class KillSwitch {
     /** 기동 시 작동 상태로 복원했으면 그 사유 — 기동 완료 알림 1회 후 비운다. */
     private volatile String restoredReason;
 
+    /** 지금 작동 중이면 그 사유 — 헬스 killSwitch(실행 계획 1.7)가 읽는다. 해제되면 null. */
+    private volatile String engagedReason;
+
     public KillSwitch(ApplicationEventPublisher publisher, RiskStateStore store, Clock clock) {
         this.clock = clock;
         this.publisher = publisher;
@@ -73,10 +77,16 @@ public class KillSwitch {
         return engaged.get();
     }
 
+    /** 작동 중이면 그 사유(재기동 복원이면 "재기동 복원: …"), 해제 상태면 빈 값. */
+    public Optional<String> engagedReason() {
+        return engaged.get() ? Optional.ofNullable(engagedReason) : Optional.empty();
+    }
+
     public void engage(String reason) {
         lock.lock();
         try {
             if (engaged.compareAndSet(false, true)) {
+                engagedReason = reason;
                 log.warn("킬스위치 작동: {}", reason);
                 persist(true, () -> store.saveEngaged(reason, clock.instant()));
                 publisher.publishEvent(new KillSwitchChanged(true, reason, clock.instant()));
@@ -92,6 +102,7 @@ public class KillSwitch {
             if (engaged.compareAndSet(true, false)) {
                 log.warn("킬스위치 해제 by {}", operator);
                 restoredReason = null;
+                engagedReason = null;
                 persist(false, () -> store.saveReleased(operator, clock.instant()));
                 publisher.publishEvent(new KillSwitchChanged(false, operator, clock.instant()));
             }
@@ -121,12 +132,14 @@ public class KillSwitch {
                 if (state.isKillSwitchEngaged()) {
                     engaged.set(true);
                     restoredReason = state.getKillSwitchReason() == null ? "(사유 없음)" : state.getKillSwitchReason();
+                    engagedReason = RESTORED_PREFIX + restoredReason;
                     log.warn("킬스위치 재기동 복원 — 작동 상태로 시작: {} (작동 시각 {})", restoredReason, state.getChangedAt());
                 }
             });
         } catch (RuntimeException e) {
             engaged.set(true);
             restoredReason = "상태 복원 실패 — 확인 후 수동 해제 필요(" + e.getClass().getSimpleName() + ")";
+            engagedReason = restoredReason;
             log.error("킬스위치 상태 복원 실패 — 안전을 위해 작동 상태로 시작한다", e);
         }
     }

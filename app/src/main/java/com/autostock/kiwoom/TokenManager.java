@@ -18,6 +18,7 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 
@@ -76,6 +77,9 @@ public class TokenManager {
 
     /** 현재 유효한 토큰 캐시. null이면 아직 한 번도 발급받지 않은 상태. */
     private final AtomicReference<CachedToken> cached = new AtomicReference<>();
+
+    /** 마지막 발급 시도 결과 — 헬스 {@code kiwoomAuth}(실행 계획 1.7)가 읽는다. 토큰 값은 담지 않는다. */
+    private volatile IssueStatus lastIssue;
 
     /** issue() 동시 호출을 한 번의 실제 발급으로 합치기 위한 락(single-flight). 클래스 Javadoc 참고. */
     private final ReentrantLock issueLock = new ReentrantLock();
@@ -143,7 +147,7 @@ public class TokenManager {
         }
     }
 
-    /** 키움에 토큰 발급을 요청한다. 실패 시 예외 — 호출자(재시도 로직)가 처리. */
+    /** 키움에 토큰 발급을 요청한다. 실패 시 예외 — 호출자(재시도 로직)가 처리. 결과는 {@link #lastIssueStatus()}에 남는다. */
     private CachedToken issue() {
         log.info("접근토큰 발급 요청");
         Map<String, Object> response;
@@ -152,7 +156,11 @@ public class TokenManager {
         } catch (WebClientResponseException e) {
             // HTTP 오류 본문의 return_msg에 인증 코드가 있으면 알린다. 예외 자체는 예전과 같이 그대로 던진다
             // (주문 경로에서 결과 불명 처리 등 기존 분류를 바꾸지 않는다).
-            reportAuthFailure(e.getResponseBodyAsString());
+            String code = reportAuthFailure(e.getResponseBodyAsString()).orElse("HTTP " + e.getStatusCode().value());
+            recordFailure(code);
+            throw e;
+        } catch (RuntimeException e) {
+            recordFailure(e.getClass().getSimpleName());
             throw e;
         }
         // HTTP 200이어도 return_code != 0이면 논리 오류(키/시크릿 오류 등) — 실측 응답 포맷:
@@ -161,22 +169,51 @@ public class TokenManager {
         Object returnCode = response == null ? null : response.get("return_code");
         if (returnCode != null && ((Number) returnCode).intValue() != 0) {
             String message = String.valueOf(response.get("return_msg"));
-            reportAuthFailure(message);
+            recordFailure(reportAuthFailure(message).orElse("return_code " + returnCode));
             throw new KiwoomTokenIssueException("토큰 발급 실패: " + message);
         }
         if (response == null || response.get("token") == null) {
+            recordFailure("응답 없음");
             throw new KiwoomTokenIssueException("토큰 발급 실패: 응답 없음");
         }
-        return new CachedToken((String) response.get("token"), parseExpiresAt(response), clock.instant());
+        CachedToken token = new CachedToken((String) response.get("token"), parseExpiresAt(response), clock.instant());
+        lastIssue = new IssueStatus(token.issuedAt(), true, null, token.expiresAt());
+        return token;
     }
 
-    /** 발급 실패 원문에 인증 계열 코드가 있으면 {@link BrokerAuthFailure}를 발행한다(클래스 설명 "발급 실패 알림"). */
-    private void reportAuthFailure(String responseText) {
-        KiwoomErrorCodes.find(responseText, KiwoomErrorCodes.AUTH_FAILURE).ifPresent(code -> {
+    private void recordFailure(String failure) {
+        lastIssue = new IssueStatus(clock.instant(), false, failure, null);
+    }
+
+    /**
+     * 발급 실패 원문에 인증 계열 코드가 있으면 {@link BrokerAuthFailure}를 발행한다(클래스 설명 "발급 실패 알림").
+     *
+     * @return 찾은 인증 오류코드(없으면 빈 값)
+     */
+    private Optional<String> reportAuthFailure(String responseText) {
+        Optional<String> found = KiwoomErrorCodes.find(responseText, KiwoomErrorCodes.AUTH_FAILURE);
+        found.ifPresent(code -> {
             String host = URI.create(properties.restBaseUrl()).getHost();
             log.error("키움 접근토큰 발급 인증 실패 [{}] host={} — 허용 IP·App Key 상태 확인 필요, 긴급 알림 발행", code, host);
             publisher.publishEvent(new BrokerAuthFailure(code, SecretMasking.mask(responseText), host, clock.instant()));
         });
+        return found;
+    }
+
+    /** 마지막 발급 시도 결과. 아직 시도한 적이 없으면 빈 값. */
+    public Optional<IssueStatus> lastIssueStatus() {
+        return Optional.ofNullable(lastIssue);
+    }
+
+    /**
+     * 토큰 발급 시도 결과 — 헬스 표시용(토큰 값은 없다).
+     *
+     * @param at        시도 시각
+     * @param success   성공 여부
+     * @param failure   실패 사유 코드(예: 8030, HTTP 503, return_code 3) — 성공이면 null
+     * @param expiresAt 발급받은 토큰의 만료 시각 — 실패면 null
+     */
+    public record IssueStatus(Instant at, boolean success, String failure, Instant expiresAt) {
     }
 
     /**

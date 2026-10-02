@@ -9,6 +9,7 @@ import com.autostock.common.util.StockCode;
 import com.autostock.execution.BrokerOutstandingOrder;
 import com.autostock.execution.BrokerPort;
 import com.autostock.market.MarketSessionService;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -45,7 +46,7 @@ class ReconciliationServiceTest {
         marketSession = mock(MarketSessionService.class);
         when(marketSession.isActive()).thenReturn(true);
         TradingProperties liveProperties = new TradingProperties(TradingProperties.Mode.LIVE, Duration.ofMinutes(5));
-        service = new ReconciliationService(orderRepository, brokerPort, liveProperties, marketSession, Clock.systemUTC());
+        service = new ReconciliationService(orderRepository, brokerPort, liveProperties, marketSession, Clock.systemUTC(), new SimpleMeterRegistry());
     }
 
     private OrderEntity submittedEntity(String clientOrderId, String brokerOrderId) {
@@ -149,7 +150,7 @@ class ReconciliationServiceTest {
     @Test
     void SIM_모드에서는_startup_이벤트로_대사하지_않는다() {
         TradingProperties simProperties = new TradingProperties(TradingProperties.Mode.SIM, Duration.ofMinutes(5));
-        ReconciliationService simService = new ReconciliationService(orderRepository, brokerPort, simProperties, marketSession, Clock.systemUTC());
+        ReconciliationService simService = new ReconciliationService(orderRepository, brokerPort, simProperties, marketSession, Clock.systemUTC(), new SimpleMeterRegistry());
 
         simService.onStartup();
         simService.scheduledReconcile();

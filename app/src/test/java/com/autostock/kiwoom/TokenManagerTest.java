@@ -1,6 +1,8 @@
 package com.autostock.kiwoom;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.actuate.health.Health;
+import org.springframework.boot.actuate.health.Status;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Clock;
@@ -12,6 +14,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -115,6 +119,67 @@ class TokenManagerTest {
     }
 
     /** 테스트가 직접 앞으로 돌리는 시계. */
+    // ── 발급 결과 보관·헬스 kiwoomAuth(실행 계획 1.7) ─────────────────────────────────────────
+
+    @Test
+    void 발급_전에는_결과가_없고_헬스는_UNKNOWN이다() {
+        FakeTokenManager tokenManager = new FakeTokenManager();
+
+        assertTrue(tokenManager.lastIssueStatus().isEmpty());
+        assertEquals(Status.UNKNOWN, new KiwoomAuthHealthIndicator(tokenManager).health().getStatus());
+    }
+
+    @Test
+    void 발급에_성공하면_시각과_만료를_남기고_헬스는_UP이다() {
+        MutableClock clock = new MutableClock();
+        FakeTokenManager tokenManager = new FakeTokenManager(clock);
+
+        tokenManager.accessToken();
+
+        TokenManager.IssueStatus status = tokenManager.lastIssueStatus().orElseThrow();
+        assertTrue(status.success());
+        assertEquals(clock.instant(), status.at());
+        assertEquals(java.time.Instant.parse("2099-12-31T14:59:59Z"), status.expiresAt()); // KST 23:59:59
+        Health health = new KiwoomAuthHealthIndicator(tokenManager).health();
+        assertEquals(Status.UP, health.getStatus());
+        assertEquals("2099-12-31T14:59:59Z", health.getDetails().get("expiresAt"));
+        assertTrue(health.getDetails().values().stream().noneMatch(v -> String.valueOf(v).contains("test-token")),
+                "토큰 값은 싣지 않는다");
+    }
+
+    @Test
+    void 인증_코드로_실패하면_코드를_남기고_헬스는_DOWN이다() {
+        TokenManager failing = new TokenManager(WebClient.builder(), PROPERTIES, event -> { }, new MutableClock()) {
+            @Override
+            protected Map<String, Object> callApi() {
+                return Map.of("return_code", 3, "return_msg", "인증에 실패했습니다[8030:투자구분이 다릅니다]");
+            }
+        };
+
+        assertThrows(KiwoomTokenIssueException.class, failing::accessToken);
+
+        TokenManager.IssueStatus status = failing.lastIssueStatus().orElseThrow();
+        assertFalse(status.success());
+        assertEquals("8030", status.failure());
+        Health health = new KiwoomAuthHealthIndicator(failing).health();
+        assertEquals(Status.DOWN, health.getStatus());
+        assertEquals("8030", health.getDetails().get("failure"));
+    }
+
+    @Test
+    void 인증_코드가_아닌_실패는_return_code를_남긴다() {
+        TokenManager failing = new TokenManager(WebClient.builder(), PROPERTIES, event -> { }, new MutableClock()) {
+            @Override
+            protected Map<String, Object> callApi() {
+                return Map.of("return_code", 2, "return_msg", "[2000:입력값 오류]");
+            }
+        };
+
+        assertThrows(KiwoomTokenIssueException.class, failing::accessToken);
+
+        assertEquals("return_code 2", failing.lastIssueStatus().orElseThrow().failure());
+    }
+
     private static final class MutableClock extends Clock {
         private java.time.Instant now = java.time.Instant.parse("2026-09-30T00:00:00Z");
 

@@ -4,6 +4,7 @@ import com.autostock.common.util.BrokerOrderId;
 import com.autostock.execution.BrokerOutstandingOrder;
 import com.autostock.execution.BrokerPort;
 import com.autostock.market.MarketSessionService;
+import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -43,10 +44,13 @@ public class ReconciliationService {
     private final TradingProperties properties;
     private final MarketSessionService marketSession;
     private final Clock clock;
+    private final MeterRegistry meterRegistry;
 
     public ReconciliationService(OrderRepository orderRepository, BrokerPort brokerPort,
-                                 TradingProperties properties, MarketSessionService marketSession, Clock clock) {
+                                 TradingProperties properties, MarketSessionService marketSession, Clock clock,
+                                 MeterRegistry meterRegistry) {
         this.clock = clock;
+        this.meterRegistry = meterRegistry;
         this.orderRepository = orderRepository;
         this.brokerPort = brokerPort;
         this.properties = properties;
@@ -111,6 +115,8 @@ public class ReconciliationService {
         try {
             reconcile();
         } catch (Exception e) {
+            // 카운터 reconcile.failure{kind=orders}(실행 계획 1.7) — 잔고 대사는 kind=positions
+            meterRegistry.counter("reconcile.failure", "kind", "orders").increment();
             log.warn("{} 대사 실패 — 다음 주기(5분)에 재시도. 브로커 일시 오류로 앱을 죽이지 않는다", trigger, e);
         }
     }
