@@ -1,9 +1,6 @@
 package com.autostock.execution;
 
 import com.autostock.common.event.PositionRestored;
-import com.autostock.common.util.KiwoomNumbers;
-import com.autostock.common.util.Price;
-import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,8 +11,6 @@ import org.springframework.context.event.EventListener;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
-import java.util.Map;
 
 /**
  * 재시작 시 브로커 잔고 기반 포지션 복원 (운영 1일차 ⑨).
@@ -32,9 +27,9 @@ import java.util.Map;
  * trde_able_qty, cur_prc, pred_buyq, pred_sellq, tdy_buyq, tdy_sellq, pur_amt, pur_cmsn,
  * evlt_amt, sell_cmsn, tax, sum_cmsn, poss_rt, crd_tp, crd_tp_nm, crd_loan_dt}.
  * 사용 필드: {@code rmnd_qty}=보유수량, {@code pur_pric}=매입가(평단) — 복원 결과
- * "005930 19주 @ 259,974"가 실체결 평단과 일치함을 확인했다. 종목코드는 "A005930"처럼
- * A 접두가 붙는다(KiwoomBrokerAdapter#normalizeSymbol과 동일 규칙). 후보 키 탐색 구조는
- * 다른 계좌 유형 방어용으로 유지한다.
+ * "005930 19주 @ 259,974"가 실체결 평단과 일치함을 확인했다. 해석(후보 키·A 접두 제거)은
+ * 실행 계획 1.5부터 어댑터({@link KiwoomBrokerAdapter#toHolding})가 맡고, 이 클래스는
+ * {@link BrokerHolding}만 본다.
  */
 @Component
 public class PositionRestorer {
@@ -93,71 +88,16 @@ public class PositionRestorer {
             return;
         }
         restored.set(true); // 잔고 조회 성공 = 복원 완료(보유 0건이어도 성공이다)
-        boolean keysLogged = false;
-        for (Map<String, Object> holding : balance.holdings()) {
-            if (!keysLogged) {
-                // 실측(2026-09-11) 목적은 끝났다 — 기동마다 INFO로 찍히던 것을 DEBUG로 내린다
-                // (2026-10-01 로그 점검 F-5). 해석에 실패하면 아래 WARN이 원소 키를 직접 싣는다.
-                log.debug("kt00018 보유 원소 키: {}", holding.keySet());
-                keysLogged = true;
-            }
-            String symbol = normalizeSymbol(firstText(holding, "stk_cd", "stock_cd"));
-            long quantity = firstLong(holding, "rmnd_qty", "evlt_rmnd_qty", "hldg_qty", "qty");
-            Price avgPrice = firstPrice(holding, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric");
-            if (!symbol.matches(StockCode.PATTERN) || quantity <= 0) {
-                log.warn("포지션 복원 원소 해석 실패: 종목={}, qty={}, 원소 키={}",
-                        StockNames.label(symbol), quantity, holding.keySet());
-                continue;
-            }
+        // 원소 해석(키움 필드)은 어댑터가 한다(실행 계획 1.5, BrokerHolding) — 해석 실패 원소는 어댑터가 경고 후 뺐다.
+        for (BrokerHolding holding : balance.holdings()) {
             // 잔고 원소의 종목명(stk_nm, 실측 키)을 사전에 남긴다 — 보유 종목 이름은 추가 조회 없이 바로 표시된다
             // (2026-10-02 "종목코드와 종목명은 항상 같이 표시", aiDoc/stock-names.md)
-            StockNames.learn(symbol, firstText(holding, "stk_nm"), StockNames.Source.KIWOOM);
-            if (avgPrice == null) {
+            StockNames.learn(holding.symbol().value(), holding.name(), StockNames.Source.KIWOOM);
+            if (holding.avgPrice() == null) {
                 log.warn("포지션 복원: {} 매입가를 찾지 못해 평단 미상으로 복원(강제 청산 등 평단 기반 주문은 RiskGate가 거부)",
-                        StockNames.label(symbol));
+                        StockNames.label(holding.symbol()));
             }
-            publisher.publishEvent(new PositionRestored(new StockCode(symbol), quantity, avgPrice));
+            publisher.publishEvent(new PositionRestored(holding.symbol(), holding.quantity(), holding.avgPrice()));
         }
-    }
-
-    private static String firstText(Map<String, Object> map, String... keys) {
-        for (String key : keys) {
-            Object raw = map.get(key);
-            if (raw != null && !String.valueOf(raw).isBlank()) {
-                return String.valueOf(raw).trim();
-            }
-        }
-        return "";
-    }
-
-    private static long firstLong(Map<String, Object> map, String... keys) {
-        for (String key : keys) {
-            Object raw = map.get(key);
-            if (raw != null && !String.valueOf(raw).isBlank()) {
-                long value = KiwoomNumbers.toLongOrZero(raw);
-                if (value > 0) {
-                    return value;
-                }
-            }
-        }
-        return 0L;
-    }
-
-    /** 첫 번째 양수 가격. 없으면 null(평단 모름) — 0을 지어내지 않는다. */
-    private static Price firstPrice(Map<String, Object> map, String... keys) {
-        for (String key : keys) {
-            Object raw = map.get(key);
-            if (raw != null && !String.valueOf(raw).isBlank()) {
-                BigDecimal value = KiwoomNumbers.toBigDecimal(raw).abs();
-                if (value.signum() > 0) {
-                    return new Price(value);
-                }
-            }
-        }
-        return null;
-    }
-
-    private static String normalizeSymbol(String symbol) {
-        return symbol.startsWith("A") ? symbol.substring(1) : symbol;
     }
 }

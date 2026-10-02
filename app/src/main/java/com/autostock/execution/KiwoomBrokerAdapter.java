@@ -4,6 +4,7 @@ import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.KiwoomNumbers;
+import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.kiwoom.KiwoomApiException;
@@ -18,6 +19,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * {@link BrokerPort}의 키움 REST 구현체 — 유일한 Kiwoom 어댑터(ARCHITECTURE.md 4절).
@@ -215,17 +217,78 @@ public class KiwoomBrokerAdapter implements BrokerPort {
         BigDecimal totalProfitLoss = KiwoomNumbers.toBigDecimal(response.get("tot_evlt_pl"));
         BigDecimal estimatedDepositAsset = KiwoomNumbers.toBigDecimal(response.get("prsm_dpst_aset_amt"));
 
-        List<Map<String, Object>> holdings = new ArrayList<>();
+        List<BrokerHolding> holdings = new ArrayList<>();
         Object rawHoldings = response.get(BALANCE_HOLDINGS_KEY);
         if (rawHoldings instanceof List<?> list) {
             for (Object element : list) {
                 if (element instanceof Map<?, ?> raw) {
-                    holdings.add((Map<String, Object>) raw);
+                    toHolding((Map<String, Object>) raw).ifPresent(holdings::add);
                 }
             }
         }
         return new BrokerBalance(totalEvaluation, totalPurchase, totalProfitLoss,
                 estimatedDepositAsset, List.copyOf(holdings));
+    }
+
+    /**
+     * 잔고 보유 원소 → {@link BrokerHolding}(실행 계획 1.5 — 예전 PositionRestorer의 해석을 옮겼다, 규칙 불변).
+     *
+     * <p><b>실측 확정 (2026-09-11, mockapi — 005930 19주 보유 상태)</b>: 원소 키는 {@code stk_cd, stk_nm, evltv_prft, prft_rt,
+     * pur_pric, pred_close_pric, rmnd_qty, trde_able_qty, cur_prc, …}. 사용 필드: {@code rmnd_qty}=보유수량,
+     * {@code pur_pric}=매입가(평단) — "005930 19주 @ 259,974"가 실체결 평단과 일치했다. 종목코드는 "A005930"처럼 A 접두가
+     * 붙는다. 후보 키 탐색은 다른 계좌 유형 방어용으로 유지한다. 종목코드 형식이 틀리거나 수량이 0이면 경고 후 뺀다.
+     */
+    static Optional<BrokerHolding> toHolding(Map<String, Object> raw) {
+        String symbol = stripA(firstText(raw, "stk_cd", "stock_cd"));
+        long quantity = firstLong(raw, "rmnd_qty", "evlt_rmnd_qty", "hldg_qty", "qty");
+        if (!symbol.matches(StockCode.PATTERN) || quantity <= 0) {
+            log.warn("잔고 보유 원소 해석 실패 — 뺌: 종목={}, qty={}, 원소 키={}",
+                    StockNames.label(symbol), quantity, raw.keySet());
+            return Optional.empty();
+        }
+        return Optional.of(new BrokerHolding(new StockCode(symbol), firstText(raw, "stk_nm"), quantity,
+                firstPrice(raw, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric")));
+    }
+
+    private static String firstText(Map<String, Object> map, String... keys) {
+        for (String key : keys) {
+            Object raw = map.get(key);
+            if (raw != null && !String.valueOf(raw).isBlank()) {
+                return String.valueOf(raw).trim();
+            }
+        }
+        return "";
+    }
+
+    private static long firstLong(Map<String, Object> map, String... keys) {
+        for (String key : keys) {
+            Object raw = map.get(key);
+            if (raw != null && !String.valueOf(raw).isBlank()) {
+                long value = KiwoomNumbers.toLongOrZero(raw);
+                if (value > 0) {
+                    return value;
+                }
+            }
+        }
+        return 0L;
+    }
+
+    /** 첫 번째 양수 가격. 없으면 null(평단 모름) — 0을 지어내지 않는다. */
+    private static Price firstPrice(Map<String, Object> map, String... keys) {
+        for (String key : keys) {
+            Object raw = map.get(key);
+            if (raw != null && !String.valueOf(raw).isBlank()) {
+                BigDecimal value = KiwoomNumbers.toBigDecimal(raw).abs();
+                if (value.signum() > 0) {
+                    return new Price(value);
+                }
+            }
+        }
+        return null;
+    }
+
+    private static String stripA(String symbol) {
+        return symbol.startsWith("A") ? symbol.substring(1) : symbol;
     }
 
     /**
