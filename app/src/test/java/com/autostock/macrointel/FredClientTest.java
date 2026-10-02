@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FredClientTest {
 
     private static final MacroIntelProperties PROPERTIES =
-            new MacroIntelProperties(true, "test-fred-key", "", 25.0, 35.0, 1450.0);
+            new MacroIntelProperties(true, "test-fred-key", "", 25.0, 35.0, 1450.0, 7);
 
     @Test
     void 정상_응답에서_최신_관측치를_파싱한다() {

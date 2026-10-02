@@ -105,6 +105,7 @@ macrointel:
   vix-caution-threshold: 25.0           # VIX 이 값 이상이면 보수 모드(신규 매수 금지, 청산은 허용)
   vix-severe-threshold: 35.0            # VIX 이 값 이상이면 킬스위치 작동(전면 정지)
   usd-krw-caution-threshold: 1450.0     # 원/달러 환율 이 값 이상이면 보수 모드
+  max-staleness-days: 7                 # VIX·원/달러를 이 일수보다 오래 못 받으면 보수 모드 + 하루 1회 경고(실행 계획 1.4)
   blacklist:
     enabled: true                         # DART 실측 완료(2026-09-11) + start_autostock.bat가 이미 true로 기동 중 — yml 기본값도 일치시킴(2026-09-18)
     dart-api-key: ${DART_API_KEY:}        # OpenDART 발급 키(ipo.dart.api-key와 같은 키 재사용) — 커밋 금지

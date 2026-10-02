@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class EcosClientTest {
 
     private static final MacroIntelProperties PROPERTIES =
-            new MacroIntelProperties(true, "", "test-ecos-key", 25.0, 35.0, 1450.0);
+            new MacroIntelProperties(true, "", "test-ecos-key", 25.0, 35.0, 1450.0, 7);
 
     @Test
     void 정상_응답에서_최신값을_파싱한다() {

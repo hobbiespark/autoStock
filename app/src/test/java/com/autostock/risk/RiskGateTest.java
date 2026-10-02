@@ -68,7 +68,7 @@ class RiskGateTest {
         // 기존 단언들이 killSwitch.engage() 한 번에 깨진다(이 테스트는 OrderRequest만 관심 대상).
         killSwitch = new KillSwitch(event -> { }, mock(RiskStateStore.class), Clock.systemUTC());
         positionBook = new PositionBook();
-        macroGuard = new MacroGuard(defaultMacroIntelProperties(), killSwitch);
+        macroGuard = new MacroGuard(defaultMacroIntelProperties(), killSwitch, event -> { }, java.time.Clock.systemUTC());
         disclosureBlacklist = new DisclosureBlacklist(
                 mock(DisclosureBlacklistRepository.class), publisher, ANY_CLOCK);
         dailyLimits = new DailyLimitTracker(properties, ANY_CLOCK);
@@ -80,7 +80,7 @@ class RiskGateTest {
 
     /** macro-intel 관련 테스트는 이 기본 임계치를 공유한다(PLAN 5절 기본값과 동일). */
     static MacroIntelProperties defaultMacroIntelProperties() {
-        return new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0);
+        return new MacroIntelProperties(false, "", "", 25.0, 35.0, 1450.0, 7);
     }
 
     private Signal buySignal(String symbol, String price) {

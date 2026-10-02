@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.KillSwitchChanged;
+import com.autostock.common.event.MacroIndicatorStale;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.util.StockNames;
 import org.springframework.context.event.EventListener;
@@ -60,5 +61,15 @@ public class TradeNotificationListener {
         } else {
             dispatcher.submit(NoticeLevel.WARN, "킬스위치 해제: " + event.reason());
         }
+    }
+
+    /**
+     * 거시 지표 오래됨(실행 계획 1.4) — WARN. risk.MacroGuard가 하루 한 번 발행한다. 그동안 신규 매수는 막혀 있다.
+     */
+    @EventListener
+    public void onMacroIndicatorStale(MacroIndicatorStale event) {
+        dispatcher.submit(NoticeLevel.WARN,
+                "거시 지표 오래됨: %s — 가장 오래된 것 %d일(기준 %d일). 수집(FRED·ECOS) 확인 필요 — 그동안 신규 매수 금지".formatted(
+                        String.join(", ", event.indicatorIds()), event.ageDays(), event.maxStalenessDays()));
     }
 }
