@@ -11,6 +11,10 @@
  * execution은 trading을 참조하지 않으므로(반대 방향 의존 없음) 순환은 없다
  * (ModularityTests로 검증).
  *
+ * <p>실행 계획 1.2·1.5(2026-10-02)로 두 방향이 더해졌다 — trading → risk({@code risk.OpenOrderQuery} 포트 구현,
+ * {@link com.autostock.trading.OpenOrderQueryAdapter}; risk는 trading을 모른다 — ArchitectureRulesTest),
+ * trading → portfolio({@link com.autostock.trading.PositionReconciler}가 {@code PositionBook}을 읽는다; portfolio는 리프).
+ *
  * <p>{@code TradingProperties}(구 ExecutionProperties)의 {@code @ConfigurationProperties}
  * prefix는 yml 호환성을 위해 {@code execution}을 그대로 유지한다 — 클래스는 이동했지만
  * application.yml의 {@code execution.mode}/{@code execution.stale-order-timeout} 키는

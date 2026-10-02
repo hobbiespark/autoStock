@@ -2,7 +2,6 @@ package com.autostock.execution;
 
 import java.math.BigDecimal;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 계좌 잔고 도메인 표현 — {@link BrokerPort#balance()}의 반환값.
@@ -21,13 +20,14 @@ import java.util.Map;
  * @param totalPurchaseAmount   총매입금액 (tot_pur_amt, 실측 확정)
  * @param totalProfitLoss       총평가손익 (tot_evlt_pl, 실측 확정)
  * @param estimatedDepositAsset 추정예탁자산 (prsm_dpst_aset_amt — 계좌 총자산, equity 산정 기준)
- * @param holdings              종목별 보유 내역 원본 (acnt_evlt_remn_indv_tot — 실측 후 typed record로 세분화 TODO)
+ * @param holdings              종목별 보유 (acnt_evlt_remn_indv_tot를 어댑터가 {@link BrokerHolding}으로 변환 — 실행 계획 1.5).
+ *                              해석할 수 없는 원소는 어댑터가 경고 로그를 남기고 뺀다
  */
 public record BrokerBalance(
         BigDecimal totalEvaluationAmount,
         BigDecimal totalPurchaseAmount,
         BigDecimal totalProfitLoss,
         BigDecimal estimatedDepositAsset,
-        List<Map<String, Object>> holdings
+        List<BrokerHolding> holdings
 ) {
 }

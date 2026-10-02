@@ -4,6 +4,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.KillSwitchChanged;
 import com.autostock.common.event.MacroIndicatorStale;
 import com.autostock.common.event.OrderRequest;
+import com.autostock.common.event.PositionMismatch;
 import com.autostock.common.util.StockNames;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -71,5 +72,14 @@ public class TradeNotificationListener {
         dispatcher.submit(NoticeLevel.WARN,
                 "거시 지표 오래됨: %s — 가장 오래된 것 %d일(기준 %d일). 수집(FRED·ECOS) 확인 필요 — 그동안 신규 매수 금지".formatted(
                         String.join(", ", event.indicatorIds()), event.ageDays(), event.maxStalenessDays()));
+    }
+    /**
+     * 잔고·장부 수량 불일치(실행 계획 1.5) — WARN. trading.PositionReconciler가 같은 불일치를 연속 2회 보면 한 번 발행한다.
+     */
+    @EventListener
+    public void onPositionMismatch(PositionMismatch event) {
+        dispatcher.submit(NoticeLevel.WARN,
+                "잔고·장부 불일치: %s 브로커 %d주 / 장부 %d주 — 10분 넘게 같음. 자동 교정 안 함, HTS 잔고와 대시보드 확인 필요".formatted(
+                        StockNames.label(event.symbol()), event.brokerQuantity(), event.bookQuantity()));
     }
 }

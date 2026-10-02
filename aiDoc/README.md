@@ -54,3 +54,4 @@
 - [open-order-aware-risk.md](open-order-aware-risk.md) — Phase 1.2: RiskGate가 미체결 매수를 안다(risk.OpenOrderQuery 포트, 같은 종목 중복 매수 차단·동시 보유 한도 포함), 주문 슬롯 날짜+일련번호 원자 발급(BE-P2-17 포함)
 - [async-notification.md](async-notification.md) — Phase 1.3: 체결·주문·킬스위치 알림을 전용 작업자 1개 대기열로(발행 스레드 무대기·순서 보존·상한 500·종료 단계에서 비우기)
 - [macro-staleness.md](macro-staleness.md) — Phase 1.4: 거시 지표(VIX·원/달러) 7일 넘게 못 받으면 보수 모드(매수만 금지)+하루 1회 경고, 지표 ID 단일화
+- [position-reconcile.md](position-reconcile.md) — Phase 1.5: 잔고 보유 타입(BrokerHolding)으로 키움 필드를 어댑터 안에, 잔고↔장부 5분 대사(연속 2회 같으면 알림, 자동 교정 없음, 기본 꺼짐)

@@ -4,6 +4,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.KillSwitchChanged;
 import com.autostock.common.event.MacroIndicatorStale;
 import com.autostock.common.event.OrderRequest;
+import com.autostock.common.event.PositionMismatch;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.BrokerOrderId;
@@ -94,5 +95,16 @@ class TradeNotificationListenerTest {
         assertEquals(NoticeLevel.WARN, notices.get(0).level());
         assertEquals("거시 지표 오래됨: FRED_VIX, ECOS_USDKRW — 가장 오래된 것 9일(기준 7일). 수집(FRED·ECOS) 확인 필요"
                 + " — 그동안 신규 매수 금지", notices.get(0).message());
+    }
+    @Test
+    void 잔고_장부_불일치는_WARN으로_발송된다() {
+        StockNames.learn("005930", "삼성전자", StockNames.Source.KIWOOM);
+
+        listener.onPositionMismatch(new PositionMismatch(new StockCode("005930"), 19, 0, Instant.now()));
+
+        assertEquals(1, sent().size());
+        assertEquals(NoticeLevel.WARN, notices.get(0).level());
+        assertEquals("잔고·장부 불일치: 삼성전자(005930) 브로커 19주 / 장부 0주 — 10분 넘게 같음. 자동 교정 안 함,"
+                + " HTS 잔고와 대시보드 확인 필요", notices.get(0).message());
     }
 }
