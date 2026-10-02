@@ -137,8 +137,14 @@ class DisclosureBlacklistListenerTest {
     void 종료할_때_남은_대기열을_보낸다() {
         listener.onDisclosureBlacklisted(event("013720", "청보", "유상증자 결정"));
 
-        listener.flushOnShutdown();
+        listener.stop();   // 종료 단계(SmartLifecycle) — Reactor Netty 자원이 닫히기 전
 
         assertEquals(1, sent.size());
+    }
+    @Test
+    void 종료_단계는_알림_발송기와_Reactor_자원보다_먼저다() {
+        // 종료는 높은 단계부터 — Reactor Netty(ReactorResourceFactory 단계 0)가 닫히기 전에 보내야 한다(2026-10-02 실측 유실)
+        assertTrue(DisclosureBlacklistListener.SHUTDOWN_PHASE > NotificationDispatcher.SHUTDOWN_PHASE);
+        assertTrue(NotificationDispatcher.SHUTDOWN_PHASE > 0);
     }
 }
