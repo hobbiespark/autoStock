@@ -27,8 +27,9 @@ import java.util.regex.Pattern;
  *
  * <p><b>발송 제한(429)</b>(2026-10-01, aiDoc/alert-digest.md): 텔레그램은 같은 채팅에 초당 1건 정도를 권하고,
  * 넘기면 429와 함께 {@code parameters.retry_after}(초)를 돌려준다. 그만큼 기다렸다가 1회만 재시도한다.
- * 대기가 {@link #MAX_RETRY_WAIT}보다 길면 기다리지 않고 버린다 — notify는 호출 스레드에서 동기로 돌기 때문이다
- * (비동기 큐·발송 간격은 계획 Phase 1 알림 비동기화에서 다룬다).
+ * 대기가 {@link #MAX_RETRY_WAIT}보다 길면 기다리지 않고 버린다 — notify는 호출 스레드에서 동기로 돌기 때문이다.
+ * 체결·주문 요청·킬스위치 알림은 {@link NotificationDispatcher}의 전용 작업자 1개가 차례로 부르므로(실행 계획 1.3)
+ * 이 대기가 WS 수신·주문 경로를 막지 않는다.
  */
 @Component
 @ConditionalOnProperty(prefix = "monitor.telegram", name = "enabled", havingValue = "true")

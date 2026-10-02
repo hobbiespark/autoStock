@@ -17,20 +17,25 @@ import org.springframework.stereotype.Component;
  *
  * <p>MarketTick은 의도적으로 구독하지 않는다 — 초당 수십 건이라 알림을 폭주시킨다
  * (EventFeed와 같은 이유, monitor/EventFeed Javadoc 참고).
+ *
+ * <p><b>비동기 발송(실행 계획 1.3, 2026-10-02)</b>: 알림은 {@link NotificationDispatcher} 대기열에 넣고 바로 돌아온다 —
+ * 체결(WS 수신 스레드)·주문 요청(주문 경로)을 텔레그램 왕복으로 막지 않는다. 이 리스너의 알림끼리는 순서가 지켜지지만,
+ * 다른 리스너의 로그·처리와의 상대 순서는 바뀔 수 있다(예: 체결 알림이 장부 반영 로그보다 늦게 도착).
+ * 순서가 중요한 리스너(PositionBook·DailyPnlTracker·SlippageTracker·OrderNoticeHandler)는 그대로 동기다.
  */
 @Component
 public class TradeNotificationListener {
 
-    private final Notifier notifier;
+    private final NotificationDispatcher dispatcher;
 
-    public TradeNotificationListener(Notifier notifier) {
-        this.notifier = notifier;
+    public TradeNotificationListener(NotificationDispatcher dispatcher) {
+        this.dispatcher = dispatcher;
     }
 
     /** 체결 요약 — INFO. */
     @EventListener
     public void onFill(Fill fill) {
-        notifier.notify(NoticeLevel.INFO,
+        dispatcher.submit(NoticeLevel.INFO,
                 "체결: %s %s %d주 @ %s".formatted(
                         StockNames.label(fill.symbol()), fill.side(), fill.filledQuantity().value(), fill.fillPrice()));
     }
@@ -38,7 +43,7 @@ public class TradeNotificationListener {
     /** 주문 요청 발행 — INFO. RiskGate를 통과했다는 뜻(=실제로 브로커에 나갈 주문). */
     @EventListener
     public void onOrderRequest(OrderRequest order) {
-        notifier.notify(NoticeLevel.INFO,
+        dispatcher.submit(NoticeLevel.INFO,
                 "주문요청: %s %s %d주 @ %s (%s)".formatted(
                         StockNames.label(order.symbol()), order.side(), order.quantity().value(),
                         order.limitPrice(), order.idempotencyKey()));
@@ -51,9 +56,9 @@ public class TradeNotificationListener {
     @EventListener
     public void onKillSwitchChanged(KillSwitchChanged event) {
         if (event.engaged()) {
-            notifier.notify(NoticeLevel.CRITICAL, "킬스위치 작동: " + event.reason());
+            dispatcher.submit(NoticeLevel.CRITICAL, "킬스위치 작동: " + event.reason());
         } else {
-            notifier.notify(NoticeLevel.WARN, "킬스위치 해제: " + event.reason());
+            dispatcher.submit(NoticeLevel.WARN, "킬스위치 해제: " + event.reason());
         }
     }
 }

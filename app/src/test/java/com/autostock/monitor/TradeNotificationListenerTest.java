@@ -14,8 +14,8 @@ import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
@@ -28,13 +28,21 @@ class TradeNotificationListenerTest {
     private record Notice(NoticeLevel level, String message) {
     }
 
-    private final List<Notice> notices = new ArrayList<>();
+    private final List<Notice> notices = new CopyOnWriteArrayList<>();
     private final Notifier fakeNotifier = (level, message) -> notices.add(new Notice(level, message));
+    private NotificationDispatcher dispatcher;
     private TradeNotificationListener listener;
 
     @BeforeEach
     void setUp() {
-        listener = new TradeNotificationListener(fakeNotifier);
+        dispatcher = new NotificationDispatcher(fakeNotifier);
+        listener = new TradeNotificationListener(dispatcher);
+    }
+
+    /** 비동기 발송(실행 계획 1.3) — 대기열을 비운 뒤 확인한다. */
+    private List<Notice> sent() {
+        dispatcher.drain();
+        return notices;
     }
 
     @Test
@@ -44,7 +52,7 @@ class TradeNotificationListenerTest {
         listener.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10),
                 new Price(new BigDecimal("70000")), Instant.now()));
 
-        assertEquals(1, notices.size());
+        assertEquals(1, sent().size());
         assertEquals(NoticeLevel.INFO, notices.get(0).level());
         assertEquals("체결: 삼성전자(005930) BUY 10주 @ 70000", notices.get(0).message());
     }
@@ -54,7 +62,7 @@ class TradeNotificationListenerTest {
         listener.onOrderRequest(new OrderRequest("20260813-TEST-005930-BUY-001", "test-strategy",
                 new StockCode("005930"), Side.BUY, new Quantity(14), new Price(new BigDecimal("70000")), Instant.now()));
 
-        assertEquals(1, notices.size());
+        assertEquals(1, sent().size());
         assertEquals(NoticeLevel.INFO, notices.get(0).level());
         assertEquals("주문요청: 종목명 미확인(005930) BUY 14주 @ 70000 (20260813-TEST-005930-BUY-001)",
                 notices.get(0).message());
@@ -64,7 +72,7 @@ class TradeNotificationListenerTest {
     void 킬스위치_작동은_CRITICAL로_발송된다() {
         listener.onKillSwitchChanged(new KillSwitchChanged(true, "일 손실 한도 도달", Instant.now()));
 
-        assertEquals(1, notices.size());
+        assertEquals(1, sent().size());
         assertEquals(NoticeLevel.CRITICAL, notices.get(0).level());
         assertEquals(true, notices.get(0).message().contains("일 손실 한도 도달"));
     }
@@ -73,7 +81,7 @@ class TradeNotificationListenerTest {
     void 킬스위치_해제는_WARN으로_발송된다() {
         listener.onKillSwitchChanged(new KillSwitchChanged(false, "operator-1", Instant.now()));
 
-        assertEquals(1, notices.size());
+        assertEquals(1, sent().size());
         assertEquals(NoticeLevel.WARN, notices.get(0).level());
     }
 }
