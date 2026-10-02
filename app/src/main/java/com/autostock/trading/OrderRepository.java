@@ -27,6 +27,15 @@ public interface OrderRepository extends JpaRepository<OrderEntity, Long> {
     /** 특정 방향·상태 집합의 주문 — 미체결 매수 조회({@link OpenOrderQueryAdapter}, 실행 계획 1.2)가 사용. */
     List<OrderEntity> findBySideAndStatusIn(Side side, Collection<OrderStatus> statuses);
 
+    /** 상태별 주문 수 — 게이지 orders.unknown.count 등({@link TradingMetrics}, 실행 계획 1.7). */
+    long countByStatus(OrderStatus status);
+
+    /**
+     * [from, to) 안에 접수된 주문 중 주어진 상태의 수 — 일별 OTR 기록(monitor.DailyPerformanceService, 실행 계획 1.7)이 쓴다.
+     */
+    long countBySubmittedAtGreaterThanEqualAndSubmittedAtLessThanAndStatusIn(Instant from, Instant to,
+                                                                           Collection<OrderStatus> statuses);
+
     /**
      * 특정 시각 이후 접수된 주문 전체를 최신순으로 — 주문 이력 View API(FE-1, PLAN ADR-10
      * 확장표)의 기간 필터(days)가 이 메서드로 구현된다.

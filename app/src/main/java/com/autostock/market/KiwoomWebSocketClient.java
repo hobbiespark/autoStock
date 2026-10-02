@@ -23,7 +23,9 @@ import org.springframework.web.socket.handler.TextWebSocketHandler;
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -130,6 +132,9 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
 
     /** 재연결 지수 백오프·로그 억제(운영 2일차 결함). B3에서 추출 — {@link ReconnectBackoff}. */
     private final ReconnectBackoff backoff;
+
+    /** 마지막으로 받은 메시지(PING 포함) 시각 — 헬스 kiwoomWs·게이지 market.ws.last_message_age.seconds(실행 계획 1.7). */
+    private final AtomicReference<Instant> lastMessageAt = new AtomicReference<>();
 
     /**
      * 연결(TCP·TLS·업그레이드) 단계 IO 상한 — Tomcat WebSocket 클라이언트 속성. 기본값(5초)과 같지만 명시한다:
@@ -256,6 +261,29 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         return standby.get();
     }
 
+    // ── 관측(실행 계획 1.7) — 헬스·메트릭이 읽는다. 상태를 바꾸지 않는다 ───────────────────────
+
+    /** WS 사용 여부({@code autostock.ws.enabled}). */
+    public boolean isEnabled() {
+        return enabled;
+    }
+
+    /** 세션이 열려 있는가. */
+    public boolean isConnected() {
+        WebSocketSession current = session.get();
+        return current != null && current.isOpen();
+    }
+
+    /** LOGIN 응답(성공)을 받았는가 — 이 전에는 시세·체결통보 구독이 유효하지 않다. */
+    public boolean isLoggedIn() {
+        return loggedIn.get();
+    }
+
+    /** 마지막으로 받은 메시지(PING 포함) 시각. 받은 적 없으면 빈 값. */
+    public Optional<Instant> lastMessageAt() {
+        return Optional.ofNullable(lastMessageAt.get());
+    }
+
     /**
      * 이번 틱의 연결 상태를 단절 감지에 반영한다({@link DisconnectionTracker}). 실제 재연결({@link #connect()}, 네트워크
      * 부작용)과 분리해 단위 테스트할 수 있게 둔 패키지 접근 메서드다.
@@ -357,6 +385,7 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
 
     @Override
     protected void handleTextMessage(WebSocketSession current, TextMessage message) throws Exception {
+        lastMessageAt.set(clock.instant());
         JsonNode root = objectMapper.readTree(message.getPayload());
         String trnm = root.path("trnm").asText();
         if ("PING".equals(trnm)) {

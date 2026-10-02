@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import java.time.Clock;
 import java.time.Instant;
+import com.autostock.trading.OrderRepository;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -23,7 +24,8 @@ import static org.mockito.Mockito.when;
 class DailyPerformanceServiceTest {
 
     private final DailyPerformanceRepository repository = mock(DailyPerformanceRepository.class);
-    private final DailyPerformanceService service = new DailyPerformanceService(repository, Clock.systemUTC());
+    private final OrderRepository orderRepository = mock(OrderRepository.class);
+    private final DailyPerformanceService service = new DailyPerformanceService(repository, orderRepository, Clock.systemUTC());
 
     @Test
     void 해당_날짜에_행이_없으면_새로_생성해서_저장한다() {
@@ -65,5 +67,25 @@ class DailyPerformanceServiceTest {
         assertEquals(true, saved.isConservativeMode());
         assertEquals(true, saved.isKillSwitchEngaged());
         verify(repository, never()).findByTradeDateGreaterThanEqualOrderByTradeDateAsc(any());
+    }
+    @Test
+    void 그날_KST_하루에_접수된_주문의_전송_건수와_취소_건수를_함께_남긴다() {
+        // OTR 관측(V14, 실행 계획 1.7) — 10/6 KST 하루 = [10/5 15:00Z, 10/6 15:00Z)
+        LocalDate tradeDate = LocalDate.of(2026, 10, 6);
+        Instant from = Instant.parse("2026-10-05T15:00:00Z");
+        Instant to = Instant.parse("2026-10-06T15:00:00Z");
+        when(repository.findByTradeDate(tradeDate)).thenReturn(Optional.empty());
+        when(repository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+        when(orderRepository.countBySubmittedAtGreaterThanEqualAndSubmittedAtLessThanAndStatusIn(
+                from, to, DailyPerformanceService.SUBMITTED_STATUSES)).thenReturn(7L);
+        when(orderRepository.countBySubmittedAtGreaterThanEqualAndSubmittedAtLessThanAndStatusIn(
+                from, to, DailyPerformanceService.CANCELLED_STATUSES)).thenReturn(2L);
+
+        service.saveSnapshot(tradeDate, BigDecimal.ZERO, 7, 5, 0.0, 0.0, false, false);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(DailyPerformanceEntity.class);
+        verify(repository).save(captor.capture());
+        assertEquals(7, captor.getValue().getSubmittedCount());
+        assertEquals(2, captor.getValue().getCancelledCount());
     }
 }

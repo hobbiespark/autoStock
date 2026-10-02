@@ -54,6 +54,14 @@ public class DailyPerformanceEntity {
     @Column(name = "created_at", nullable = false)
     private Instant createdAt;
 
+    /** 그날 브로커로 보냈거나 보내려던 주문 수(V14, OTR 관측 — 실행 계획 1.7). */
+    @Column(name = "submitted_count", nullable = false)
+    private int submittedCount;
+
+    /** 그날 취소 요청을 보낸 주문 수(V14). */
+    @Column(name = "cancelled_count", nullable = false)
+    private int cancelledCount;
+
     /** JPA 전용 — 직접 사용 금지. */
     protected DailyPerformanceEntity() {
     }
@@ -77,6 +85,12 @@ public class DailyPerformanceEntity {
         this.killSwitchEngaged = killSwitchEngaged;
     }
 
+    /** 그날 주문·취소 건수(OTR 관측) — 15:50 스냅샷이 주문 테이블에서 센 값으로 덮어쓴다. */
+    public void recordOrderActivity(int submittedCount, int cancelledCount) {
+        this.submittedCount = submittedCount;
+        this.cancelledCount = cancelledCount;
+    }
+
     public Long getId() { return id; }
     public LocalDate getTradeDate() { return tradeDate; }
     public BigDecimal getRealizedPnl() { return realizedPnl; }
@@ -87,4 +101,6 @@ public class DailyPerformanceEntity {
     public boolean isConservativeMode() { return conservativeMode; }
     public boolean isKillSwitchEngaged() { return killSwitchEngaged; }
     public Instant getCreatedAt() { return createdAt; }
+    public int getSubmittedCount() { return submittedCount; }
+    public int getCancelledCount() { return cancelledCount; }
 }

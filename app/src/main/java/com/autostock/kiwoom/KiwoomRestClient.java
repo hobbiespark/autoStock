@@ -106,6 +106,18 @@ public class KiwoomRestClient {
                 .retryOnException(e -> e instanceof WebClientResponseException.TooManyRequests
                         || isRateLimitLogicError(e))
                 .build());
+        // 카운터 kiwoom.ratelimit.retry{code}(실행 계획 1.7) — 유량 재시도가 늘면 TrRateLimiter 간격을 다시 본다
+        this.retry.getEventPublisher().onRetry(event -> meterRegistry
+                .counter("kiwoom.ratelimit.retry", "code", rateLimitCode(event.getLastThrowable()))
+                .increment());
+    }
+
+    /** 유량 재시도 사유 코드 — HTTP 429면 "429", 키움 논리 오류면 1700·1701·1702, 모르면 "unknown". */
+    static String rateLimitCode(Throwable e) {
+        if (e instanceof WebClientResponseException.TooManyRequests) {
+            return "429";
+        }
+        return e == null ? "unknown" : KiwoomErrorCodes.find(e.getMessage(), KiwoomErrorCodes.RATE_LIMIT).orElse("unknown");
     }
 
     /**

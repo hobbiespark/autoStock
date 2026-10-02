@@ -64,6 +64,10 @@ management:
   endpoint:
     shutdown:
       access: unrestricted
+    health:
+      # 헬스 세부(kiwoomWs·kiwoomAuth·killSwitch·db 등, 실행 계획 1.7)를 보여 준다 — 루프백 바인딩이라 외부에 나가지 않는다
+      show-details: always
+      show-components: always
 
 risk:
   max-position-pct-per-symbol: 0.10

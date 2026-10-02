@@ -39,6 +39,8 @@ class KiwoomRestClientTest {
     private static final String OK = "{\"return_code\":0,\"return_msg\":\"정상\"}";
 
     private final List<String> sentTokens = new ArrayList<>();
+    /** 클라이언트 메트릭(유량 재시도 카운터 — 실행 계획 1.7). */
+    private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     /** 클라이언트·토큰 관리자가 발행한 이벤트(BrokerAuthFailure). */
     private final List<Object> published = new ArrayList<>();
 
@@ -97,6 +99,21 @@ class KiwoomRestClientTest {
         assertEquals(0, ((Number) response.get("return_code")).intValue());
         assertEquals(3, sentTokens.size());
         assertTrue(published.isEmpty());
+        // 카운터 kiwoom.ratelimit.retry{code}(실행 계획 1.7)
+        assertEquals(1.0, registry.counter("kiwoom.ratelimit.retry", "code", "1701").count());
+        assertEquals(1.0, registry.counter("kiwoom.ratelimit.retry", "code", "1702").count());
+    }
+
+    @Test
+    void 인증_실패_이벤트는_코드별로_센다() {
+        KiwoomMetrics metrics = new KiwoomMetrics(registry);
+
+        metrics.onBrokerAuthFailure(new com.autostock.common.event.BrokerAuthFailure("8030", "masked", "mockapi.kiwoom.com",
+                java.time.Instant.now()));
+        metrics.onBrokerAuthFailure(new com.autostock.common.event.BrokerAuthFailure("8030", "masked", "mockapi.kiwoom.com",
+                java.time.Instant.now()));
+
+        assertEquals(2.0, registry.counter("kiwoom.auth.failure", "code", "8030").count());
     }
 
     @Test
@@ -219,7 +236,7 @@ class KiwoomRestClientTest {
                     .body(body)
                     .build());
         });
-        return new KiwoomRestClient(builder, PROPERTIES, tokens, new TrRateLimiter(), new SimpleMeterRegistry(),
+        return new KiwoomRestClient(builder, PROPERTIES, tokens, new TrRateLimiter(), registry,
                 published::add, Clock.systemUTC());
     }
 
