@@ -7,6 +7,7 @@ import com.autostock.common.util.StockCode;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockNames;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -72,6 +73,7 @@ class SlippageTrackerTest {
 
     @Test
     void 매수는_결정가보다_비싸게_체결되면_양수_bps다() {
+        StockNames.learn("005930", "삼성전자", StockNames.Source.KIWOOM);
         tracker.onOrderRequest(order("O1", Side.BUY, "70000"));
         tracker.onFill(fill("O1", Side.BUY, 10, "70070"));
 
@@ -81,6 +83,7 @@ class SlippageTrackerTest {
         assertEquals(10.0, s.avgBps(), 1e-9);
         assertEquals(10.0, s.maxBps(), 1e-9);
         assertEquals("005930", s.maxBpsSymbol());
+        assertEquals("삼성전자", s.maxBpsSymbolName()); // 화면이 종목명과 코드를 함께 보여준다
     }
 
     @Test

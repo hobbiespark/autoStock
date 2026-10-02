@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import com.autostock.common.util.StockNames;
 import com.autostock.trading.TradingProperties;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
@@ -85,7 +86,8 @@ public class DashboardFacade {
     /** 포지션 View 목록. */
     public List<PositionView> positions() {
         return positionBook.snapshot().entrySet().stream()
-                .map(e -> new PositionView(e.getKey().value(), e.getValue().quantity(), e.getValue().avgPrice()))
+                .map(e -> new PositionView(e.getKey().value(), StockNames.nameOf(e.getKey()).orElse(null),
+                        e.getValue().quantity(), e.getValue().avgPrice()))
                 .toList();
     }
 

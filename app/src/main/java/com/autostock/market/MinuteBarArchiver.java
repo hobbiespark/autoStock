@@ -1,6 +1,7 @@
 package com.autostock.market;
 
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -81,10 +82,10 @@ public class MinuteBarArchiver {
         for (String symbol : symbols) {
             try {
                 int appended = archiveSymbol(symbol.trim(), today);
-                log.info("분봉 적재: {} {}행 추가 (기준일 {})", symbol.trim(), appended, today);
+                log.info("분봉 적재: {} {}행 추가 (기준일 {})", StockNames.label(symbol), appended, today);
             } catch (Exception e) {
                 // 한 종목 실패가 나머지 적재를 막지 않는다 — 다음 날 페이지 창(2.3일)이 메워준다
-                log.warn("분봉 적재 실패(내일 창으로 자연 복구): {} — {}", symbol, e.getMessage());
+                log.warn("분봉 적재 실패(내일 창으로 자연 복구): {} — {}", StockNames.label(symbol), e.getMessage());
             }
         }
     }

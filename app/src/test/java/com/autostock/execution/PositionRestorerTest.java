@@ -3,6 +3,7 @@ package com.autostock.execution;
 import com.autostock.common.event.PositionRestored;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import org.junit.jupiter.api.Test;
 
 import java.math.BigDecimal;
@@ -27,12 +28,15 @@ class PositionRestorerTest {
     void 보유_원소마다_A_접두를_벗긴_종목코드로_복원_이벤트를_발행한다() {
         // 실측 형식(2026-09-11): stk_cd="A005930", rmnd_qty=보유수량, pur_pric=평단
         when(brokerPort.balance()).thenReturn(balanceWith(List.of(
-                Map.of("stk_cd", "A005930", "rmnd_qty", "000000000000019", "pur_pric", "000000259974"))));
+                Map.of("stk_cd", "A005930", "stk_nm", "삼성전자", "rmnd_qty", "000000000000019",
+                        "pur_pric", "000000259974"))));
 
         new PositionRestorer(brokerPort, published::add, "LIVE").restore();
 
         assertEquals(List.of(new PositionRestored(new StockCode("005930"), 19, new Price(new BigDecimal("259974")))),
                 published);
+        // 잔고의 종목명(stk_nm)을 사전에 남겨 복원 로그·알림·화면이 바로 "삼성전자(005930)"로 표시한다
+        assertEquals("삼성전자(005930)", StockNames.label("005930"));
     }
 
     @Test

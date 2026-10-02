@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import com.autostock.common.util.StockNames;
 import com.autostock.monitor.view.SignalDecisionView;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -11,6 +12,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -59,8 +61,10 @@ class DecisionControllerTest {
 
     @Test
     void 엔티티를_View_DTO로_변환하고_metrics_json을_맵으로_역직렬화한다() throws Exception {
+        StockNames.learn("005930", "삼성전자", StockNames.Source.KIWOOM);
         String metricsJson = objectMapper.writeValueAsString(
-                java.util.Map.of("momentumReturnPct", "3.21", "regimeStatus", "ON"));
+                java.util.Map.of("momentumReturnPct", "3.21", "regimeStatus", "ON", "regimeIndexSymbol", "069500"));
+        StockNames.learn("069500", "KODEX 200", StockNames.Source.KIWOOM);
         SignalDecisionEntity entity = new SignalDecisionEntity(
                 Instant.parse("2026-09-11T00:05:00Z"), LocalDate.of(2026, 9, 11),
                 "MID", "C3-MOMENTUM", "005930", "BUY",
@@ -74,9 +78,11 @@ class DecisionControllerTest {
         assertEquals("MID", view.horizon());
         assertEquals("C3-MOMENTUM", view.strategyId());
         assertEquals("005930", view.symbol());
+        assertEquals("삼성전자", view.symbolName());
         assertEquals("BUY", view.conclusion());
         assertEquals("3.21", view.metrics().get("momentumReturnPct"));
         assertEquals("ON", view.metrics().get("regimeStatus"));
+        assertEquals("KODEX 200(069500)", view.metrics().get("regimeIndexSymbol")); // 지표의 종목코드도 이름과 함께
     }
 
     @Test
@@ -90,5 +96,6 @@ class DecisionControllerTest {
 
         assertEquals(1, result.size());
         assertTrue(result.get(0).metrics().isEmpty());
+        assertNull(result.get(0).symbolName()); // 이름을 모르면 null — 화면이 "종목명 미확인"으로 표시한다
     }
 }

@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.DisclosureBlacklisted;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.portfolio.PositionBook;
 import org.junit.jupiter.api.Test;
 
@@ -69,6 +70,18 @@ class DisclosureBlacklistListenerTest {
         listener.onDisclosureBlacklisted(event("005930", "삼성전자", "유상증자 결정"));
 
         assertTrue(sent.get(0).startsWith("매수 금지 등록(보유·매매 대상): 삼성전자(005930)"), sent.get(0));
+    }
+
+    @Test
+    void 사전에_키움_종목명이_있으면_공시_기업명보다_먼저_쓰고_처음_보는_종목은_기업명을_배운다() {
+        StockNames.learn("005930", "삼성전자", StockNames.Source.KIWOOM);
+        when(positionBook.holds(new StockCode("123456"))).thenReturn(true);
+
+        listener.onDisclosureBlacklisted(event("005930", "삼성전자(주)", "유상증자 결정"));
+        listener.onDisclosureBlacklisted(event("123456", "보유회사", "전환사채(CB) 발행 결정"));
+
+        assertTrue(sent.get(0).startsWith("매수 금지 등록(매매 대상): 삼성전자(005930) — "), sent.get(0));
+        assertEquals("보유회사(123456)", StockNames.label("123456")); // 다른 알림·로그도 같은 이름을 쓴다
     }
 
     @Test

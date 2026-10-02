@@ -13,6 +13,7 @@ import java.util.Map;
  * @param horizon    보유기간 지평(ADR-11): MID/DAY/SWING/LONG (+ 아직 지평 미편입 시 TEST)
  * @param strategyId 판단을 내린 전략 ID
  * @param symbol     종목코드
+ * @param symbolName 종목명 — 화면은 코드와 함께 표시한다(2026-10-02). 아직 모르면 null
  * @param conclusion BUY/SELL/HOLD/SKIP/REJECTED
  * @param reason     결론 사유 한 줄
  * @param metrics    판단 지표값(모멘텀 N일 수익률·국면 ON/OFF·볼타겟 비중 등)
@@ -22,6 +23,7 @@ public record SignalDecisionView(
         String horizon,
         String strategyId,
         String symbol,
+        String symbolName,
         String conclusion,
         String reason,
         Map<String, String> metrics

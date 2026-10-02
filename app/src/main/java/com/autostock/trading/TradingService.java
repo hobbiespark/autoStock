@@ -5,6 +5,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockNames;
 import com.autostock.execution.BrokerOrderResult;
 import com.autostock.execution.BrokerPort;
 import com.autostock.execution.BrokerRejectedException;
@@ -144,7 +145,7 @@ public class TradingService {
     private void executeSim(OrderRequest request) {
         BrokerOrderId brokerOrderId = new BrokerOrderId("SIM-" + simOrderSeq.incrementAndGet());
         log.info("[SIM] 즉시 체결: {} {} {}주 @ {}",
-                request.symbol(), request.side(), request.quantity(), request.limitPrice());
+                StockNames.label(request.symbol()), request.side(), request.quantity(), request.limitPrice());
 
         OrderEntity entity = new OrderEntity(request.idempotencyKey(), request.symbol(), request.side(),
                 request.quantity(), request.limitPrice(), request.strategyId(), clock.instant());
@@ -190,7 +191,7 @@ public class TradingService {
             entity.markSubmitted(brokerOrderId, clock.instant());
             entity = save(entity);
             brokerOrderIdToRequest.put(brokerOrderId, request);
-            log.info("[LIVE] 주문 접수: {} → 주문번호 {}", request.symbol(), result.brokerOrderId());
+            log.info("[LIVE] 주문 접수: {} → 주문번호 {}", StockNames.label(request.symbol()), result.brokerOrderId());
         } catch (BrokerRejectedException e) {
             // 운영 1일차 ② (2026-09-11 실측: RC4027·800033): 브로커가 응답을 주고 거부한
             // 경우는 결과가 "불명"이 아니라 "거부 확정"이다 — REJECTED(종결)로 분류하고

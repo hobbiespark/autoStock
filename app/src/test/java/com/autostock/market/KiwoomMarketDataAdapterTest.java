@@ -1,6 +1,7 @@
 package com.autostock.market;
 
 import com.autostock.common.event.Candle;
+import com.autostock.common.util.StockNames;
 import com.autostock.kiwoom.KiwoomRestClient;
 import com.autostock.kiwoom.TrId;
 import org.junit.jupiter.api.Test;
@@ -13,6 +14,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -36,6 +38,7 @@ class KiwoomMarketDataAdapterTest {
         MarketDataPort.StockQuote quote = adapter.stockQuote("005930");
 
         assertEquals("삼성전자", quote.name());
+        assertEquals("삼성전자(005930)", StockNames.label("005930")); // ka10001을 부를 때마다 사전에 남긴다
         assertEquals(new BigDecimal("258000"), quote.current());
         assertEquals(new BigDecimal("261000"), quote.open());
         assertEquals(new BigDecimal("261000"), quote.high());
@@ -53,6 +56,7 @@ class KiwoomMarketDataAdapterTest {
         MarketDataPort.StockQuote quote = adapter.stockQuote("005930");
 
         assertNull(quote.name());
+        assertFalse(StockNames.isKnown("005930")); // 빈 이름은 사전에 남기지 않는다
         assertNull(quote.current());
         assertNull(quote.open());
         assertNull(quote.high());

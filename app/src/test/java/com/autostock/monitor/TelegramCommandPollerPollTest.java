@@ -1,5 +1,9 @@
 package com.autostock.monitor;
 
+import com.autostock.common.event.PositionRestored;
+import com.autostock.common.util.Price;
+import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.RiskStateStore;
 import com.autostock.portfolio.PositionBook;
@@ -8,6 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Mono;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -191,12 +196,16 @@ class TelegramCommandPollerPollTest {
 
     @Test
     void status_명령을_받으면_요약_알림을_보낸다() {
+        StockNames.learn("005930", "삼성전자", StockNames.Source.KIWOOM);
+        positionBook.onPositionRestored(new PositionRestored(new StockCode("005930"), 19,
+                new Price(new BigDecimal("259974"))));
         TelegramCommandPoller poller = pollerWithUpdate(updateWith(CHAT_ID, "/status"));
 
         poller.poll();
 
         assertEquals(1, notices.size());
         assertTrue(notices.get(0).startsWith("INFO:"));
+        assertTrue(notices.get(0).contains("\n- 삼성전자(005930) 19주 @ 259974"), notices.get(0));
     }
 
     @Test

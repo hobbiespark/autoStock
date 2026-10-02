@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.common.event.DisclosureBlacklisted;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.portfolio.PositionBook;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Value;
@@ -63,8 +64,8 @@ public class DisclosureBlacklistListener {
         String relevance = relevance(event.symbol());
         if (relevance != null) {
             notifier.notify(NoticeLevel.WARN,
-                    "매수 금지 등록(%s): %s(%s) — %s(rcept_no=%s), 해제예정 %s".formatted(
-                            relevance, event.corpName(), event.symbol(), event.disclosureType(),
+                    "매수 금지 등록(%s): %s — %s(rcept_no=%s), 해제예정 %s".formatted(
+                            relevance, StockNames.label(event.symbol(), event.corpName()), event.disclosureType(),
                             event.rceptNo(), event.expiresOn()));
             return;
         }
@@ -130,7 +131,7 @@ public class DisclosureBlacklistListener {
                 .collect(Collectors.joining(", "));
         String symbolText = names.entrySet().stream()
                 .limit(DIGEST_MAX_SYMBOLS)
-                .map(n -> "%s(%s)".formatted(n.getValue(), n.getKey()))
+                .map(n -> StockNames.label(n.getKey(), n.getValue()))
                 .collect(Collectors.joining(", "));
         if (names.size() > DIGEST_MAX_SYMBOLS) {
             symbolText += " 외 " + (names.size() - DIGEST_MAX_SYMBOLS) + "종목";

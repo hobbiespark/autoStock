@@ -5,6 +5,7 @@ import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.market.MarketDataPort;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
@@ -166,7 +167,7 @@ public class DashboardController {
         try {
             price = marketData.stockQuote(symbol);
         } catch (Exception e) {
-            log.warn("기본정보(ka10001) 조회 실패 — 빈 시세 반환: {} ({})", symbol, e.getMessage());
+            log.warn("기본정보(ka10001) 조회 실패 — 빈 시세 반환: {} ({})", StockNames.label(symbol), e.getMessage());
             price = MarketDataPort.StockQuote.EMPTY;
         }
         MarketDataPort.BestQuote book;
@@ -174,10 +175,13 @@ public class DashboardController {
             book = marketData.bestQuote(symbol);
         } catch (Exception e) {
             // 호가 TR 실패(rate limit 등)해도 기본정보만으로 응답한다(방어)
-            log.warn("호가(ka10004) 조회 실패 — 기본정보만 반환: {} ({})", symbol, e.getMessage());
+            log.warn("호가(ka10004) 조회 실패 — 기본정보만 반환: {} ({})", StockNames.label(symbol), e.getMessage());
             book = MarketDataPort.BestQuote.EMPTY;
         }
-        return new QuoteView(symbol, price.name(), price.current(), price.open(), price.high(), price.low(),
+        // 받은 종목명은 시세 어댑터가 사전에 남긴다. 조회가 실패해 이름이 비면 사전의 이름으로 채운다
+        // — 화면은 코드와 종목명을 항상 함께 보여준다(2026-10-02, aiDoc/stock-names.md)
+        String name = price.name() != null ? price.name() : StockNames.nameOf(symbol).orElse(null);
+        return new QuoteView(symbol, name, price.current(), price.open(), price.high(), price.low(),
                 book.bestAsk(), book.bestBid());
     }
 

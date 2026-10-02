@@ -3,6 +3,7 @@ package com.autostock.monitor;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import com.autostock.monitor.view.DashboardView;
 import com.autostock.monitor.view.PositionView;
 import com.autostock.monitor.view.SystemStatusView;
@@ -57,6 +58,7 @@ class DashboardFacadeTest {
 
     @Test
     void positions는_PositionBook_스냅샷을_View로_옮겨담는다() {
+        StockNames.learn("005930", "삼성전자", StockNames.Source.KIWOOM);
         PositionBook positionBook = new PositionBook();
         positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10), new Price(new BigDecimal("70000")), Instant.now()));
 
@@ -68,6 +70,7 @@ class DashboardFacadeTest {
 
         assertEquals(1, views.size());
         assertEquals("005930", views.get(0).symbol());
+        assertEquals("삼성전자", views.get(0).symbolName());
         assertEquals(10L, views.get(0).quantity());
         assertEquals(new BigDecimal("70000"), views.get(0).avgPrice());
     }

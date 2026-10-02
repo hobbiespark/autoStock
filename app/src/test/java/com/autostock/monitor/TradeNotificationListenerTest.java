@@ -8,6 +8,7 @@ import com.autostock.common.util.StockCode;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
+import com.autostock.common.util.StockNames;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -37,22 +38,26 @@ class TradeNotificationListenerTest {
     }
 
     @Test
-    void Fill은_INFO로_발송된다() {
+    void Fill은_INFO로_발송되고_종목명과_코드를_함께_싣는다() {
+        StockNames.learn("005930", "삼성전자", StockNames.Source.KIWOOM);
+
         listener.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(10),
                 new Price(new BigDecimal("70000")), Instant.now()));
 
         assertEquals(1, notices.size());
         assertEquals(NoticeLevel.INFO, notices.get(0).level());
-        assertEquals(true, notices.get(0).message().contains("005930"));
+        assertEquals("체결: 삼성전자(005930) BUY 10주 @ 70000", notices.get(0).message());
     }
 
     @Test
-    void OrderRequest는_INFO로_발송된다() {
+    void OrderRequest는_INFO로_발송되고_이름을_모르면_미확인으로_표시한다() {
         listener.onOrderRequest(new OrderRequest("20260813-TEST-005930-BUY-001", "test-strategy",
                 new StockCode("005930"), Side.BUY, new Quantity(14), new Price(new BigDecimal("70000")), Instant.now()));
 
         assertEquals(1, notices.size());
         assertEquals(NoticeLevel.INFO, notices.get(0).level());
+        assertEquals("주문요청: 종목명 미확인(005930) BUY 14주 @ 70000 (20260813-TEST-005930-BUY-001)",
+                notices.get(0).message());
     }
 
     @Test

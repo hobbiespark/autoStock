@@ -4,6 +4,7 @@ import com.autostock.common.event.PositionRestored;
 import com.autostock.common.util.KiwoomNumbers;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
+import com.autostock.common.util.StockNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -104,12 +105,16 @@ public class PositionRestorer {
             long quantity = firstLong(holding, "rmnd_qty", "evlt_rmnd_qty", "hldg_qty", "qty");
             Price avgPrice = firstPrice(holding, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric");
             if (!symbol.matches(StockCode.PATTERN) || quantity <= 0) {
-                log.warn("포지션 복원 원소 해석 실패: symbol={}, qty={}, 원소 키={}",
-                        symbol, quantity, holding.keySet());
+                log.warn("포지션 복원 원소 해석 실패: 종목={}, qty={}, 원소 키={}",
+                        StockNames.label(symbol), quantity, holding.keySet());
                 continue;
             }
+            // 잔고 원소의 종목명(stk_nm, 실측 키)을 사전에 남긴다 — 보유 종목 이름은 추가 조회 없이 바로 표시된다
+            // (2026-10-02 "종목코드와 종목명은 항상 같이 표시", aiDoc/stock-names.md)
+            StockNames.learn(symbol, firstText(holding, "stk_nm"), StockNames.Source.KIWOOM);
             if (avgPrice == null) {
-                log.warn("포지션 복원: {} 매입가를 찾지 못해 평단 미상으로 복원(강제 청산 등 평단 기반 주문은 RiskGate가 거부)", symbol);
+                log.warn("포지션 복원: {} 매입가를 찾지 못해 평단 미상으로 복원(강제 청산 등 평단 기반 주문은 RiskGate가 거부)",
+                        StockNames.label(symbol));
             }
             publisher.publishEvent(new PositionRestored(new StockCode(symbol), quantity, avgPrice));
         }

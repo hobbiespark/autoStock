@@ -1,6 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.common.util.MarketConstants;
+import com.autostock.common.util.StockNames;
 import com.autostock.execution.BrokerBalance;
 import com.autostock.execution.BrokerPort;
 import com.autostock.risk.DailyLimitTracker;
@@ -103,10 +104,10 @@ public class DailyReportScheduler {
         sb.append("오늘 슬리피지: ").append(slip.fills() == 0
                 ? "체결 없음"
                 : "%d건, 평균 %.2fbps, 최대 %.2fbps(%s) — 양수=불리, 백테스트 가정 5bps 대비"
-                        .formatted(slip.fills(), slip.avgBps(), slip.maxBps(), slip.maxBpsSymbol())).append('\n');
+                        .formatted(slip.fills(), slip.avgBps(), slip.maxBps(), StockNames.label(slip.maxBpsSymbol()))).append('\n');
         sb.append("보유 종목 수: ").append(positions.size());
         positions.forEach((symbol, position) ->
-                sb.append("\n- ").append(symbol).append(' ')
+                sb.append("\n- ").append(StockNames.label(symbol)).append(' ')
                         .append(position.quantity()).append("주 @ ").append(position.avgPriceText()));
         sb.append('\n').append(balanceLine());
         return sb.toString();

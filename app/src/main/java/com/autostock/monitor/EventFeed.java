@@ -4,6 +4,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.MarketTick;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Signal;
+import com.autostock.common.util.StockNames;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -46,21 +47,21 @@ public class EventFeed {
     @EventListener
     public void on(Signal e) {
         add(new FeedItem("SIGNAL",
-                "[%s] %s %s @ %s (전략 %s)".formatted(e.symbol(), e.side(), "시그널", e.refPrice(), e.strategyId()),
+                "[%s] %s %s @ %s (전략 %s)".formatted(StockNames.label(e.symbol()), e.side(), "시그널", e.refPrice(), e.strategyId()),
                 e.timestamp()));
     }
 
     @EventListener
     public void on(OrderRequest e) {
         add(new FeedItem("ORDER",
-                "[%s] %s %d주 @ %s 주문요청".formatted(e.symbol(), e.side(), e.quantity().value(), e.limitPrice()),
+                "[%s] %s %d주 @ %s 주문요청".formatted(StockNames.label(e.symbol()), e.side(), e.quantity().value(), e.limitPrice()),
                 e.timestamp()));
     }
 
     @EventListener
     public void on(Fill e) {
         add(new FeedItem("FILL",
-                "[%s] %s %d주 @ %s 체결 (%s)".formatted(e.symbol(), e.side(), e.filledQuantity().value(), e.fillPrice(), e.brokerOrderId()),
+                "[%s] %s %d주 @ %s 체결 (%s)".formatted(StockNames.label(e.symbol()), e.side(), e.filledQuantity().value(), e.fillPrice(), e.brokerOrderId()),
                 e.timestamp()));
     }
 

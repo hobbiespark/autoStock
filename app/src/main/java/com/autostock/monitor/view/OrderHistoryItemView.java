@@ -9,6 +9,7 @@ import java.time.Instant;
  *
  * @param clientOrderId  논리 주문 멱등키(모노스페이스로 표시)
  * @param symbol         종목코드
+ * @param symbolName     종목명 — 화면은 코드와 함께 표시한다(2026-10-02). 아직 모르면 null
  * @param side           BUY | SELL
  * @param quantity       주문 수량
  * @param filledQuantity 누적 체결 수량
@@ -20,6 +21,7 @@ import java.time.Instant;
 public record OrderHistoryItemView(
         String clientOrderId,
         String symbol,
+        String symbolName,
         String side,
         long quantity,
         long filledQuantity,
