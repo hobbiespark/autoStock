@@ -33,7 +33,7 @@ class SchemaAndTimeZoneDbTest extends PostgresDataJpaTest {
                 String.class);
 
         assertEquals(0, failed);
-        assertEquals("14", latest, "새 마이그레이션을 추가했으면 이 기대값도 올린다 — " + PostgresTestDatabase.kind());
+        assertEquals("15", latest, "새 마이그레이션을 추가했으면 이 기대값도 올린다 — " + PostgresTestDatabase.kind());
     }
 
     @Test
@@ -50,5 +50,17 @@ class SchemaAndTimeZoneDbTest extends PostgresDataJpaTest {
         assertEquals("2026-09-25|2026-09-30T00:30:00", raw, PostgresTestDatabase.kind());
         assertTrue(holidays.findById(chuseok).isPresent());
         assertEquals(1, holidays.findByHolidayDateBetween(chuseok, chuseok).size());
+    }
+    @Test
+    void 발행_로그_표에_Modulith_2_컬럼이_널_허용으로_있다() {
+        // V15(D-07 (a), 실행 계획 1.8) — 이관 전 Expand: 지금 Modulith는 모르는 컬럼이라 널 허용이어야 한다
+        java.util.List<String> columns = jdbc.queryForList(
+                "select column_name || ':' || data_type || ':' || is_nullable from information_schema.columns"
+                        + " where table_name = 'event_publication' and column_name in"
+                        + " ('status', 'completion_attempts', 'last_resubmission_date') order by column_name",
+                String.class);
+
+        assertEquals(java.util.List.of("completion_attempts:integer:YES",
+                "last_resubmission_date:timestamp with time zone:YES", "status:text:YES"), columns);
     }
 }
