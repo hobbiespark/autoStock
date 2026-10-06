@@ -4,6 +4,7 @@ import com.autostock.common.event.Candle;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
+import com.autostock.common.event.StrategyRunCompleted;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
@@ -145,7 +146,12 @@ public class C3LiveStrategy {
         if (summary != null) {
             // 판단 결과는 signal_decisions(DB)에만 남는다 — 실행 여부와 결과를 로그로도 확인할 수 있게
             // 요약 1줄을 남긴다(2026-10-01 로그 점검 F-2, aiDoc/run-summary-logs.md).
-            log.info(summary.toLogLine());
+            String line = summary.toLogLine();
+            log.info(line);
+            // 같은 한 줄을 이벤트로도 낸다 — monitor.MarketDayCheck가 텔레그램으로 알리고 09:15에 "오늘 실행했는가"를
+            // 확인한다(2026-10-06, aiDoc/market-hours-automation.md). 매매 판단과는 무관하다.
+            publisher.publishEvent(new StrategyRunCompleted(STRATEGY_ID, summary.date(), line, summary.errors(),
+                    clock.instant()));
         }
     }
 

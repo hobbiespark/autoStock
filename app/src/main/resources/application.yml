@@ -85,6 +85,13 @@ risk:
 execution:
   mode: SIM                     # SIM: 즉시 체결 시뮬레이션 / LIVE: 키움 주문 API
   stale-order-timeout: 5m        # SUBMITTED로 이 시간 이상 머문 주문을 StaleOrderCanceller가 자동 취소 요청
+  tr-probe:                      # 체결·미체결 TR 장중 실측(실행 계획 1.6) — date 하루 at 이후 한 번, 모의 서버에서만(aiDoc/market-hours-automation.md)
+    enabled: true
+    date: 2026-10-07             # 이 날만 돈다. 끝난 뒤에는 결과 파일이 있어 다시 돌지 않는다 — 다시 재려면 날짜를 바꾼다
+    at: "10:00"
+    symbol: "069500"             # KODEX 200 1주를 현재가보다 discount-pct% 낮은 지정가로 매수 → 조회 → 취소 → 조회
+    discount-pct: 15
+    output-dir: ../docs/measured # 앱 작업 폴더(app) 기준 — 리포의 docs/measured(계좌번호는 가려서 저장)
 
 trading:
   position-reconcile:
@@ -152,6 +159,10 @@ monitor:
     chat-id: ${TELEGRAM_CHAT_ID:}           # 알림 수신 + 원격 명령 허용 chat_id (타인 명령 차단의 기준값)
   heartbeat:
     url: ${MONITOR_HEARTBEAT_URL:}          # Healthchecks.io ping URL — 비면 꺼짐. 장중(ACTIVE) 1분마다 GET(monitor.HeartbeatPinger, Phase 0.7)
+  market-check:                             # 장중 자가 점검(monitor.MarketDayCheck, aiDoc/market-hours-automation.md)
+    enabled: true                           # 09:15 C3 실행 확인, 10:00·14:00 상태 한 줄(이상일 때만 텔레그램)
+    strategy-run-notice: true               # C3 09:05 판단 요약을 텔레그램으로 한 줄
+    max-message-age-seconds: 120            # 장중 WS 마지막 메시지가 이보다 오래되면 이상
 
 ---
 # 모의투자(paper, 기본 프로필) — KIWOOM_MOCK_G_*(모의 일반계좌) 사용.

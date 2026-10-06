@@ -5,6 +5,7 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
 import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
+import com.autostock.common.event.StrategyRunCompleted;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.market.KiwoomDailyChartService;
@@ -458,6 +459,29 @@ class C3LiveStrategyTest {
         assertEquals(1, decisions.size());
         assertEquals("SKIP", decisions.get(0).conclusion());
         assertEquals(new StockCode("005930"), decisions.get(0).symbol());
+    }
+
+    @Test
+    void 정기_실행을_마치면_요약_한_줄을_실행_완료_이벤트로도_낸다() {
+        // 장중 점검(monitor.MarketDayCheck)이 받아 텔레그램으로 알리고 09:15에 실행 여부를 확인한다(2026-10-06)
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put("005930", downtrendSymbolCandles("005930"));
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930"), 5), chart, marketData, new PositionBook(), published::add,
+                marketCalendarService, runningManager(), OCT_1_0905, stateStore);
+
+        strategy.run();
+
+        List<StrategyRunCompleted> runs = published.stream().filter(StrategyRunCompleted.class::isInstance)
+                .map(StrategyRunCompleted.class::cast).toList();
+        assertEquals(1, runs.size());
+        StrategyRunCompleted run = runs.get(0);
+        assertEquals("C3-MOMENTUM", run.strategyId());
+        assertEquals(LocalDate.of(2026, 10, 1), run.tradeDate());
+        assertTrue(run.summary().startsWith("C3 판단 2026-10-01 — 국면 ON"), run.summary());
+        assertEquals(0, run.errors());
     }
 
     @Test
