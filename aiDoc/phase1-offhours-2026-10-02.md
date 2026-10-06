@@ -70,5 +70,5 @@ V12까지와 같이 **적용 뒤 파일을 고치지 않는다**(Flyway 체크�
   - 게이지·카운터 노출(`risk.killswitch.engaged`, `orders.unknown.count`, `orders.cancel_requested.count`, `market.ws.last_message_age.seconds`, `reconcile.position.mismatch`)
   - 경로 변수 형식 오류 400(`VALIDATION_FAILED` — 이 점검에서 찾아 고침, `small-fixes-2026-10-02.md`), `/api/orders?days=1` 200
   - `/actuator/shutdown` 정상 종료 — 오류는 가짜 키로 인한 토큰 발급 실패(8001)뿐
-- 미검증: 5·6절 전부(실제 키·텔레그램·실DB로 재기동, 장중).
+- 5절(10/2 21:12 재기동)·6절(10/6 장중) 확인 결과는 `upgrade-2026-10/14-log-review-2026-10-06.md`에 있다. 주문이 없어 1.2·1.3의 주문 경로 확인은 남았다.
 - 남은 Phase 1: 1.6(장중 실측 — UNKNOWN 해소 TR), 1.10(복구 훈련 — 사용자와 함께, 장외).
