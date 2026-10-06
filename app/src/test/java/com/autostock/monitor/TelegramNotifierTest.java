@@ -1,9 +1,16 @@
 package com.autostock.monitor;
 
+import io.micrometer.core.instrument.Meter;
+import io.micrometer.core.instrument.Timer;
+import io.micrometer.core.instrument.observation.DefaultMeterObservationHandler;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.reactive.function.client.WebClientResponseException;
 import reactor.core.publisher.Mono;
@@ -16,6 +23,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -43,7 +52,7 @@ class TelegramNotifierTest {
     @Test
     void 정상_응답이면_예외없이_전송한다() {
         WebClient webClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
-        when(webClient.post().uri(anyString()).bodyValue(any())
+        when(webClient.post().uri(anyString(), any(Object[].class)).bodyValue(any())
                 .retrieve().toBodilessEntity())
                 .thenReturn(Mono.just(ResponseEntity.ok().build()));
 
@@ -60,7 +69,7 @@ class TelegramNotifierTest {
         // 알림 실패가 매매 흐름을 막으면 안 되므로 — WebClient가 어떤 예외를 던지든
         // TelegramNotifier.notify()는 절대 예외를 전파하지 않아야 한다.
         WebClient webClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
-        when(webClient.post().uri(anyString()).bodyValue(any())
+        when(webClient.post().uri(anyString(), any(Object[].class)).bodyValue(any())
                 .retrieve().toBodilessEntity().block())
                 .thenThrow(new RuntimeException("네트워크 오류(모의)"));
 
@@ -82,7 +91,7 @@ class TelegramNotifierTest {
     /** n번째 호출(1부터)에 무엇을 돌려줄지 정한 WebClient — 실제 호출 횟수를 calls에 센다. */
     private static WebClient webClientAnswering(AtomicInteger calls, java.util.function.IntFunction<Mono<ResponseEntity<Void>>> answer) {
         WebClient webClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
-        when(webClient.post().uri(anyString()).bodyValue(any()).retrieve().toBodilessEntity())
+        when(webClient.post().uri(anyString(), any(Object[].class)).bodyValue(any()).retrieve().toBodilessEntity())
                 .thenAnswer(inv -> answer.apply(calls.incrementAndGet()));
         return webClient;
     }
@@ -152,5 +161,32 @@ class TelegramNotifierTest {
 
         assertEquals(Duration.ofSeconds(1), TelegramNotifier.retryAfter(WebClientResponseException.create(
                 HttpStatusCode.valueOf(429), "Too Many Requests", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8, null)));
+    }
+    // ── 요청 지표에 토큰이 남지 않는다(2026-10-06 로그 점검) ─────────────────────────────
+
+    @Test
+    void 요청_지표의_uri_태그에_봇_토큰이_남지_않는다() {
+        // 실제 WebClient + 관측(운영과 같은 http.client.requests 지표). 네트워크는 쓰지 않는다(교환 함수 대역).
+        SimpleMeterRegistry meters = new SimpleMeterRegistry();
+        ObservationRegistry observations = ObservationRegistry.create();
+        observations.observationConfig().observationHandler(new DefaultMeterObservationHandler(meters));
+        List<String> paths = new ArrayList<>();
+        WebClient.Builder builder = WebClient.builder()
+                .observationRegistry(observations)
+                .exchangeFunction(request -> {
+                    paths.add(request.url().getRawPath());
+                    return Mono.just(ClientResponse.create(HttpStatus.OK).build());
+                });
+
+        new TelegramNotifier(builder, properties).notify(NoticeLevel.INFO, "지표 확인");
+
+        Timer requests = meters.find("http.client.requests").timer();
+        assertNotNull(requests, "요청 지표가 기록돼야 한다");
+        String uri = requests.getId().getTag("uri");
+        assertTrue(uri.contains("{token}"), "uri 태그는 템플릿이어야 한다: " + uri);
+        assertFalse(meters.getMeters().stream().map(Meter::getId).flatMap(id -> id.getTags().stream())
+                .anyMatch(tag -> tag.getValue().contains("test-token")), "어느 지표 태그에도 토큰이 없어야 한다");
+        // 실제 요청 경로에는 토큰이 들어간다(발송은 그대로)
+        assertEquals(List.of("/bottest-token/sendMessage"), paths);
     }
 }

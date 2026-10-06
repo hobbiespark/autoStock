@@ -78,10 +78,12 @@ public class TelegramNotifier implements Notifier {
     }
 
     private void send(String text) {
-        // uri(String) 단일 인자 오버로드를 쓴다(가변인자 오버로드 대신) — 토큰을 담은
-        // 경로를 미리 조립해서 넘기면 테스트에서 WebClient 체인을 스텁하기 쉬워진다.
+        // 토큰은 URI 템플릿 변수로 넘긴다. WebClient는 템플릿 문자열을 요청 지표 http.client.requests의
+        // uri 태그로 남기므로, 경로를 미리 조립하면 봇 토큰이 /actuator/metrics에 그대로 보인다
+        // (2026-10-06 로그 점검에서 확인 — aiDoc/upgrade-2026-10/14-log-review-2026-10-06.md).
+        // 토큰의 ':'는 %3A로 인코딩된다 — getUpdates(TelegramCommandPoller)와 같은 방식이다.
         webClient.post()
-                .uri("/bot%s/sendMessage".formatted(properties.botToken()))
+                .uri("/bot{token}/sendMessage", properties.botToken())
                 .bodyValue(Map.of(
                         "chat_id", properties.chatId(),
                         "text", text))
