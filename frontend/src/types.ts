@@ -147,8 +147,9 @@ export type IpoStatus = 'UPCOMING' | 'SUBSCRIBING' | 'LISTED' | 'PASSED';
 // 청약 권고 판정(IpoRecommendation).
 export type IpoRecommendation = 'RECOMMEND' | 'SKIP' | 'PENDING';
 
-// 공모주 딜 화면(FE-3) — GET /api/ipo 응답 원소. offerPriceLow/High는 DART가 밴드를 구조화
-// 제공하지 않아(실측 확인) 대부분 null이다 — offerPriceConfirmed만 채워지는 경우가 많다.
+// 공모주 딜 화면(FE-3) — GET /api/ipo 응답 원소. offerPriceConfirmed는 주요정보 모집가액(수요예측 전 희망가 하단,
+// 확정 뒤에도 그대로)이다. 확정 공모가(offerPriceFinal)와 희망 밴드(offerPriceLow/High)는 [발행조건확정] 원본에서
+// 읽는다(2026-10-13). 상장하면 키움 종목정보 리스트로 상장일(listingDate)·종목코드(stockCode)를 자동으로 채운다.
 export interface IpoDeal {
   id: number;
   corpCode: string;
@@ -157,10 +158,12 @@ export interface IpoDeal {
   offerPriceLow: string | number | null;
   offerPriceHigh: string | number | null;
   offerPriceConfirmed: string | number | null;
+  offerPriceFinal: string | number | null; // 확정 공모가(2026-10-13)
   subscriptionStart: string | null;
   subscriptionEnd: string | null;
   refundDate: string | null;
   listingDate: string | null;
+  stockCode: string | null; // 상장 뒤 종목코드(2026-10-13)
   leadManager: string | null;
   institutionalCompetitionRate: string | number | null;
   lockupCommitRate: string | number | null; // 의무보유확약비율 0~1(수량 기준)

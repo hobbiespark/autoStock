@@ -33,14 +33,26 @@ function formatLockup(v: string | number | null): string {
   return Number.isFinite(n) ? `${(n * 100).toFixed(2)}%` : String(v);
 }
 
+// 확정 공모가가 있으면 "확정 23,500원 (희망 19,500원 ~ 23,500원)", 없으면 밴드, 그것도 없으면 신고서 모집가액(확정 전).
+// offerPriceConfirmed는 이름과 달리 확정가가 아니다 — 수요예측 전 희망가 하단이다(2026-10-13).
 function formatBand(deal: IpoDeal): string {
-  if (deal.offerPriceLow != null && deal.offerPriceHigh != null) {
-    return `${formatPrice(deal.offerPriceLow)} ~ ${formatPrice(deal.offerPriceHigh)}`;
+  const band =
+    deal.offerPriceLow != null && deal.offerPriceHigh != null
+      ? `희망 ${formatPrice(deal.offerPriceLow)} ~ ${formatPrice(deal.offerPriceHigh)}`
+      : null;
+  if (deal.offerPriceFinal != null) {
+    return band ? `확정 ${formatPrice(deal.offerPriceFinal)} (${band})` : `확정 ${formatPrice(deal.offerPriceFinal)}`;
   }
+  if (band) return band;
   if (deal.offerPriceConfirmed != null) {
-    return `${formatPrice(deal.offerPriceConfirmed)} (확정)`;
+    return `${formatPrice(deal.offerPriceConfirmed)} (신고서 모집가액·확정 전)`;
   }
   return '미확정';
+}
+
+function formatListing(deal: IpoDeal): string {
+  if (deal.listingDate == null) return '미확정(상장하면 자동 확인)';
+  return deal.stockCode ? `${deal.listingDate} (종목코드 ${deal.stockCode})` : deal.listingDate;
 }
 
 /**
@@ -145,7 +157,7 @@ function IpoDetail({ deal }: { deal: IpoDeal }) {
         <TimelineItem label="청약기간" value={deal.subscriptionStart && deal.subscriptionEnd
           ? `${deal.subscriptionStart} ~ ${deal.subscriptionEnd}` : '미확정'} />
         <TimelineItem label="환불일" value={deal.refundDate ?? '미확정'} />
-        <TimelineItem label="상장일" value={deal.listingDate ?? '미확정(수동 입력 필요)'} />
+        <TimelineItem label="상장일" value={formatListing(deal)} />
       </div>
 
       <MetricsSection deal={deal} />
@@ -195,7 +207,7 @@ function MetricsSection({ deal }: { deal: IpoDeal }) {
         </p>
       )}
       <p className="muted">
-        [발행조건확정] 신고서가 나오면 다음 수집(평일 08:20)이 수요예측 결과에서 자동으로 채웁니다(확약률은 신청 수량 기준).
+        [발행조건확정] 신고서가 나오면 다음 수집(평일 08:20)이 수요예측 결과와 확정 공모가를 자동으로 채웁니다(확약률은 신청 수량 기준).
         직접 입력하면 그 값이 우선하고 즉시 권고가 재평가됩니다.
       </p>
       <div className="row">
