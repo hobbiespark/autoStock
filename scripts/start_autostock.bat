@@ -54,6 +54,6 @@ if defined TG_ARGS (echo [O] telegram on) else (echo [.] telegram off - set TELE
 if "%MONITOR_HEARTBEAT_URL%"=="" (echo [.] heartbeat off - set MONITOR_HEARTBEAT_URL in .env to enable) else (echo [O] heartbeat on)
 
 echo [O] starting autoStock (stop = Ctrl+C or scripts\stop_autostock.bat)
-REM flags: LIVE(mock) mode, C3, WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync (+ telegram when keys exist)
-call gradlew.bat :app:bootRun --args="--execution.mode=LIVE --strategy.c3.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true%TG_ARGS%"
+REM flags: LIVE(mock) mode, C3, WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync + new-listing check (+ telegram when keys exist)
+call gradlew.bat :app:bootRun --args="--execution.mode=LIVE --strategy.c3.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true --autostock.listing-watch.enabled=true%TG_ARGS%"
 pause

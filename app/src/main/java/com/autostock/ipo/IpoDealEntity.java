@@ -48,8 +48,13 @@ public class IpoDealEntity {
     @Column(name = "offer_price_high")
     private BigDecimal offerPriceHigh;
 
+    /** 주요정보(estkRs)의 모집가액(slprc) — 수요예측 전에는 희망가 하단이고 확정 뒤에도 바뀌지 않는다(이름과 달리 확정가가 아니다). */
     @Column(name = "offer_price_confirmed")
     private BigDecimal offerPriceConfirmed;
+
+    /** 확정 공모가(V18, 2026-10-13) — [발행조건확정] 원본 "1주당 확정공모가액을 N원으로 결정"에서 읽는다. 모르면 null. */
+    @Column(name = "offer_price_final")
+    private BigDecimal offerPriceFinal;
 
     @Column(name = "subscription_start")
     private LocalDate subscriptionStart;
@@ -62,6 +67,10 @@ public class IpoDealEntity {
 
     @Column(name = "listing_date")
     private LocalDate listingDate;
+
+    /** 상장 뒤 종목코드(V18) — 키움 종목정보 리스트에서 회사명으로 맞춘다(market.NewListingWatcher). 상장 전 null. */
+    @Column(name = "stock_code", length = 12)
+    private String stockCode;
 
     @Column(name = "lead_manager", length = 256)
     private String leadManager;
@@ -115,12 +124,7 @@ public class IpoDealEntity {
     @Column(name = "memo", columnDefinition = "TEXT")
     private String memo;
 
-    /** 마지막으로 보낸 청약 알림 단계(D-1·START)와 날짜 — 회사 단위 중복 방지(V16, 2026-10-02). */
-    @Column(name = "last_alert_phase", length = 16)
-    private String lastAlertPhase;
-
-    @Column(name = "last_alert_date")
-    private LocalDate lastAlertDate;
+    // V16 last_alert_phase·last_alert_date 컬럼은 더 쓰지 않는다 — 알림 기록은 단계마다 남는 ipo_alert_log(V18)로 옮겼다.
 
     @Column(name = "source", nullable = false, length = 16)
     private String source;
@@ -218,6 +222,67 @@ public class IpoDealEntity {
         return true;
     }
 
+    /**
+     * [발행조건확정]에서 읽은 확정 공모가와 희망 밴드(V18). 밴드를 못 읽었으면(null) 있던 밴드를 지우지 않는다.
+     *
+     * @return 값이 바뀌었으면 true
+     */
+    public boolean applyFinalPrice(BigDecimal finalPrice, BigDecimal bandLow, BigDecimal bandHigh, Instant now) {
+        boolean changed = finalPrice != null && (offerPriceFinal == null || offerPriceFinal.compareTo(finalPrice) != 0);
+        if (changed) {
+            this.offerPriceFinal = finalPrice;
+        }
+        if (bandLow != null && bandHigh != null
+                && (offerPriceLow == null || offerPriceHigh == null
+                || offerPriceLow.compareTo(bandLow) != 0 || offerPriceHigh.compareTo(bandHigh) != 0)) {
+            this.offerPriceLow = bandLow;
+            this.offerPriceHigh = bandHigh;
+            changed = true;
+        }
+        if (changed) {
+            touch(now);
+        }
+        return changed;
+    }
+
+    /** 상장 확인 결과. */
+    public enum ListingUpdate {
+        /** 종목코드·상장일을 새로 남겼다. */
+        APPLIED,
+        /** 이미 같은 값이다. */
+        UNCHANGED,
+        /** 사람이 넣은 상장일과 달라 상장일은 그대로 두고 종목코드만 남겼다. */
+        KEPT_MANUAL_DATE
+    }
+
+    /**
+     * 키움 종목정보 리스트로 확인한 상장(V18). 사람이 넣은 상장일이 있으면 덮지 않는다(다르면 {@link ListingUpdate#KEPT_MANUAL_DATE}).
+     */
+    public ListingUpdate applyListing(String code, LocalDate listedOn, Instant now) {
+        boolean codeChanged = code != null && !code.equals(stockCode);
+        if (codeChanged) {
+            this.stockCode = code;
+        }
+        ListingUpdate result;
+        if (listingDate == null && listedOn != null) {
+            this.listingDate = listedOn;
+            result = ListingUpdate.APPLIED;
+        } else if (listedOn != null && !listedOn.equals(listingDate)) {
+            result = ListingUpdate.KEPT_MANUAL_DATE;
+        } else {
+            result = codeChanged ? ListingUpdate.APPLIED : ListingUpdate.UNCHANGED;
+        }
+        if (result != ListingUpdate.UNCHANGED) {
+            touch(now);
+        }
+        return result;
+    }
+
+    /** 알림·화면에 쓰는 공모가 — 확정가가 있으면 확정가, 없으면 주요정보 모집가액(수요예측 전에는 희망가 하단). */
+    public BigDecimal bestKnownOfferPrice() {
+        return offerPriceFinal != null ? offerPriceFinal : offerPriceConfirmed;
+    }
+
     /** 공모 종류 판정을 남긴다 — 같은 값이면 바꾸지 않는다. */
     public void classifyOffering(OfferingKind kind, Instant now) {
         if (kind != null && kind != this.offeringKind) {
@@ -259,6 +324,8 @@ public class IpoDealEntity {
     public BigDecimal getOfferPriceLow() { return offerPriceLow; }
     public BigDecimal getOfferPriceHigh() { return offerPriceHigh; }
     public BigDecimal getOfferPriceConfirmed() { return offerPriceConfirmed; }
+    public BigDecimal getOfferPriceFinal() { return offerPriceFinal; }
+    public String getStockCode() { return stockCode; }
     public LocalDate getSubscriptionStart() { return subscriptionStart; }
     public LocalDate getSubscriptionEnd() { return subscriptionEnd; }
     public LocalDate getRefundDate() { return refundDate; }
@@ -278,19 +345,6 @@ public class IpoDealEntity {
     public BigDecimal getSellPrice() { return sellPrice; }
     public LocalDate getSellDate() { return sellDate; }
     public String getMemo() { return memo; }
-    public String getLastAlertPhase() { return lastAlertPhase; }
-    public LocalDate getLastAlertDate() { return lastAlertDate; }
-
-    /** 이 단계 알림을 그날 이미 보냈는가(V16). */
-    public boolean alreadyAlerted(String phase, LocalDate date) {
-        return phase.equals(lastAlertPhase) && date.equals(lastAlertDate);
-    }
-
-    /** 청약 알림을 보냈다고 남긴다 — 같은 회사의 모든 딜에 남겨 재기동·정정 신고서로 다시 보내지 않게 한다(V16). */
-    public void markAlerted(String phase, LocalDate date) {
-        this.lastAlertPhase = phase;
-        this.lastAlertDate = date;
-    }
     public String getSource() { return source; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

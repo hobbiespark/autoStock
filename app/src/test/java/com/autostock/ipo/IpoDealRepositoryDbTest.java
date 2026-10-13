@@ -38,6 +38,9 @@ class IpoDealRepositoryDbTest extends PostgresDataJpaTest {
     JdbcTemplate jdbc;
 
     @Autowired
+    IpoAlertLogRepository alertLog;
+
+    @Autowired
     PlatformTransactionManager txManager;
 
     private static IpoDealEntity newDeal(String rceptNo) {
@@ -125,5 +128,25 @@ class IpoDealRepositoryDbTest extends PostgresDataJpaTest {
         assertEquals("20260916000234", row.get("metrics_rcept_no"));
         assertEquals(0, new BigDecimal("1187.74").compareTo((BigDecimal) row.get("institutional_competition_rate")));
         assertEquals(0, new BigDecimal("0.2175").compareTo((BigDecimal) row.get("lockup_commit_rate")));
+    }
+
+    @Test
+    void V18_확정_공모가와_종목코드를_저장하고_알림_기록은_회사_단계_기준값마다_하나다() {
+        IpoDealEntity deal = new IpoDealEntity("01158632", "진코스텍", "20261013900001", "DART", Instant.now());
+        deal.applyFinalPrice(new BigDecimal("23500"), new BigDecimal("19500"), new BigDecimal("23500"), Instant.now());
+        deal.applyListing("250030", java.time.LocalDate.of(2026, 10, 15), Instant.now());
+        deals.saveAndFlush(deal);
+        alertLog.saveAndFlush(new IpoAlertLogEntity("01158632", "LISTING", "2026-10-15", Instant.now()));
+
+        Map<String, Object> row = jdbc.queryForMap("select offer_price_final, offer_price_low, offer_price_high, stock_code,"
+                + " listing_date from ipo_deals where rcept_no = '20261013900001'");
+        assertEquals(0, new BigDecimal("23500").compareTo((BigDecimal) row.get("offer_price_final")));
+        assertEquals(0, new BigDecimal("19500").compareTo((BigDecimal) row.get("offer_price_low")));
+        assertEquals("250030", row.get("stock_code"));
+        assertEquals(java.sql.Date.valueOf("2026-10-15"), row.get("listing_date"));
+        assertEquals(java.util.List.of("01158632|LISTING|2026-10-15"),
+                alertLog.findByCorpCodeIn(java.util.List.of("01158632")).stream().map(IpoAlertLogEntity::key).toList());
+        assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> alertLog.saveAndFlush(
+                new IpoAlertLogEntity("01158632", "LISTING", "2026-10-15", Instant.now())), "같은 알림은 두 번 남지 않는다");
     }
 }

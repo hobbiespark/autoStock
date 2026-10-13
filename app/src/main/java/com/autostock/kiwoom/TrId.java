@@ -18,6 +18,7 @@ public enum TrId {
     EXECUTIONS("ka10076", "체결"),
     ORDER_EXECUTION_DETAIL("kt00007", "계좌별주문체결내역상세"),
     STOCK_ORDERBOOK("ka10004", "주식호가"),
+    STOCK_LIST("ka10099", "종목정보 리스트"),
 
     // ===== 주문 =====
     ORDER_BUY("kt10000", "주식 매수주문"),

@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 /**
@@ -38,8 +38,9 @@ class DartIpoSmokeIT {
         // 최근 14일 증권신고서(지분증권) 목록 — 결과 건수는 시점마다 달라지므로 예외 없이
         // 호출이 성공하는지(빈 리스트 포함 정상)만 확인한다.
         LocalDate today = LocalDate.now();
-        List<DartClient.DealNotice> deals = client.fetchRecentEquityFilings(today.minusDays(14), today);
-        assertFalse(deals == null, "조회 자체는 null 없이 리스트로 돌아와야 함(실패 시 빈 리스트)");
+        DartClient.RecentFilings filings = client.fetchRecentEquityFilings(today.minusDays(14), today);
+        assertTrue(filings.complete(), "목록을 모든 쪽 끝까지 읽어야 함(2026-10-13 — 실패하면 complete=false)");
+        List<DartClient.DealNotice> deals = filings.deals();
 
         if (!deals.isEmpty()) {
             // 딜이 하나라도 있으면 상세 조회(estkRs.json)도 예외 없이 동작하는지 확인.

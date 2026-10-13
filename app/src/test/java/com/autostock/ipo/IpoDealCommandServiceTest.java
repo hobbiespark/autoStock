@@ -29,7 +29,8 @@ class IpoDealCommandServiceTest {
     private final IpoSyncScheduler syncScheduler = new IpoSyncScheduler(
             new DartProperties(true, "test-key", 14),
             new IpoFilterProperties(new BigDecimal("500"), new BigDecimal("0.20")),
-            mock(DartClient.class), repository, mock(ApplicationEventPublisher.class), Clock.systemUTC());
+            mock(DartClient.class), repository, mock(IpoAlertLogRepository.class), mock(ApplicationEventPublisher.class),
+            Clock.systemUTC());
     private final IpoDealCommandService service = new IpoDealCommandService(repository, syncScheduler, Clock.systemUTC());
 
     @Test

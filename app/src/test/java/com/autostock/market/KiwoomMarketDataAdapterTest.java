@@ -139,4 +139,33 @@ class KiwoomMarketDataAdapterTest {
         assertTrue(page.bars().isEmpty());
         assertNull(page.nextKey());
     }
+
+    // ── 2026-10-13: 종목정보 리스트(ka10099) — 공모주 상장일·종목코드 자동 확인 ─────────────────────
+
+    @Test
+    void 종목정보_리스트는_연속_조회로_끝까지_받아_코드_이름_상장일_시장명으로_번역한다() {
+        when(client.callPage(TrId.STOCK_LIST, "/api/dostk/stkinfo", Map.of("mrkt_tp", "10"), null))
+                .thenReturn(new KiwoomRestClient.Page(Map.of("list", List.of(
+                        Map.of("code", "991230", "name", "가나공모", "regDay", "20261015", "marketName", "코스닥",
+                                "listCount", "0000000003000000"),
+                        Map.of("code", " ", "name", "코드없음"))), "k2"));
+        when(client.callPage(TrId.STOCK_LIST, "/api/dostk/stkinfo", Map.of("mrkt_tp", "10"), "k2"))
+                .thenReturn(new KiwoomRestClient.Page(Map.of("list", List.of(
+                        Map.of("code", "123450", "name", "날짜이상", "regDay", "2026-10-15", "marketName", "코스닥"))), null));
+
+        List<MarketDataPort.ListedStock> stocks = adapter.listedStocks(MarketDataPort.ListingMarket.KOSDAQ);
+
+        assertEquals(List.of(
+                new MarketDataPort.ListedStock("991230", "가나공모", LocalDate.of(2026, 10, 15), "코스닥"),
+                new MarketDataPort.ListedStock("123450", "날짜이상", null, "코스닥")), stocks);
+        assertFalse(StockNames.isKnown("991230"), "약 2,800종목을 한꺼번에 종목명 사전에 넣지 않는다");
+    }
+
+    @Test
+    void 종목정보_리스트는_코스피를_시장구분_0으로_요청하고_배열이_없으면_빈_목록이다() {
+        when(client.callPage(TrId.STOCK_LIST, "/api/dostk/stkinfo", Map.of("mrkt_tp", "0"), null))
+                .thenReturn(new KiwoomRestClient.Page(Map.of("return_code", 0), null));
+
+        assertTrue(adapter.listedStocks(MarketDataPort.ListingMarket.KOSPI).isEmpty());
+    }
 }

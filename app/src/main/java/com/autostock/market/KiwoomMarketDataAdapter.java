@@ -43,6 +43,9 @@ public class KiwoomMarketDataAdapter implements MarketDataPort {
     private static final DateTimeFormatter MINUTE_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final String DAILY_FIELD = "stk_dt_pole_chart_qry";
     private static final String MINUTE_FIELD = "stk_min_pole_chart_qry";
+    private static final String LIST_FIELD = "list";
+    /** 종목정보 리스트 연속 조회 상한 — 브로커가 끝없이 다음 키를 줘도 멈춘다. */
+    static final int LIST_MAX_PAGES = 20;
 
     private final KiwoomRestClient client;
 
@@ -123,6 +126,61 @@ public class KiwoomMarketDataAdapter implements MarketDataPort {
             }
         }
         return new MinuteBarPage(bars, page.nextKey());
+    }
+
+    /**
+     * 캐시하지 않는다 — 거래일 아침 한 번 부른다. 응답 {@code list[] code/name/regDay(YYYYMMDD)/marketName}(키움 명세 ka10099).
+     * 종목명은 사전({@link StockNames})에 넣지 않는다 — 약 2,800종목을 한꺼번에 DB 사전에 쓰지 않으려고(필요한 종목만 쓰는 쪽이 넣는다).
+     */
+    @Override
+    public List<ListedStock> listedStocks(ListingMarket market) {
+        String marketType = switch (market) {
+            case KOSPI -> "0";
+            case KOSDAQ -> "10";
+        };
+        List<ListedStock> stocks = new ArrayList<>();
+        String nextKey = null;
+        int pages = 0;
+        do {
+            KiwoomRestClient.Page page = client.callPage(TrId.STOCK_LIST, "/api/dostk/stkinfo",
+                    Map.of("mrkt_tp", marketType), nextKey);
+            Map<String, Object> r = page.body() == null ? Map.of() : page.body();
+            if (!(r.get(LIST_FIELD) instanceof List<?> rows)) {
+                log.warn("종목정보 리스트 응답에 배열 없음({}): 키={}", market.label(), r.keySet());
+                break;
+            }
+            for (Object row : rows) {
+                if (row instanceof Map<?, ?> item) {
+                    String code = trimmed(item.get("code"));
+                    if (code != null) {
+                        stocks.add(new ListedStock(code, trimmed(item.get("name")), parseDay(item.get("regDay")),
+                                trimmed(item.get("marketName"))));
+                    }
+                }
+            }
+            nextKey = page.nextKey();
+            pages++;
+        } while (nextKey != null && pages < LIST_MAX_PAGES);
+        if (nextKey != null) {
+            log.warn("종목정보 리스트 연속 조회 {}쪽 상한 도달({}) — 받은 {}종목만 쓴다", LIST_MAX_PAGES, market.label(), stocks.size());
+        }
+        return stocks;
+    }
+
+    private static LocalDate parseDay(Object raw) {
+        String s = trimmed(raw);
+        if (s == null) {
+            return null;
+        }
+        try {
+            return LocalDate.parse(s, BASE_DATE);
+        } catch (DateTimeParseException e) {
+            return null;
+        }
+    }
+
+    private static String trimmed(Object raw) {
+        return raw == null || String.valueOf(raw).isBlank() ? null : String.valueOf(raw).trim();
     }
 
     private static LocalDateTime parseMinuteTime(Object raw) {

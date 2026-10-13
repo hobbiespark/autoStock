@@ -369,6 +369,11 @@ class MinuteBarArchiverTest {
         public List<Candle> dailyCandles(String symbol, LocalDate baseDate) {
             throw new UnsupportedOperationException();
         }
+
+        @Override
+        public List<ListedStock> listedStocks(ListingMarket market) {
+            throw new UnsupportedOperationException();
+        }
     }
 
     private static final class MutableClock extends Clock {

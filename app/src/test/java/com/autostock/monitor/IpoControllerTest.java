@@ -3,6 +3,7 @@ package com.autostock.monitor;
 import java.time.Instant;
 import com.autostock.ipo.DartClient;
 import com.autostock.ipo.DartProperties;
+import com.autostock.ipo.IpoAlertLogRepository;
 import com.autostock.ipo.IpoDealCommandService;
 import com.autostock.ipo.IpoDealEntity;
 import com.autostock.ipo.IpoDealRepository;
@@ -38,7 +39,8 @@ class IpoControllerTest {
     private final IpoSyncScheduler syncScheduler = new IpoSyncScheduler(
             new DartProperties(true, "test-key", 14),
             new IpoFilterProperties(new BigDecimal("500"), new BigDecimal("0.20")),
-            mock(DartClient.class), repository, mock(ApplicationEventPublisher.class), Clock.systemUTC());
+            mock(DartClient.class), repository, mock(IpoAlertLogRepository.class), mock(ApplicationEventPublisher.class),
+            Clock.systemUTC());
     private final IpoController controller =
             new IpoController(repository, new IpoDealCommandService(repository, syncScheduler, Clock.systemUTC()));
 

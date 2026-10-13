@@ -151,6 +151,9 @@ autostock:
                                 # ka10080은 최근 1년 롤링만 제공(실측 2026-09-11)이라 다년 분봉은 자체 축적이 유일 경로
     symbols: 005930,000660,035420,035720,069500
     dir: ../data/minutes
+  listing-watch:
+    enabled: false              # 신규 상장 확인(market.NewListingWatcher, 2026-10-13) — 거래일 08:05·08:40(실패하면 09~15시 매시 5분).
+                                # 키움 ka10099(종목정보 리스트)로 공모주 상장일·종목코드를 채운다. start_autostock.bat가 켠다(CI·테스트는 꺼 둔다)
   ws:
     enabled: false              # 앱키 발급 후 true
     stale-after: 180             # 연속 단절이 이 초를 넘으면 MarketDataStale 발행 → risk가 킬스위치 작동(PLAN 3절)

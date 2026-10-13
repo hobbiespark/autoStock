@@ -40,9 +40,10 @@ import java.util.zip.ZipInputStream;
  * rcept_no=20260910000579로 실제 호출. 전문은 docs/measured/dart_estkRs_*.json에 키 마스킹해
  * 보관)</h2>
  * <pre>
- *   GET /api/list.json?crtfc_key=...&amp;pblntf_ty=C&amp;bgn_de=YYYYMMDD&amp;end_de=YYYYMMDD&amp;page_count=100
- *     응답: {"status":"000","message":"정상","list":[{"corp_code","corp_name","stock_code",
- *            "corp_cls","report_nm","rcept_no","flr_nm","rcept_dt","rm"}, ...]}
+ *   GET /api/list.json?crtfc_key=...&amp;pblntf_ty=C&amp;bgn_de=YYYYMMDD&amp;end_de=YYYYMMDD&amp;page_no=N&amp;page_count=100
+ *     응답: {"status":"000","message":"정상","page_no":1,"page_count":100,"total_count":1086,"total_page":11,
+ *            "list":[{"corp_code","corp_name","stock_code","corp_cls","report_nm","rcept_no","flr_nm","rcept_dt","rm"}, ...]}
+ *     최근 접수부터 내려온다. 발행공시(C)는 하루 100건 안팎이라 모든 쪽을 읽는다(2026-10-13, {@link #fetchRecentEquityFilings}).
  *     report_nm에 "증권신고서(지분증권)"이 포함된 건만(정정 포함 "[기재정정]증권신고서(지분증권)")
  *     신규 상장 공모로 취급한다 — 채무증권/일괄신고/소액공모 등은 이 필터로 제외된다.
  *
@@ -61,9 +62,11 @@ import java.util.zip.ZipInputStream;
  *   <b>확정된 한계(과대약속 금지, ADR-9)</b>:
  *   <ul>
  *     <li>공모가 "밴드"(희망 하단/상단)는 구조화 필드로 내려오지 않는다 — "증권의종류".slprc
- *         하나만 제공된다(실측 2건 모두 단일값). 이 클라이언트는 slprc를 확정/모집가로만
- *         매핑하고 밴드 하단/상단은 항상 비워 둔다(null).</li>
- *     <li>상장(예정)일은 어느 group에도 없다 — null로 두고 수동 입력/향후 KIND 연동 과제로 남긴다.</li>
+ *         하나만 제공된다(실측 2건 모두 단일값). slprc는 수요예측 전에는 <b>희망가 하단</b>이고 [발행조건확정] 뒤에도 바뀌지 않는다
+ *         (진코스텍: slprc 19,500 / 확정 23,500). 2026-10-13부터 확정 공모가와 밴드는 [발행조건확정] 원본 문장에서 읽는다
+ *         ({@link OfferingPriceParser}).</li>
+ *     <li>상장(예정)일은 어느 group에도 없다(신고서 본문도 "아직 확정되지 않았으며"뿐) — 2026-10-13부터 키움 종목정보 리스트
+ *         (market.NewListingWatcher, {@link com.autostock.common.event.RecentListings})로 상장한 날 확인한다.</li>
  *     <li>기관경쟁률·의무보유확약비율은 estkRs.json 어느 group에도 없다 — 2026-10-02부터 공시 원본
  *         ({@code document.xml})의 [발행조건확정] 수요예측 결과에서 읽는다({@link DemandForecastParser}).</li>
  *     <li>estkRs.json은 회사의 최신 증권신고서(기재정정 포함) 한 건만 돌려주고 [발행조건확정] 접수번호로는 행이 없다.
@@ -81,7 +84,8 @@ import java.util.zip.ZipInputStream;
  *
  * <p>실패 처리: {@code macrointel.FredClient}와 동일한 정책 — 예외를 절대 밖으로 던지지 않고
  * 내부에서 잡아 로그만 남긴다. list 조회 실패가 detail 조회를 막지 않도록 호출부
- * ({@link IpoSyncScheduler})가 딜 단위로 격리해 처리한다.
+ * ({@link IpoSyncScheduler})가 딜 단위로 격리해 처리한다. 목록 조회는 실패·일부만 읽음을 {@link RecentFilings#complete()}로
+ * 알린다 — 배치가 그날 수집을 성공으로 기록하지 않고 매시 점검에서 다시 조회한다(2026-10-13 로그 점검 L-5).
  */
 @Component
 public class DartClient {
@@ -102,6 +106,10 @@ public class DartClient {
 
     private static final String STATUS_OK = "000";
     private static final String STATUS_NO_DATA = "013";
+    /** list.json 한 쪽 건수(최대값). */
+    static final int LIST_PAGE_SIZE = 100;
+    /** list.json 쪽 상한 — 2주 조회가 11쪽이었다(10/13 실측). 넘으면 끝까지 읽지 못한 것으로 본다. */
+    static final int MAX_LIST_PAGES = 30;
     /** 공시 원본 ZIP 응답 상한 — WebClient 기본(256KB)으로는 큰 신고서가 잘린다. */
     private static final int MAX_DOCUMENT_BYTES = 16 * 1024 * 1024;
     /** 압축을 푼 XML 상한 — 비정상적으로 큰 응답(압축 폭탄)을 끝까지 풀지 않는다. */
@@ -146,17 +154,57 @@ public class DartClient {
     }
 
     /**
-     * 최근 [since, until] 기간의 증권신고서(지분증권) 신규/정정 건을 조회한다.
-     * 실패 시 빈 리스트(예외를 던지지 않는다 — 클래스 설명 "실패 처리" 참고).
+     * 최근 [since, until] 기간의 증권신고서(지분증권) 신규/정정 건을 <b>모든 쪽</b>에서 모은다(예외를 던지지 않는다 — 클래스 설명 "실패 처리").
+     *
+     * <p>2026-10-13 로그 점검(L-5): 예전에는 첫 쪽(최근 100건)만 읽었다. 발행공시(C)는 하루 100건 안팎이라 첫 쪽은 하루치뿐이다
+     * — 실측 10/13 18시: 9/29~10/13 1,086건 11쪽 중 지분증권 신고 36건, 첫 쪽에는 2건(08:20 배치 때는 8건). 하루라도 배치를 놓치면
+     * 그날 신고는 다시 볼 기회가 없었다. 그리고 조회가 실패해도 빈 목록을 돌려줘 배치가 "오늘 수집 완료"로 기록했다.
+     * 이제 {@code total_page}까지 넘기고({@value #MAX_LIST_PAGES}쪽 상한), 한 쪽이라도 실패하면 {@link RecentFilings#complete()}가
+     * false다 — 배치가 성공으로 기록하지 않아 매시 점검이 다시 조회한다. 받은 쪽의 신고는 그대로 처리한다.
      */
-    public List<DealNotice> fetchRecentEquityFilings(LocalDate since, LocalDate until) {
+    public RecentFilings fetchRecentEquityFilings(LocalDate since, LocalDate until) {
+        List<DealNotice> deals = new ArrayList<>();
+        int totalPages = 1;
+        int pagesRead = 0;
         try {
-            return parseList(callList(since, until));
+            for (int page = 1; page <= Math.min(totalPages, MAX_LIST_PAGES); page++) {
+                Map<String, Object> response = callList(since, until, page);
+                String status = response == null ? null : String.valueOf(response.get("status"));
+                if (STATUS_NO_DATA.equals(status)) {
+                    // 정상 — 첫 쪽이면 기간 안에 발행공시가 없고, 뒤쪽이면 넘기는 사이에 건수가 줄었다(끝까지 읽음)
+                    return RecentFilings.of(deals, true, pagesRead, page == 1 ? 0 : totalPages);
+                }
+                if (!STATUS_OK.equals(status)) {
+                    log.warn("DART list.json 비정상 응답({}쪽): status={}, message={} — 받은 {}쪽까지만 처리, 다음 점검에서 다시 조회",
+                            page, status, response == null ? "(빈 응답)" : response.get("message"), pagesRead);
+                    return RecentFilings.of(deals, false, pagesRead, totalPages);
+                }
+                totalPages = Math.max(1, intOrDefault(response.get("total_page"), 1));
+                deals.addAll(parseList(response));
+                pagesRead++;
+            }
         } catch (RuntimeException e) {
             // 예외 메시지에 crtfc_key가 담긴 전체 URL이 그대로 들어있을 수 있어(WebClientResponseException
             // 등) 마스킹을 거친 뒤 로그로 남긴다(스택트레이스는 보존, 메시지만 마스킹) — SecretMasking 참고.
-            log.error("DART list.json 조회 실패(since={}, until={})", since, until, SecretMasking.sanitizeForLogging(e));
-            return List.of();
+            log.error("DART list.json 조회 실패({}쪽째, since={}, until={}) — 받은 {}쪽까지만 처리, 다음 점검에서 다시 조회",
+                    pagesRead + 1, since, until, pagesRead, SecretMasking.sanitizeForLogging(e));
+            return RecentFilings.of(deals, false, pagesRead, totalPages);
+        }
+        if (totalPages > MAX_LIST_PAGES) {
+            log.warn("DART list.json {}쪽 중 {}쪽 상한까지만 읽음 — 조회 기간(dart.lookback-days)을 줄여야 한다", totalPages, MAX_LIST_PAGES);
+            return RecentFilings.of(deals, false, pagesRead, totalPages);
+        }
+        return RecentFilings.of(deals, true, pagesRead, totalPages);
+    }
+
+    private static int intOrDefault(Object raw, int fallback) {
+        if (raw instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return raw == null ? fallback : Integer.parseInt(String.valueOf(raw).trim());
+        } catch (NumberFormatException e) {
+            return fallback;
         }
     }
 
@@ -213,8 +261,11 @@ public class DartClient {
         }
     }
 
-    /** 실제 HTTP 호출 지점 — 테스트에서 오버라이드 가능({@code market.HolidaySyncService} 관례). */
-    protected Map<String, Object> callList(LocalDate since, LocalDate until) {
+    /**
+     * 실제 HTTP 호출 지점 — 테스트에서 오버라이드 가능({@code market.HolidaySyncService} 관례). 발행공시(C) 한 쪽(최대 100건).
+     * 공시유형 상세({@code pblntf_detail_ty=C001})로 지분증권만 받으려 했으나 실측(10/13) 결과 거르지 않아(같은 1,086건) 쪽을 넘긴다.
+     */
+    protected Map<String, Object> callList(LocalDate since, LocalDate until, int pageNo) {
         return webClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/list.json")
@@ -222,7 +273,8 @@ public class DartClient {
                         .queryParam("pblntf_ty", "C")
                         .queryParam("bgn_de", since.format(DART_DATE))
                         .queryParam("end_de", until.format(DART_DATE))
-                        .queryParam("page_count", 100)
+                        .queryParam("page_no", pageNo)
+                        .queryParam("page_count", LIST_PAGE_SIZE)
                         .build())
                 .retrieve()
                 .bodyToMono(Map.class)
@@ -239,7 +291,7 @@ public class DartClient {
                         .queryParam("pblntf_ty", "C")
                         .queryParam("bgn_de", since.format(DART_DATE))
                         .queryParam("end_de", until.format(DART_DATE))
-                        .queryParam("page_count", 100)
+                        .queryParam("page_count", LIST_PAGE_SIZE)
                         .build())
                 .retrieve()
                 .bodyToMono(Map.class)
@@ -557,6 +609,32 @@ public class DartClient {
 
     /** list.json 조회 결과 1건 — 신규/정정 증권신고서(지분증권) 공시. */
     public record DealNotice(String rceptNo, String corpCode, String corpName, String reportName, LocalDate rceptDt) {
+    }
+
+    /**
+     * 기간 안의 증권신고서(지분증권) — 쪽을 넘기는 사이 건수가 바뀌어 겹친 신고는 하나로 합친다.
+     *
+     * @param deals      받은 신고(접수번호 기준 중복 없음)
+     * @param complete   모든 쪽을 읽었는가 — false면 배치가 그날 수집을 성공으로 기록하지 않는다
+     * @param pagesRead  읽은 쪽 수
+     * @param totalPages 응답이 알려 준 전체 쪽 수(첫 쪽도 못 읽었으면 1)
+     */
+    public record RecentFilings(List<DealNotice> deals, boolean complete, int pagesRead, int totalPages) {
+
+        public RecentFilings {
+            deals = deals == null ? List.of() : List.copyOf(deals);
+        }
+
+        static RecentFilings of(List<DealNotice> deals, boolean complete, int pagesRead, int totalPages) {
+            Map<String, DealNotice> unique = new java.util.LinkedHashMap<>();
+            deals.forEach(deal -> unique.putIfAbsent(deal.rceptNo(), deal));
+            return new RecentFilings(List.copyOf(unique.values()), complete, pagesRead, totalPages);
+        }
+
+        /** 테스트·호출부용 — 끝까지 읽은 한 쪽 결과. */
+        public static RecentFilings complete(List<DealNotice> deals) {
+            return new RecentFilings(deals, true, 1, 1);
+        }
     }
 
     /**

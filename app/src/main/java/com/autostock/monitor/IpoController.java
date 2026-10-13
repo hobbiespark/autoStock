@@ -89,8 +89,8 @@ public class IpoController {
     private static IpoDealView toView(IpoDealEntity e) {
         return new IpoDealView(
                 e.getId(), e.getCorpCode(), e.getCorpName(), e.getRceptNo(),
-                e.getOfferPriceLow(), e.getOfferPriceHigh(), e.getOfferPriceConfirmed(),
-                e.getSubscriptionStart(), e.getSubscriptionEnd(), e.getRefundDate(), e.getListingDate(),
+                e.getOfferPriceLow(), e.getOfferPriceHigh(), e.getOfferPriceConfirmed(), e.getOfferPriceFinal(),
+                e.getSubscriptionStart(), e.getSubscriptionEnd(), e.getRefundDate(), e.getListingDate(), e.getStockCode(),
                 e.getLeadManager(), e.getInstitutionalCompetitionRate(), e.getLockupCommitRate(),
                 e.getMetricsSource() == null ? null : e.getMetricsSource().name(), e.getMetricsRceptNo(),
                 e.getStatus().name(), e.getRecommendation().name(), e.getRecommendReason(),

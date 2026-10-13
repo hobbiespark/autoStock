@@ -12,13 +12,14 @@ import java.util.Map;
 import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * DartClient 파싱 로직 — 2026-09-11 실측 응답(한울반도체 rcept_no=20260910000583, 진코스텍
  * rcept_no=20260910000579, docs/measured/dart_estkRs_*.json)을 그대로 고정해(golden) 검증한다.
- * callList/callApi를 오버라이드해 네트워크 없이 파싱만 확인한다(FredClient/EcosClient 테스트
+ * callList/callApi를 오버라이드해 네트워크 없이 파싱·쪽 넘기기만 확인한다(FredClient/EcosClient 테스트
  * 관례와 동일 — market.HolidaySyncService.callApi 오버라이드 패턴).
  */
 class DartClientTest {
@@ -44,7 +45,7 @@ class DartClientTest {
         TestableDartClient client = new TestableDartClient(parsed, null);
 
         List<DartClient.DealNotice> deals = client.fetchRecentEquityFilings(
-                LocalDate.of(2026, 8, 25), LocalDate.of(2026, 9, 11));
+                LocalDate.of(2026, 8, 25), LocalDate.of(2026, 9, 11)).deals();
 
         assertEquals(2, deals.size(), "채무증권은 제외되고 지분증권 2건만 남아야 함");
         assertTrue(deals.stream().anyMatch(d -> "한울반도체".equals(d.corpName())));
@@ -56,10 +57,66 @@ class DartClientTest {
         Map<String, Object> parsed = Map.of("status", "013", "message", "조회된 데이타가 없습니다.");
         TestableDartClient client = new TestableDartClient(parsed, null);
 
-        List<DartClient.DealNotice> deals = client.fetchRecentEquityFilings(
+        DartClient.RecentFilings filings = client.fetchRecentEquityFilings(
                 LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 11));
 
-        assertTrue(deals.isEmpty());
+        assertTrue(filings.deals().isEmpty());
+        assertTrue(filings.complete(), "공시가 없는 기간은 정상 — 끝까지 읽은 것이다");
+    }
+
+    // ── 2026-10-13: 모든 쪽 읽기·실패 알림(로그 점검 L-5, aiDoc/ipo-automation.md) ──────────────────────
+
+    private static Map<String, Object> listPage(int totalPage, String... rows) throws Exception {
+        String list = String.join(",", rows);
+        return JSON.readValue("{\"status\":\"000\",\"message\":\"정상\",\"page_count\":100,\"total_page\":" + totalPage
+                + ",\"list\":[" + list + "]}", Map.class);
+    }
+
+    private static String row(String rceptNo, String corpName, String reportName) {
+        return "{\"corp_code\":\"0000" + rceptNo.substring(10) + "\",\"corp_name\":\"" + corpName + "\",\"report_nm\":\""
+                + reportName + "\",\"rcept_no\":\"" + rceptNo + "\",\"rcept_dt\":\"" + rceptNo.substring(0, 8) + "\"}";
+    }
+
+    @Test
+    void 모든_쪽을_읽어_지분증권_신고를_모으고_쪽_사이에_겹친_신고는_하나로_합친다() throws Exception {
+        TestableDartClient client = new TestableDartClient(null, null);
+        client.listPages.add(listPage(2, row("20261013000214", "에코프로비엠", "[발행조건확정]증권신고서(지분증권)"),
+                row("20261013000100", "채권회사", "증권신고서(채무증권)")));
+        client.listPages.add(listPage(2, row("20261008000660", "엔키화이트햇", "증권신고서(지분증권)"),
+                row("20261013000214", "에코프로비엠", "[발행조건확정]증권신고서(지분증권)")));   // 넘기는 사이 새 공시로 밀려 겹침
+
+        DartClient.RecentFilings filings = client.fetchRecentEquityFilings(LocalDate.of(2026, 9, 29), LocalDate.of(2026, 10, 13));
+
+        assertEquals(List.of(1, 2), client.requestedPages);
+        assertTrue(filings.complete());
+        assertEquals(2, filings.pagesRead());
+        assertEquals(List.of("20261013000214", "20261008000660"),
+                filings.deals().stream().map(DartClient.DealNotice::rceptNo).toList());
+    }
+
+    @Test
+    void 뒤쪽에서_실패하면_받은_쪽의_신고는_돌려주고_끝까지_읽지_못했다고_알린다() throws Exception {
+        TestableDartClient client = new TestableDartClient(null, null);
+        client.listPages.add(listPage(3, row("20261013000214", "에코프로비엠", "[발행조건확정]증권신고서(지분증권)")));
+        client.listPages.add(new IllegalStateException("connection reset — https://opendart.fss.or.kr/api/list.json?crtfc_key=abc"));
+
+        DartClient.RecentFilings filings = client.fetchRecentEquityFilings(LocalDate.of(2026, 9, 29), LocalDate.of(2026, 10, 13));
+
+        assertFalse(filings.complete());
+        assertEquals(1, filings.pagesRead());
+        assertEquals(3, filings.totalPages());
+        assertEquals(1, filings.deals().size());
+        assertEquals(List.of(1, 2), client.requestedPages, "실패한 뒤로는 더 넘기지 않는다");
+    }
+
+    @Test
+    void 비정상_status면_끝까지_읽지_못했다고_알린다() {
+        TestableDartClient client = new TestableDartClient(Map.of("status", "020", "message", "요청 제한을 초과하였습니다."), null);
+
+        DartClient.RecentFilings filings = client.fetchRecentEquityFilings(LocalDate.of(2026, 9, 29), LocalDate.of(2026, 10, 13));
+
+        assertFalse(filings.complete());
+        assertTrue(filings.deals().isEmpty());
     }
 
     @Test
@@ -173,6 +230,9 @@ class DartClientTest {
         private final Map<String, Object> detailResponse;
         Map<String, Object> corpListResponse;
         byte[] documentResponse;
+        /** 쪽별 응답(Map, 또는 던질 RuntimeException) — 비어 있으면 모든 쪽에 listResponse. */
+        final List<Object> listPages = new java.util.ArrayList<>();
+        final List<Integer> requestedPages = new java.util.ArrayList<>();
 
         TestableDartClient(Map<String, Object> listResponse, Map<String, Object> detailResponse) {
             super(WebClient.builder(), ClientHttpConnectorSettings.defaults(), new DartProperties(true, "test-key", 14));
@@ -181,8 +241,17 @@ class DartClientTest {
         }
 
         @Override
-        protected Map<String, Object> callList(LocalDate since, LocalDate until) {
-            return listResponse;
+        @SuppressWarnings("unchecked")
+        protected Map<String, Object> callList(LocalDate since, LocalDate until, int pageNo) {
+            requestedPages.add(pageNo);
+            if (listPages.isEmpty()) {
+                return listResponse;
+            }
+            Object page = listPages.get(pageNo - 1);
+            if (page instanceof RuntimeException e) {
+                throw e;
+            }
+            return (Map<String, Object>) page;
         }
 
         @Override

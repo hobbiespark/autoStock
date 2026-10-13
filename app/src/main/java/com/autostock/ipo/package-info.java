@@ -12,6 +12,10 @@
  * monitor.TradeNotificationListener}와 같은 브리지 패턴, ARCHITECTURE.md 9절). ipo →
  * monitor 방향 타입 의존은 없다(단방향, 순환 없음).
  *
+ * <p>2026-10-13(aiDoc/ipo-automation.md): 공시 목록 전 쪽 수집·실패 재시도, 확정 공모가 자동 입력, 단계별 알림(신규·수요예측
+ * 결과·청약 D-1·시작·마감·환불·상장 D-1·상장, 밤 22~07시 금지, {@code ipo_alert_log}), 상장일·종목코드 자동 확인 — market 모듈이
+ * 발행하는 {@link com.autostock.common.event.RecentListings}를 받는다(market → ipo 타입 의존 없음, common 이벤트만).
+ *
  * <p>monitor 모듈은 조회(GET /api/ipo)에 이 모듈의 {@link com.autostock.ipo.IpoDealRepository}를
  * 직접 참조한다 — monitor가 이미 trading.OrderRepository를 직접 참조하는 기존 패턴과 동일하다
  * (monitor/OrderHistoryController Javadoc 참고). 수동 입력(POST /api/ipo/{id}/record,

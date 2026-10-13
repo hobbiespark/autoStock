@@ -30,6 +30,37 @@ public interface MarketDataPort {
      */
     MinuteBarPage minuteBarPage(String symbol, String nextKey);
 
+    /**
+     * 한 시장의 상장 종목 전부(연속 조회로 끝까지) — 공모주 상장일·종목코드 자동 확인용(2026-10-13, {@link NewListingWatcher}).
+     *
+     * @param market 시장
+     */
+    List<ListedStock> listedStocks(ListingMarket market);
+
+    /** 상장 종목 목록을 받는 시장 — 공모주가 상장하는 두 곳. */
+    enum ListingMarket {
+        KOSPI("코스피"),
+        KOSDAQ("코스닥");
+
+        private final String label;
+
+        ListingMarket(String label) {
+            this.label = label;
+        }
+
+        public String label() {
+            return label;
+        }
+    }
+
+    /**
+     * 상장 종목 한 줄. 상장일을 못 읽으면 {@code listedOn}이 null.
+     *
+     * @param marketName 브로커가 주는 시장명(예: "거래소", "코스닥")
+     */
+    record ListedStock(String code, String name, LocalDate listedOn, String marketName) {
+    }
+
     /** 값이 없으면 필드는 null. */
     record StockQuote(String name, BigDecimal current, BigDecimal open, BigDecimal high, BigDecimal low) {
         public static final StockQuote EMPTY = new StockQuote(null, null, null, null, null);

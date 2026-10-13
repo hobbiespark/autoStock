@@ -66,6 +66,12 @@ public class KiwoomRestClient {
      */
     static final Duration REQUEST_TIMEOUT = Duration.ofSeconds(15);
 
+    /**
+     * 응답 본문 메모리 상한. WebClient 기본(256KB)으로는 종목정보 리스트(ka10099, 코스닥 약 1,800종목이 한 응답에 올 수 있다)가
+     * 잘려 DataBufferLimitException이 난다(2026-10-13 공모주 상장일 자동 확인 추가). 다른 TR 응답은 수십 KB라 영향이 없다.
+     */
+    static final int MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
+
     private final WebClient webClient;
     private final TokenManager tokenManager;
     private final TrRateLimiter rateLimiter;
@@ -91,7 +97,9 @@ public class KiwoomRestClient {
                             MeterRegistry meterRegistry,
                             ApplicationEventPublisher publisher,
                             Clock clock) {
-        this.webClient = builder.baseUrl(properties.restBaseUrl()).build();
+        this.webClient = builder.baseUrl(properties.restBaseUrl())
+                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(MAX_RESPONSE_BYTES))
+                .build();
         this.tokenManager = tokenManager;
         this.rateLimiter = rateLimiter;
         this.meterRegistry = meterRegistry;
