@@ -89,6 +89,9 @@ public class TelegramCommandPoller {
     /** 다음 getUpdates 호출에 쓸 offset — 이 값 미만의 update는 이미 처리했다고 텔레그램에 알리는 것. */
     private final AtomicLong nextOffset = new AtomicLong(0);
 
+    /** 연속 폴링 실패(L-6) — 로그 요약과 재시도 간격. */
+    private final FailureStreak failures = new FailureStreak();
+
     public TelegramCommandPoller(WebClient.Builder builder,
                                  TelegramProperties properties,
                                  KillSwitch killSwitch,
@@ -114,15 +117,94 @@ public class TelegramCommandPoller {
         if (!properties.enabled()) {
             return;
         }
+        Instant now = clock.instant();
+        if (failures.shouldWait(now)) {
+            return;   // 연속 실패 중 — 간격을 벌려 다시 본다
+        }
+        List<Map<String, Object>> updates;
         try {
-            for (Map<String, Object> update : fetchUpdates()) {
-                handleUpdate(update);
-            }
+            updates = fetchUpdates();
         } catch (Exception e) {
             // 폴링 한 번 실패해도(네트워크 순단 등) 다음 주기에 재시도된다 — 예외를 삼킨다.
             // 예외 메시지에 봇 토큰이 담긴 전체 URL(/bot{token}/getUpdates)이 그대로 들어있을
             // 수 있어(WebClientResponseException 등) 마스킹 후 로그로 남긴다 — SecretMasking 참고.
-            log.error("텔레그램 명령 폴링 실패", SecretMasking.sanitizeForLogging(e));
+            // 실패마다 ERROR와 스택을 남기면 망이 끊긴 동안 로그가 묻힌다(10/13 13:50~16:00 81건, L-6) — 처음 한 번과
+            // 10분마다 요약 한 줄, 복구 때 한 줄만 남긴다(FailureStreak).
+            String line = failures.fail(now, SecretMasking.mask(e.getClass().getSimpleName() + ": " + e.getMessage()));
+            if (line != null) {
+                log.warn(line);
+            }
+            return;
+        }
+        String recovered = failures.succeed(now);
+        if (recovered != null) {
+            log.info(recovered);
+        }
+        for (Map<String, Object> update : updates) {
+            handleUpdate(update);
+        }
+    }
+
+    /**
+     * 연속 실패 기록(L-6, 2026-10-13) — 처음 실패는 한 줄, 그 뒤로는 {@link #SUMMARY_EVERY}마다 요약 한 줄, 복구되면 한 줄.
+     * 실패가 이어지면 다음 시도까지 간격을 벌린다(두 번째 실패부터 15초·30초·60초 상한) — 망이 끊긴 동안 5초마다 연결
+     * 타임아웃(5초)을 기다리지 않게. 폴링은 한 번에 하나씩 돈다(fixedDelay)라 동기화가 필요 없다.
+     */
+    static final class FailureStreak {
+        static final Duration SUMMARY_EVERY = Duration.ofMinutes(10);
+        private static final Duration MAX_WAIT = Duration.ofSeconds(60);
+
+        private int count;
+        private Instant since;
+        private Instant lastFailure;
+        private Instant lastLogged;
+
+        /** 지금은 건너뛸 차례인가 — 연속 실패 뒤 간격(클래스 설명). */
+        boolean shouldWait(Instant now) {
+            return count >= 2 && now.isBefore(lastFailure.plus(backoff()));
+        }
+
+        Duration backoff() {
+            if (count < 2) {
+                return Duration.ZERO;
+            }
+            long seconds = 15L << Math.min(count - 2, 3);
+            return seconds >= MAX_WAIT.toSeconds() ? MAX_WAIT : Duration.ofSeconds(seconds);
+        }
+
+        /** 실패 한 번 — 남길 로그 문구, 이번에는 남기지 않으면 null. */
+        String fail(Instant now, String reason) {
+            count++;
+            lastFailure = now;
+            if (count == 1) {
+                since = now;
+                lastLogged = now;
+                return "텔레그램 명령 폴링 실패 — " + reason + ". 이어지는 실패는 10분마다 한 줄로 요약하고, 복구되면 알린다";
+            }
+            if (!now.isBefore(lastLogged.plus(SUMMARY_EVERY))) {
+                lastLogged = now;
+                return "텔레그램 명령 폴링 계속 실패 — %d회째(%s부터), 마지막: %s".formatted(count, kst(since), reason);
+            }
+            return null;
+        }
+
+        /** 성공 — 실패 중이었으면 복구 문구, 아니면 null. */
+        String succeed(Instant now) {
+            if (count == 0) {
+                return null;
+            }
+            String line = "텔레그램 명령 폴링 복구 — %d회 실패(%s~%s, %d분)".formatted(count, kst(since), kst(now),
+                    Duration.between(since, now).toMinutes());
+            count = 0;
+            since = null;
+            lastFailure = null;
+            lastLogged = null;
+            return line;
+        }
+
+        private static String kst(Instant instant) {
+            return java.time.LocalTime.ofInstant(instant, com.autostock.common.util.MarketConstants.KST)
+                    .truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
         }
     }
 

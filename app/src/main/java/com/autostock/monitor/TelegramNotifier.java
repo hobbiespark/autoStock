@@ -43,7 +43,7 @@ import java.util.regex.Pattern;
  * 이 대기가 WS 수신·주문 경로를 막지 않는다.
  *
  * <p><b>망 오류 지연 재전송</b>(2026-10-12, aiDoc/sleep-resume.md 5절): 응답을 받지 못한 실패(DNS·연결·타임아웃)와
- * 서버 오류(5xx)는 {@link #RESEND_DELAYS} 간격으로 최대 3번 더 보낸다. PC가 대기에서 깨어난 직후에는 망이 늦게 붙어,
+ * 서버 오류(5xx)는 {@link #RESEND_DELAYS} 간격(30초·2분·5분·15분·30분·60분)으로 최대 6번 더 보낸다. PC가 대기에서 깨어난 직후에는 망이 늦게 붙어,
  * 그 순간 보내는 절전 복귀·장중 점검 경고가 정작 전부 사라졌다(10/12 11:19·18:05 실측). 재전송은 전용 데몬 스레드
  * 하나에서 돌고 호출 스레드를 붙잡지 않는다. 다시 보내는 알림 앞에는 처음 발생 시각을 붙인다.
  * 기다리는 알림은 {@link #MAX_PENDING_RESENDS}건까지만 붙든다 — 망이 오래 끊기면 그 뒤 알림은 기록만 하고 버린다.
@@ -58,8 +58,12 @@ public class TelegramNotifier implements Notifier {
     /** 429 재시도 대기 상한 — 이보다 길면 재시도하지 않는다(호출 스레드를 오래 붙잡지 않는다). */
     static final Duration MAX_RETRY_WAIT = Duration.ofSeconds(10);
 
-    /** 망 오류 재전송 간격 — n번째 재전송은 앞선 실패 뒤 n번째 값만큼 기다린다. */
-    static final List<Duration> RESEND_DELAYS = List.of(Duration.ofSeconds(30), Duration.ofMinutes(2), Duration.ofMinutes(5));
+    /**
+     * 망 오류 재전송 간격 — n번째 재전송은 앞선 실패 뒤 n번째 값만큼 기다린다. 다 합쳐 약 1시간 50분 — 10/13 13:50~16:00처럼
+     * 텔레그램 서버에 2시간 가까이 닿지 않는 일도 있었다(L-6 로그 점검).
+     */
+    static final List<Duration> RESEND_DELAYS = List.of(Duration.ofSeconds(30), Duration.ofMinutes(2), Duration.ofMinutes(5),
+            Duration.ofMinutes(15), Duration.ofMinutes(30), Duration.ofMinutes(60));
 
     /** 재전송을 기다리는 알림 상한. */
     static final int MAX_PENDING_RESENDS = 20;

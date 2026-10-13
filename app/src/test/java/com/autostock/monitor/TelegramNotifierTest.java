@@ -273,7 +273,7 @@ class TelegramNotifierTest {
     }
 
     @Test
-    void 계속_망_오류면_30초_2분_5분_간격으로_세_번까지만_다시_보낸다() {
+    void 계속_망_오류면_30초부터_60분까지_간격을_벌려_여섯_번까지만_다시_보낸다() {
         List<String> bodies = new ArrayList<>();
         TelegramNotifier notifier = new TelegramNotifier(exchanging(bodies, n -> Mono.error(networkFailure())),
                 properties, d -> { }, CLOCK, resender);
@@ -284,8 +284,9 @@ class TelegramNotifierTest {
             assertDoesNotThrow(task::run);
         }
 
-        assertEquals(List.of(Duration.ofSeconds(30), Duration.ofMinutes(2), Duration.ofMinutes(5)), resendDelays);
-        assertEquals(4, bodies.size(), "처음 1번 + 재전송 3번");
+        assertEquals(List.of(Duration.ofSeconds(30), Duration.ofMinutes(2), Duration.ofMinutes(5),
+                Duration.ofMinutes(15), Duration.ofMinutes(30), Duration.ofMinutes(60)), resendDelays);
+        assertEquals(7, bodies.size(), "처음 1번 + 재전송 6번");
     }
 
     @Test
