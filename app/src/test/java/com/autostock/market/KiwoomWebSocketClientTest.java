@@ -328,4 +328,20 @@ class KiwoomWebSocketClientTest {
             return instant;
         }
     }
+
+    @Test
+    void 주문체결통보_원문은_해석_전에_기록기로_넘기고_다른_타입은_넘기지_않는다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        OrderNoticeRecorder recorder = org.mockito.Mockito.mock(OrderNoticeRecorder.class);
+        client.setOrderNoticeRecorder(recorder);
+
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(
+                "{\"trnm\":\"REAL\",\"data\":[{\"type\":\"00\",\"name\":\"주문체결\",\"values\":{\"9203\":\"0064217\",\"913\":\"확인\"}},"
+                        + "{\"type\":\"04\",\"item\":\"005930\",\"values\":{\"930\":\"192\"}}]}"));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        org.mockito.Mockito.verify(recorder, org.mockito.Mockito.times(1)).record(captor.capture());
+        assertEquals("확인", captor.getValue().path("values").path("913").asText());
+    }
 }

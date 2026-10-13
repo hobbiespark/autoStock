@@ -8,6 +8,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
@@ -142,6 +143,14 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
      */
     static final Map<String, Object> CONNECT_PROPERTIES =
             Map.of("org.apache.tomcat.websocket.IO_TIMEOUT_MS", String.valueOf(Duration.ofSeconds(5).toMillis()));
+
+    /** 주문체결통보(type 00) 원문 기록기(실측, aiDoc/auto-measurement.md) — 테스트에서 직접 만들면 없다. */
+    private volatile OrderNoticeRecorder orderNoticeRecorder;
+
+    @Autowired(required = false)
+    void setOrderNoticeRecorder(OrderNoticeRecorder recorder) {
+        this.orderNoticeRecorder = recorder;
+    }
 
     public KiwoomWebSocketClient(KiwoomProperties kiwoomProperties,
                                  TokenManager tokenManager,
@@ -443,6 +452,10 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         }
         if ("REAL".equals(trnm)) {
             for (JsonNode data : root.path("data")) {
+                OrderNoticeRecorder recorder = orderNoticeRecorder;
+                if (recorder != null && "00".equals(data.path("type").asText())) {
+                    recorder.record(data);   // 주문체결통보 원문 기록(실측) — 해석과 상관없이 먼저 남긴다
+                }
                 // type에 따라 MarketTick(0B) 또는 OrderNotice(00)로 변환됨. 그 외 타입은 null.
                 Object event = RealMessageParser.parse(data, clock);
                 if (event != null) {

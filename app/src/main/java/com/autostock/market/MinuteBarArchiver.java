@@ -32,6 +32,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.regex.Pattern;
 
 /**
  * 분봉 적재 잡 — TimescaleDB 하이퍼테이블 {@code minute_bars}(V12)에 쌓는다
@@ -73,6 +74,11 @@ public class MinuteBarArchiver {
     /** 예전 CSV 첫 컬럼 형식(2026-09-11~10-02 적재분). */
     private static final DateTimeFormatter CSV_TIME = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     private static final DateTimeFormatter DAY = DateTimeFormatter.ISO_LOCAL_DATE;
+    /**
+     * 키움 서버 일시 오류 — {@code [1631]/[1632] 서비스를 처리하는 중에 오류가 발생했습니다}. 공식 오류코드 표에 없고,
+     * 장 시작 전(9/23 07:53 ka10001, 10/8 07:53 ka10080)에 나왔다가 몇 분 뒤 풀렸다.
+     */
+    private static final Pattern SERVER_BUSY = Pattern.compile("\\[163[12]]");
 
     private final MarketDataPort marketData;
     private final MinuteBarStore store;
@@ -168,7 +174,10 @@ public class MinuteBarArchiver {
                 } catch (Exception e) {
                     // 한 종목 실패가 나머지를 막지 않는다. 남은 빈 구간은 syncSymbol이 기록해 다음 장외에 메운다
                     failed++;
-                    log.warn("분봉 적재 실패({}): {} — {} (다음 장외 동기화가 이어서 메운다)", reason, StockNames.label(symbol), e.getMessage());
+                    String next = SERVER_BUSY.matcher(String.valueOf(e.getMessage())).find()
+                            ? "키움 서버 일시 오류 — 장 시작 전에 자주 난다. 빈 구간으로 남겨 장외면 다음 매시 점검(:15)이, 장중이면 15:45 정기 적재가 다시 한다"
+                            : "다음 장외 동기화가 이어서 메운다";
+                    log.warn("분봉 적재 실패({}): {} — {} ({})", reason, StockNames.label(symbol), e.getMessage(), next);
                 }
             }
             String refreshed = refreshDailyBars(from, to);

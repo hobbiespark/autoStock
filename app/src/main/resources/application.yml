@@ -85,13 +85,21 @@ risk:
 execution:
   mode: SIM                     # SIM: 즉시 체결 시뮬레이션 / LIVE: 키움 주문 API
   stale-order-timeout: 5m        # SUBMITTED로 이 시간 이상 머문 주문을 StaleOrderCanceller가 자동 취소 요청
-  tr-probe:                      # 체결·미체결 TR 장중 실측(실행 계획 1.6) — date 하루 at 이후 한 번, 모의 서버에서만(aiDoc/market-hours-automation.md)
+  tr-probe:                      # 주문 경로 실측(실행 계획 1.6) — 매 거래일 at 이후 첫 분에 한 번, 모의 서버에서만(aiDoc/auto-measurement.md)
     enabled: true
-    date: 2026-10-07             # 이 날만 돈다. 끝난 뒤에는 결과 파일이 있어 다시 돌지 않는다 — 다시 재려면 날짜를 바꾼다
-    at: "10:00"
-    symbol: "069500"             # KODEX 200 1주를 현재가보다 discount-pct% 낮은 지정가로 매수 → 조회 → 취소 → 조회
+    from: 2026-10-08             # 이 날부터 매 거래일(1차 10/7은 하루짜리였다). 하루만 재려면 until을 같은 날로
+    at: "09:30"
+    symbol: "069500"             # KODEX 200 1주 지정가 매수(현재가 -discount-pct%)·매도(+discount-pct%) → 조회 → 취소 → 조회, 단계마다 점검
     discount-pct: 15
-    output-dir: ../docs/measured # 앱 작업 폴더(app) 기준 — 리포의 docs/measured(계좌번호는 가려서 저장)
+    fill-round-trip-days: MONDAY # 체결 왕복(시장가 1주 매수 → 체결 확인 → 매도, 보유 수량 그대로)을 하는 요일. 그날 빠지면 앱이 같은 주 다음 거래일에 한다. 비우면 안 함
+    notify-success: false        # 점검이 모두 맞으면 로그만, 어긋나거나 확인할 일이 있을 때만 텔레그램 WARN
+    output-dir: ../data/measured/tr_probe   # 날짜(yyyyMMdd) 폴더에 응답 원문(계좌번호 가림)·요약 — 커밋 대상 아님
+  pre-open-probe:                # 장전 키움 응답 실측 — 매 거래일 from~to 5분마다 조회 TR 응답 코드·걸린 시간(주문 없음)
+    enabled: true
+    from: "07:30"
+    to: "08:40"                  # 이 시각 틱에서 하루 요약(로그 한 줄, 오류가 있던 날만 텔레그램 INFO)
+    symbols: "005930,069500"     # 분봉(ka10080)을 잴 종목 — NXT 거래 종목과 ETF. 첫 종목은 시세(ka10001)도
+    output-dir: ../data/measured/pre_open
 
 trading:
   position-reconcile:
@@ -146,6 +154,9 @@ autostock:
   ws:
     enabled: false              # 앱키 발급 후 true
     stale-after: 180             # 연속 단절이 이 초를 넘으면 MarketDataStale 발행 → risk가 킬스위치 작동(PLAN 3절)
+    order-notice-capture:        # 주문체결통보(type 00) 원문 상시 기록(계좌번호 가림) — 취소 확인·거부·부분 체결 실측(aiDoc/auto-measurement.md)
+      enabled: true
+      dir: ../data/measured/ws_orders   # 하루 파일 ws_orders_yyyyMMdd.jsonl — 커밋 대상 아님
   session:                      # 장외 대기(2026-09-29) — 프로세스는 계속 실행, 장외에는 WS 해제·주기 대사/미체결 취소 점검 중지
     enabled: true               # false면 24시간 ACTIVE(기존 동작) — 장외에 WS·대사를 직접 검증할 때만 끈다
     wake-time: "08:30"          # 거래일 장 대응 시작(정규장 09:00 − 30분). NXT(08:00~20:00) 대응 시 07:30

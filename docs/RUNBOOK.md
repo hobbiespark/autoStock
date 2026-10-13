@@ -101,6 +101,7 @@ autostock.ws.enabled: true
 - [ ] **WS 로그인 성공(sor_yn=Y) — 재구독 N종목** 로그 확인 (LOGIN→REG 순서 실전 검증 포인트)
 - [ ] 09:05 C3 요약 1줄 확인 — `C3 판단 YYYY-MM-DD — 국면 ON/OFF(지수 종목명(코드) 종가 / SMA200) · 매수 · 매도 · 보유 유지 · 미진입 · 주기 전 · 데이터 부족 · 오류 · 다음 판단 …`(2026-10-01 추가, `aiDoc/run-summary-logs.md`). 종목별 근거는 대시보드 판단 근거 탭. **판단 주기는 21거래일**이고 마지막 판단일은 DB(`strategy_state`)에 남아 재기동해도 다시 판단하지 않는다(2026-10-02 Phase 1.1) — 판단일 사이의 09:05는 `주기 전 5`가 정상, 그 앞에 `C3: 마지막 판단일 복원 n종목 {…}` 1줄(`aiDoc/c3-trading-day-cycle.md`)
 - [ ] 장중 자동 점검(2026-10-06~, `aiDoc/market-hours-automation.md`): 09:05 직후 텔레그램 `C3 판단 …` 한 줄, 09:15에 실행 기록이 없으면 WARN. 10:00·14:00 로그 `장중 점검 HH:MM — WS … · 토큰 … · 킬스위치 … · UNKNOWN …`(이상이면 텔레그램 WARN)
+- [ ] 자동 실측(주문 경로 점검 2026-10-08~·장전 응답 2026-10-12~, `aiDoc/auto-measurement.md`): 07:30~08:40 5분마다 장전 키움 응답(로그 `장전 키움 응답 실측 …`, 오류가 있던 날만 08:40 텔레그램 INFO), 09:30 주문 경로 점검(지정가 매수·매도 1주 → 취소, 월요일엔 체결 왕복 — 빠지면 앱이 같은 주 다음 거래일에 — 점검이 어긋날 때만 텔레그램 WARN), WS 주문통보 원문 상시 기록. 결과는 `data/measured/`(커밋 대상 아님). 07:30부터 앱이 절전을 막는다
 - [ ] 상태 한눈에(2026-10-02 Phase 1.7): `http://127.0.0.1:8080/actuator/health` — `kiwoomWs`(장중 UP·connected·loggedIn, 장외 UP·STANDBY), `kiwoomAuth`(마지막 토큰 발급, DOWN이면 `failure` 코드를 아래 6절 표에서), `killSwitch`(늘 UP, engaged·reason). 지표는 `/actuator/metrics/<이름>`(`orders.unknown.count`·`market.ws.last_message_age.seconds` 등 — `aiDoc/observability.md`)
 - [ ] 08:20(·기동 시) `공모주 수집 완료 — … 증권신고(지분증권) N건(신규 딜 …)` 1줄. 공시 블랙리스트는 매매 대상·보유 종목만 즉시 WARN, 나머지는 1분 뒤 요약 INFO 1건(`aiDoc/alert-digest.md`)
 - [ ] 첫 주문 발생 시: ClientOrderId 포맷, orders 상태 전이(SUBMITTING→SUBMITTED→FILLED), WS 체결통보→Fill→포지션 일치
@@ -137,7 +138,8 @@ autostock.ws.enabled: true
 | 텔레그램 "잔고·장부 불일치: …" (대사를 켠 뒤) | 체결 통보 유실·HTS 수동 매매·복원 실패 | 자동 교정 없음. 대시보드 보유와 HTS 잔고 비교 → 수동 매매 흔적이면 재기동(기동 복원이 장부를 브로커 기준으로 다시 채움 — 장중이면 킬스위치 ON 상태에서). 대사 켜기: `--trading.position-reconcile.enabled=true`(장외, `aiDoc/position-reconcile.md`) |
 | 텔레그램 "장중 점검: C3 오늘(…) 09:05 실행 기록 없음" (2026-10-06~) | C3 09:05 실행이 실패했거나, 09:05 뒤에 재기동해 실행 기록(메모리)이 비었음 | 로그의 `C3 판단`·`C3:` 줄 확인. 재기동 때문이면 무시 |
 | 텔레그램 "장중 점검 HH:MM 이상: …" (2026-10-06~) | WS 끊김·미로그인, 토큰 발급 실패, 킬스위치 작동, UNKNOWN 주문 | 앞에 붙은 이상 목록대로 이 표의 해당 행 처리. UNKNOWN은 대시보드 주문 이력과 HTS 체결 내역 대조 |
-| 텔레그램 "TR 실측(1.6) 일부 실패 — …" (10/7) | 모의 서버 거부(장 운영 시간·가격 범위)·유량 제한 | `docs/measured/tr_probe_YYYYMMDD_00_summary.json`에서 실패 단계 확인. 매매 영향 없음 — 다시 재려면 `execution.tr-probe.date` 변경 |
+| 텔레그램 "TR 실측(1.6) 일부 실패 — … 확인 필요: …" (10/8~ 매 거래일 09:30) | 키움 응답의 형식·동작이 앱 기대와 다름(`점검 실패: …`), 모의 서버 거부(장 운영 시간·가격 범위)·유량 제한, 취소·매도 실패 | `data/measured/tr_probe/{날짜}/tr_probe_{날짜}_00_summary.json`의 `checks`·`problems` 확인. `점검 실패`면 키움 응답이 바뀐 것 — 1.6 해석 코드(미체결·주문내역)를 같이 본다. 취소·매도 실패면 HTS에서 주문 정리. 매매 영향 없음. 끄기 `execution.tr-probe.enabled: false` |
+| 텔레그램 "장전 키움 응답 실측 07:30~08:40 — n회 중 오류 m회(…)" (10/12~) | 키움 서버의 장 시작 전 일시 오류(1631/1632 등) | 정보 — 어느 시각까지 오류가 나는지의 기록이다. 그 시각 전에 기동하면 기동 직후 분봉 적재가 실패할 수 있다(다음 매시 점검이 메운다). 조치 없음 |
 | Flyway 마이그레이션 실패 | 새 마이그레이션 오류, 또는 TimescaleDB가 없는 옛 DB(16-alpine)에서 V12 이후 코드 기동 | **먼저 `scripts\backup_db.ps1`로 백업** → 로그의 실패 버전·SQL 오류 확인 → 코드 수정 후 재기동, DB가 망가졌으면 직전 백업 복원(`restore_check.ps1 -Lab`으로 먼저 확인). 옛 DB면 `switch_db_timescale.ps1`. **`docker compose down -v` 금지** — 주문 이력·분봉(1년 지나면 다시 못 받음)까지 지운다 |
 | DB 전환(TimescaleDB) 뒤 이상 | 새 이미지·설정 문제 | 앱을 끄고 `scripts\rollback_db_pg16.ps1`(새 DB 덤프 → 옛 볼륨으로 복귀). V12 이후 코드면 그 이전 커밋으로 되돌린 뒤 기동 — `aiDoc/db-switch-timescale.md` 6절 |
 

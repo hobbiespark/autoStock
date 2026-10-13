@@ -60,3 +60,4 @@
 - [audit-reliability.md](audit-reliability.md) — Phase 1.8: 감사 유실 보완 문구 정정, audit.write.failure, 이벤트 타입별 스키마 버전, event_publication Modulith 2 컬럼(V15, D-07 권고안)
 - [small-fixes-2026-10-02.md](small-fixes-2026-10-02.md) — Phase 1.9 소규모 정리(휴장일·SIM 잔고 생략, 경로 변수 400, 주문 이력 KST 날짜, WS 종료 로그 등)와 오늘 발견한 결함 2건(공시 요약 종료 유실 → 수명주기 단계, 공모주 청약 알림 회사 단위 1회·재기동 중복 방지 V16)
 - [market-hours-automation.md](market-hours-automation.md) — 2026-10-06 장중 할 일 자동 실행: C3 판단 요약 텔레그램·09:15 실행 확인, 10:00·14:00 장중 상태 점검(이상일 때만 알림), 1.6 TR 실측(10/7 10:00 한 번, 모의 서버 전용, 결과 `docs/measured`)
+- [auto-measurement.md](auto-measurement.md) — 2026-10-08 실측 자동화: 장전 키움 응답(07:30~08:40 5분마다), 09:30 주문 경로 점검(월요일 체결 왕복 — 빠지면 앱이 같은 주 다음 거래일에), WS 주문통보 원문 상시 기록
