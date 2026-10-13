@@ -237,6 +237,7 @@ public class KiwoomBrokerAdapter implements BrokerPort {
      * pur_pric, pred_close_pric, rmnd_qty, trde_able_qty, cur_prc, …}. 사용 필드: {@code rmnd_qty}=보유수량,
      * {@code pur_pric}=매입가(평단) — "005930 19주 @ 259,974"가 실체결 평단과 일치했다. 종목코드는 "A005930"처럼 A 접두가
      * 붙는다. 후보 키 탐색은 다른 계좌 유형 방어용으로 유지한다. 종목코드 형식이 틀리거나 수량이 0이면 경고 후 뺀다.
+     * {@code pred_close_pric}(전일 종가)는 2026-10-13부터 일 손실 한도의 기준가로 쓴다 — 없거나 0이면 null.
      */
     static Optional<BrokerHolding> toHolding(Map<String, Object> raw) {
         String symbol = stripA(firstText(raw, "stk_cd", "stock_cd"));
@@ -247,7 +248,8 @@ public class KiwoomBrokerAdapter implements BrokerPort {
             return Optional.empty();
         }
         return Optional.of(new BrokerHolding(new StockCode(symbol), firstText(raw, "stk_nm"), quantity,
-                firstPrice(raw, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric")));
+                firstPrice(raw, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric"),
+                firstPrice(raw, "pred_close_pric")));
     }
 
     private static String firstText(Map<String, Object> map, String... keys) {

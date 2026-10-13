@@ -1,5 +1,6 @@
 package com.autostock.risk;
 
+import com.autostock.common.event.DayStartMarks;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.KillSwitchChanged;
 import com.autostock.common.event.PositionRestored;
@@ -137,17 +138,23 @@ class DailyPnlTrackerTest {
 
     private static final LocalDate DAY1_KST = LocalDate.of(2026, 8, 13);
 
+    private static RiskStateStore.DailyPnl saved(String realized, String limit) {
+        return new RiskStateStore.DailyPnl(new BigDecimal(realized), limit == null ? null : new BigDecimal(limit));
+    }
+
     @Test
     void 실현손익이_바뀔_때마다_오늘_누계를_저장한다() {
         tracker.onFill(fill(Side.BUY, 10, "70000", DAY1));
         tracker.onFill(fill(Side.SELL, 10, "71000", DAY1));
 
-        verify(store).saveDailyPnl(eq(DAY1_KST), argThat(v -> v.compareTo(new BigDecimal("8368.5")) == 0), eq(DAY1));
+        // 오늘 산 분량은 기준가가 매수가라 한도용 손익도 실현손익과 같다
+        verify(store).saveDailyPnl(eq(DAY1_KST), argThat(v -> v.compareTo(new BigDecimal("8368.5")) == 0),
+                argThat(v -> v.compareTo(new BigDecimal("8368.5")) == 0), eq(DAY1));
     }
 
     @Test
     void 기동_시_오늘_저장값으로_누계를_복원하고_이어서_한도를_판단한다() {
-        when(store.loadDailyPnl(DAY1_KST)).thenReturn(Optional.of(new BigDecimal("-150000")));
+        when(store.loadDailyPnl(DAY1_KST)).thenReturn(Optional.of(saved("-150000", "-150000")));
 
         tracker.restoreToday();
         assertEquals(0, new BigDecimal("-150000").compareTo(tracker.todayRealizedPnl()));
@@ -174,7 +181,7 @@ class DailyPnlTrackerTest {
     @Test
     void 복원한_누계가_한도를_넘었어도_킬스위치를_켜지_않는다() {
         // 한도 도달로 켜졌던 킬스위치는 그 자체가 복원된다 — 사람이 해제했다면 그 판단을 존중한다
-        when(store.loadDailyPnl(DAY1_KST)).thenReturn(Optional.of(new BigDecimal("-300000")));
+        when(store.loadDailyPnl(DAY1_KST)).thenReturn(Optional.of(saved("-300000", "-300000")));
 
         tracker.restoreToday();
 
@@ -184,7 +191,7 @@ class DailyPnlTrackerTest {
 
     @Test
     void 저장이_실패해도_누계와_한도_판단은_계속된다() {
-        doThrow(new RuntimeException("DB 연결 끊김")).when(store).saveDailyPnl(any(), any(), any());
+        doThrow(new RuntimeException("DB 연결 끊김")).when(store).saveDailyPnl(any(), any(), any(), any());
 
         tracker.onFill(fill(Side.BUY, 1000, "10000", DAY1));
         tracker.onFill(fill(Side.SELL, 1000, "9000", DAY1));
@@ -228,6 +235,112 @@ class DailyPnlTrackerTest {
         tracker.onFill(fill(Side.SELL, 10, "71000", DAY1));
 
         assertEquals(0, new BigDecimal("8368.5").compareTo(tracker.todayRealizedPnl())); // 평단 70,000 기준
+    }
+
+    // ---- 2026-10-13: 일 손실 한도는 밤사이 보유분을 전일 종가 기준으로 잰다 ----
+
+    private static Price price(String value) {
+        return new Price(new BigDecimal(value));
+    }
+
+    @Test
+    void 밤사이_보유분은_전일_종가_기준이라_며칠_쌓인_평가손실로는_킬스위치가_켜지지_않는다() {
+        // 10/13 재현(규모만 줄임): 평단 10,000원에 산 1,000주를 전일 종가 9,000원에 들고 와서 8,950원에 청산
+        tracker.onPositionRestored(new PositionRestored(new StockCode("005930"), 1000, price("10000"), price("9000")));
+
+        tracker.onFill(fill(Side.SELL, 1000, "8950", DAY1));
+
+        // 실현손익(평단 대비)은 -105만 원대로 한도(-20만 원)를 크게 넘지만, 오늘 움직임은 -5만 원 + 비용이다
+        assertTrue(tracker.todayRealizedPnl().compareTo(new BigDecimal("-1000000")) < 0);
+        // (8950-9000)*1000 = -50,000, 비용 = 9,000,000*0.00015 + 8,950,000*0.00215 = 1,350 + 19,242.5
+        assertEquals(0, new BigDecimal("-70592.5").compareTo(tracker.todayPnlForLimit()));
+        assertFalse(killSwitch.isEngaged());
+    }
+
+    @Test
+    void 전일_종가를_모르면_예전처럼_매입가_기준으로_재서_킬스위치가_켜진다() {
+        tracker.onPositionRestored(new PositionRestored(new StockCode("005930"), 1000, price("10000")));
+
+        tracker.onFill(fill(Side.SELL, 1000, "8950", DAY1));
+
+        assertEquals(0, tracker.todayRealizedPnl().compareTo(tracker.todayPnlForLimit()));
+        assertTrue(killSwitch.isEngaged());
+        assertTrue(((KillSwitchChanged) killSwitchEvents.get(0)).reason().contains("전일 종가 기준"));
+    }
+
+    @Test
+    void 오늘_산_분량은_매수가가_기준이라_오늘_손실은_그대로_잡힌다() {
+        tracker.onFill(fill(Side.BUY, 1000, "10000", DAY1));
+        tracker.onFill(fill(Side.SELL, 1000, "9000", DAY1));
+
+        assertEquals(0, tracker.todayRealizedPnl().compareTo(tracker.todayPnlForLimit()));
+        assertTrue(killSwitch.isEngaged());
+    }
+
+    @Test
+    void 들고_온_분량과_오늘_산_분량이_섞이면_기준가도_가중평균이다() {
+        tracker.onPositionRestored(new PositionRestored(new StockCode("005930"), 100, price("10000"), price("9000")));
+        tracker.onFill(fill(Side.BUY, 100, "9500", DAY1));   // 기준가 (9000*100 + 9500*100)/200 = 9,250
+
+        tracker.onFill(fill(Side.SELL, 200, "9250", DAY1));
+
+        // 차익 0, 비용만: 9,250*200*0.00015 + 9,250*200*0.00215 = 277.5 + 3,977.5
+        assertEquals(0, new BigDecimal("-4255.0").compareTo(tracker.todayPnlForLimit()));
+    }
+
+    @Test
+    void 아침_기준가_이벤트가_밤새_켜져_있던_장부의_기준가를_전일_종가로_바꾼다() {
+        // 어제 10,000원에 산 1,000주(기준가 = 매수가)를 앱이 밤새 들고 있다가, 오늘 아침 전일 종가 9,000원이 온다
+        tracker.onFill(fill(Side.BUY, 1000, "10000", DAY1.minusSeconds(24 * 3600)));
+        tracker.onDayStartMarks(new DayStartMarks(DAY1_KST, List.of(
+                new DayStartMarks.Mark(new StockCode("005930"), 1000, price("10000"), price("9000")))));
+
+        tracker.onFill(fill(Side.SELL, 1000, "8950", DAY1));
+
+        assertEquals(0, new BigDecimal("-70592.5").compareTo(tracker.todayPnlForLimit()));
+        assertFalse(killSwitch.isEngaged());
+    }
+
+    @Test
+    void 오늘이_아닌_기준가_이벤트는_무시한다() {
+        tracker.onFill(fill(Side.BUY, 1000, "10000", DAY1));
+        tracker.onDayStartMarks(new DayStartMarks(DAY1_KST.minusDays(1), List.of(
+                new DayStartMarks.Mark(new StockCode("005930"), 1000, price("10000"), price("9000")))));
+
+        tracker.onFill(fill(Side.SELL, 1000, "9000", DAY1));
+
+        assertTrue(killSwitch.isEngaged());   // 기준가는 매수가 10,000원 그대로
+    }
+
+    @Test
+    void 기준가_이벤트로_장부에_없던_보유를_시드한다() {
+        tracker.onDayStartMarks(new DayStartMarks(DAY1_KST, List.of(
+                new DayStartMarks.Mark(new StockCode("005930"), 10, price("70000"), price("70500")))));
+
+        tracker.onFill(fill(Side.SELL, 10, "71000", DAY1));
+
+        assertEquals(0, new BigDecimal("8368.5").compareTo(tracker.todayRealizedPnl()));      // 평단 70,000 대비
+        assertTrue(tracker.todayPnlForLimit().compareTo(tracker.todayRealizedPnl()) < 0);       // 기준가 70,500 대비
+    }
+
+    @Test
+    void 한도용_손익이_없는_예전_행은_실현손익으로_복원한다() {
+        when(store.loadDailyPnl(DAY1_KST)).thenReturn(Optional.of(saved("-150000", null)));
+
+        tracker.restoreToday();
+
+        assertEquals(0, new BigDecimal("-150000").compareTo(tracker.todayPnlForLimit()));
+        assertEquals(0, new BigDecimal("-150000").compareTo(tracker.todayRealizedPnl()));
+    }
+
+    @Test
+    void 저장된_두_값을_각각_복원한다() {
+        when(store.loadDailyPnl(DAY1_KST)).thenReturn(Optional.of(saved("-1000000", "-30000")));
+
+        tracker.restoreToday();
+
+        assertEquals(0, new BigDecimal("-30000").compareTo(tracker.todayPnlForLimit()));
+        assertEquals(0, new BigDecimal("-1000000").compareTo(tracker.todayRealizedPnl()));
     }
 
     /** 테스트 전용 가변 Clock — 하루가 지난 것처럼 시각을 이동시켜 롤오버를 결정론적으로 검증한다. */

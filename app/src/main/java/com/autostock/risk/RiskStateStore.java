@@ -55,17 +55,26 @@ public class RiskStateStore {
                 .orElseGet(() -> RiskStateEntity.newSingleton(now));
     }
 
-    /** 그 거래일(KST)의 저장된 실현손익 누계. */
-    public Optional<BigDecimal> loadDailyPnl(LocalDate tradeDate) {
-        return dailyPnlRepository.findById(tradeDate).map(RiskDailyPnlEntity::getRealizedPnl);
+    /** 그 거래일(KST)의 저장된 손익 누계 — 한도용 손익은 V17 전 행이면 null. */
+    public Optional<DailyPnl> loadDailyPnl(LocalDate tradeDate) {
+        return dailyPnlRepository.findById(tradeDate).map(row -> new DailyPnl(row.getRealizedPnl(), row.getLimitPnl()));
     }
 
     /** 그 거래일(KST) 행을 갱신한다(없으면 만든다). */
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void saveDailyPnl(LocalDate tradeDate, BigDecimal realizedPnl, Instant now) {
+    public void saveDailyPnl(LocalDate tradeDate, BigDecimal realizedPnl, BigDecimal limitPnl, Instant now) {
         RiskDailyPnlEntity row = dailyPnlRepository.findById(tradeDate)
                 .orElseGet(() -> new RiskDailyPnlEntity(tradeDate));
-        row.update(realizedPnl, now);
+        row.update(realizedPnl, limitPnl, now);
         dailyPnlRepository.save(row);
+    }
+
+    /**
+     * 저장된 하루 손익.
+     *
+     * @param realizedPnl 실현손익(매입 평단 대비)
+     * @param limitPnl    한도용 손익(밤사이 보유분은 전일 종가 대비, V17) — 예전 행이면 null
+     */
+    public record DailyPnl(BigDecimal realizedPnl, BigDecimal limitPnl) {
     }
 }

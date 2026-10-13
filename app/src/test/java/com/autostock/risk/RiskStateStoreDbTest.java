@@ -97,18 +97,31 @@ class RiskStateStoreDbTest extends PostgresDataJpaTest {
         LocalDate day1 = LocalDate.of(2026, 10, 1);
         LocalDate day2 = LocalDate.of(2026, 10, 2);
 
-        store.saveDailyPnl(day1, new BigDecimal("-1000.5"), T1);
+        store.saveDailyPnl(day1, new BigDecimal("-1000.5"), new BigDecimal("-100"), T1);
         dailyPnlRepository.flush();
-        store.saveDailyPnl(day1, new BigDecimal("-2500.25"), T2);
-        store.saveDailyPnl(day2, new BigDecimal("300"), T2);
+        store.saveDailyPnl(day1, new BigDecimal("-2500.25"), new BigDecimal("-250.5"), T2);
+        store.saveDailyPnl(day2, new BigDecimal("300"), new BigDecimal("300"), T2);
         dailyPnlRepository.flush();
 
         assertEquals(2, jdbc.queryForObject("select count(*) from risk_daily_pnl", Integer.class));
-        assertEquals(0, new BigDecimal("-2500.25").compareTo(store.loadDailyPnl(day1).orElseThrow()));
-        assertEquals(0, new BigDecimal("300").compareTo(store.loadDailyPnl(day2).orElseThrow()));
+        assertEquals(0, new BigDecimal("-2500.25").compareTo(store.loadDailyPnl(day1).orElseThrow().realizedPnl()));
+        assertEquals(0, new BigDecimal("-250.5").compareTo(store.loadDailyPnl(day1).orElseThrow().limitPnl()));
+        assertEquals(0, new BigDecimal("300").compareTo(store.loadDailyPnl(day2).orElseThrow().realizedPnl()));
         assertTrue(store.loadDailyPnl(LocalDate.of(2026, 9, 30)).isEmpty());
-        String raw = jdbc.queryForObject("select trade_date::text || '|' || realized_pnl::text from risk_daily_pnl where trade_date = ?",
-                String.class, day1);
-        assertEquals("2026-10-01|-2500.2500", raw);
+        String raw = jdbc.queryForObject("select trade_date::text || '|' || realized_pnl::text || '|' || limit_pnl::text "
+                + "from risk_daily_pnl where trade_date = ?", String.class, day1);
+        assertEquals("2026-10-01|-2500.2500|-250.5000", raw);
+    }
+
+    @Test
+    void V17_전_행은_한도용_손익이_비어_있다() {
+        // 10/13 이전 행 — 복원 때 DailyPnlTracker가 실현손익으로 대신한다
+        LocalDate day = LocalDate.of(2026, 10, 13);
+        jdbc.update("insert into risk_daily_pnl (trade_date, realized_pnl, updated_at) values (?, -10965605.95, now())", day);
+
+        RiskStateStore.DailyPnl saved = store.loadDailyPnl(day).orElseThrow();
+
+        assertEquals(0, new BigDecimal("-10965605.95").compareTo(saved.realizedPnl()));
+        assertNull(saved.limitPnl());
     }
 }

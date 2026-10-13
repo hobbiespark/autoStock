@@ -17,6 +17,15 @@ import com.autostock.common.util.StockCode;
  *
  * <p>avgPrice는 {@link Price}이고 <b>null일 수 있다</b> — 잔고 응답에서 매입가를 찾지 못하면 "평단 모름"이다
  * (예전에는 0을 넣어, 그 값이 강제 청산 지정가로 쓰이면 0원 주문이 나갔다 — 사용자 결정 2026-09-30).
+ *
+ * <p>previousClose는 잔고의 전일 종가({@code pred_close_pric})다 — <b>null일 수 있다</b>. 일 손실 한도의 기준가로 쓴다
+ * (2026-10-13: 매입 평단 기준으로 재면 며칠 쌓인 평가손실이 청산하는 날 하루 손실로 잡혀 킬스위치가 켜졌다 —
+ * aiDoc/upgrade-2026-10/16-log-review-2026-10-13.md).
  */
-public record PositionRestored(StockCode symbol, long quantity, Price avgPrice) {
+public record PositionRestored(StockCode symbol, long quantity, Price avgPrice, Price previousClose) {
+
+    /** 전일 종가를 모르는 복원(테스트·예전 호출부). */
+    public PositionRestored(StockCode symbol, long quantity, Price avgPrice) {
+        this(symbol, quantity, avgPrice, null);
+    }
 }

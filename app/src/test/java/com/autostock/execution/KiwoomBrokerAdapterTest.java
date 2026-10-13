@@ -112,7 +112,7 @@ class KiwoomBrokerAdapterTest {
                 "tot_evlt_amt", "000000004940000", "prsm_dpst_aset_amt", "000000100000000",
                 "acnt_evlt_remn_indv_tot", List.of(
                         Map.of("stk_cd", "A005930", "stk_nm", "삼성전자", "rmnd_qty", "000000000000019",
-                                "pur_pric", "000000259974"),
+                                "pur_pric", "000000259974", "pred_close_pric", "000000241500"),
                         Map.of("stk_cd", "A5930", "rmnd_qty", "10", "pur_pric", "1000"),          // 종목코드 형식 오류
                         Map.of("stk_cd", "A035720", "rmnd_qty", "000000000000000"),               // 수량 0
                         Map.of("stk_cd", "A000660", "rmnd_qty", "3", "pur_pric", "000000000000")))); // 평단 0 → 미상
@@ -120,7 +120,8 @@ class KiwoomBrokerAdapterTest {
         BrokerBalance balance = adapter.balance();
 
         assertEquals(List.of(
-                        new BrokerHolding(new StockCode("005930"), "삼성전자", 19, new Price(new BigDecimal("259974"))),
+                        new BrokerHolding(new StockCode("005930"), "삼성전자", 19, new Price(new BigDecimal("259974")),
+                                new Price(new BigDecimal("241500"))),   // 전일 종가 — 일 손실 기준가(2026-10-13)
                         new BrokerHolding(new StockCode("000660"), "", 3, null)),
                 balance.holdings());
         assertEquals(0, new BigDecimal("100000000").compareTo(balance.estimatedDepositAsset()));

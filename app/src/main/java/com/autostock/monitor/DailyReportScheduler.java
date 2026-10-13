@@ -83,6 +83,10 @@ public class DailyReportScheduler {
     public void sendDailyReport() {
         notifier.notify(NoticeLevel.INFO, buildReport());
         saveDailyPerformanceSnapshot();
+        // 리포트는 텔레그램으로만 나가 로그로는 돌았는지 알 수 없었다(2026-10-13 로그 점검 L-8) — 한 줄 요약을 남긴다
+        log.info("일일 리포트 발송 — 주문 {}건 · 실현손익 {}원(매입가 기준) · 한도 기준 손익 {}원 · 킬스위치 {} · 보유 {}종목",
+                dailyLimits.todayOrderCount(), won(dailyPnl.todayRealizedPnl()), won(dailyPnl.todayPnlForLimit()),
+                killSwitch.isEngaged() ? "작동 중" : "정상", positionBook.snapshot().size());
     }
 
     /** 리포트와 같은 집계값으로 그날의 성과 스냅샷을 upsert한다(FE-2). */
@@ -105,7 +109,8 @@ public class DailyReportScheduler {
         StringBuilder sb = new StringBuilder();
         sb.append("=== 일일 성과 리포트 ===\n");
         sb.append("오늘 주문 수: ").append(dailyLimits.todayOrderCount()).append('\n');
-        sb.append("오늘 실현손익: ").append(dailyPnl.todayRealizedPnl()).append("원\n");
+        sb.append("오늘 실현손익: ").append(dailyPnl.todayRealizedPnl()).append("원(매입가 기준)\n");
+        sb.append("오늘 손익(일 손실 한도 기준 — 밤사이 보유분은 전일 종가 대비): ").append(dailyPnl.todayPnlForLimit()).append("원\n");
         sb.append("킬스위치: ").append(killSwitch.isEngaged() ? "작동 중" : "정상").append('\n');
         sb.append("보수 모드(거시 국면): ").append(macroGuard.isConservativeMode() ? "ON(신규 매수 금지)" : "OFF").append('\n');
         var slip = slippageTracker.todaySummary();

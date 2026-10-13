@@ -14,8 +14,14 @@ import com.autostock.common.util.StockCode;
  * @param name     종목명(stk_nm) — 없으면 빈 문자열
  * @param quantity 보유 수량(1 이상)
  * @param avgPrice 매입 평단 — 응답에 없거나 0이면 null(평단 미상, 0을 지어내지 않는다)
+ * @param previousClose 전일 종가({@code pred_close_pric}, 2026-09-11 실측 키) — 없거나 0이면 null. 일 손실 한도의 기준가(2026-10-13)
  */
-public record BrokerHolding(StockCode symbol, String name, long quantity, Price avgPrice) {
+public record BrokerHolding(StockCode symbol, String name, long quantity, Price avgPrice, Price previousClose) {
+
+    /** 전일 종가를 모르는 보유(테스트·대사). */
+    public BrokerHolding(StockCode symbol, String name, long quantity, Price avgPrice) {
+        this(symbol, name, quantity, avgPrice, null);
+    }
 
     public BrokerHolding {
         if (symbol == null) {
