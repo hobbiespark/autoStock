@@ -37,7 +37,8 @@ import java.util.Map;
  *
  * <h2>API 계약 (실측 확정, 2026-09-11)</h2>
  * <pre>
- *   GET /api/list.json?crtfc_key=...&amp;pblntf_ty=B&amp;bgn_de=YYYYMMDD&amp;end_de=YYYYMMDD&amp;page_count=100
+ *   GET /api/list.json?crtfc_key=...&amp;pblntf_ty=B&amp;bgn_de=YYYYMMDD&amp;end_de=YYYYMMDD&amp;page_no=N&amp;page_count=100
+ *     (모든 쪽을 읽는다 — 2026-10-13. 응답의 total_page까지)
  *     응답: {"status":"000","message":"정상","list":[{"corp_code","corp_name","stock_code",
  *            "corp_cls","report_nm","rcept_no","flr_nm","rcept_dt","rm"}, ...]}
  *     (ipo.DartClient와 동일 응답 스키마 — status/list 필드 구조는 list.json 공통.)
@@ -69,6 +70,8 @@ public class MajorDisclosureDartClient {
 
     private static final String STATUS_OK = "000";
     private static final String STATUS_NO_DATA = "013";
+    /** list.json 쪽 상한 — 7일 조회가 2쪽이었다(10/13 실측). 넘으면 끝까지 읽지 못한 것으로 본다. */
+    static final int MAX_LIST_PAGES = 30;
 
     private final WebClient webClient;
     private final DisclosureBlacklistProperties properties;
@@ -106,23 +109,61 @@ public class MajorDisclosureDartClient {
     }
 
     /**
-     * 최근 [since, until] 기간의 주요사항보고서 중 유상증자·CB·BW·EB 발행 결정 공시를 조회한다.
-     * 실패 시 빈 리스트(예외를 던지지 않는다).
+     * 최근 [since, until] 기간의 주요사항보고서 중 유상증자·CB·BW·EB 발행 결정 공시를 <b>모든 쪽</b>에서 모은다
+     * (예외를 던지지 않는다).
+     *
+     * <p>2026-10-13(10/7 로그 점검 L-5 후속): 예전에는 첫 쪽(최근 100건)만 읽고, 실패해도 빈 목록을 돌려줘 배치가 "오늘 수집 완료"로
+     * 기록했다. 실측 10/13: 10/6~10/13 주요사항보고서 195건 2쪽, 그중 발행 결정류 100건이 첫 쪽에 55건뿐이었다 — 매일 돌면 대개
+     * 따라잡지만, 앱이 며칠 꺼졌거나 공시가 몰린 날은 매수 금지 등록을 놓친다. 이제 {@code total_page}까지 넘기고
+     * ({@value #MAX_LIST_PAGES}쪽 상한), 한 쪽이라도 실패하면 {@link IssuanceDecisions#complete()}가 false다.
      */
-    public List<MajorDisclosureNotice> fetchRecentIssuanceDecisions(LocalDate since, LocalDate until) {
+    public IssuanceDecisions fetchRecentIssuanceDecisions(LocalDate since, LocalDate until) {
+        List<MajorDisclosureNotice> notices = new ArrayList<>();
+        int totalPages = 1;
+        int pagesRead = 0;
         try {
-            return parseList(callList(since, until));
+            for (int page = 1; page <= Math.min(totalPages, MAX_LIST_PAGES); page++) {
+                Map<String, Object> response = callList(since, until, page);
+                String status = response == null ? null : String.valueOf(response.get("status"));
+                if (STATUS_NO_DATA.equals(status)) {
+                    return new IssuanceDecisions(notices, true, pagesRead, page == 1 ? 0 : totalPages); // 정상 — 공시 없음/끝
+                }
+                if (!STATUS_OK.equals(status)) {
+                    log.warn("DART list.json(주요사항) 비정상 응답({}쪽): status={}, message={} — 받은 {}쪽까지만 처리, 다음 점검에서 다시",
+                            page, status, response == null ? "(빈 응답)" : response.get("message"), pagesRead);
+                    return new IssuanceDecisions(notices, false, pagesRead, totalPages);
+                }
+                totalPages = Math.max(1, intOrDefault(response.get("total_page"), 1));
+                notices.addAll(parseList(response));
+                pagesRead++;
+            }
         } catch (RuntimeException e) {
             // 예외 메시지에 crtfc_key가 담긴 전체 URL이 그대로 들어있을 수 있어 마스킹 후 로그
             // (ipo.DartClient와 동일한 이유 — SecretMasking 참고).
-            log.error("DART list.json(주요사항) 조회 실패(since={}, until={})", since, until,
-                    SecretMasking.sanitizeForLogging(e));
-            return List.of();
+            log.error("DART list.json(주요사항) 조회 실패({}쪽째, since={}, until={}) — 받은 {}쪽까지만 처리, 다음 점검에서 다시",
+                    pagesRead + 1, since, until, pagesRead, SecretMasking.sanitizeForLogging(e));
+            return new IssuanceDecisions(notices, false, pagesRead, totalPages);
+        }
+        if (totalPages > MAX_LIST_PAGES) {
+            log.warn("DART list.json(주요사항) {}쪽 중 {}쪽 상한까지만 읽음 — 조회 기간을 줄여야 한다", totalPages, MAX_LIST_PAGES);
+            return new IssuanceDecisions(notices, false, pagesRead, totalPages);
+        }
+        return new IssuanceDecisions(notices, true, pagesRead, totalPages);
+    }
+
+    private static int intOrDefault(Object raw, int fallback) {
+        if (raw instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return raw == null ? fallback : Integer.parseInt(String.valueOf(raw).trim());
+        } catch (NumberFormatException e) {
+            return fallback;
         }
     }
 
-    /** 실제 HTTP 호출 지점 — 테스트에서 오버라이드 가능(ipo.DartClient 관례). */
-    protected Map<String, Object> callList(LocalDate since, LocalDate until) {
+    /** 실제 HTTP 호출 지점 — 테스트에서 오버라이드 가능(ipo.DartClient 관례). 주요사항보고서 한 쪽(최대 100건). */
+    protected Map<String, Object> callList(LocalDate since, LocalDate until, int pageNo) {
         return webClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/list.json")
@@ -130,6 +171,7 @@ public class MajorDisclosureDartClient {
                         .queryParam("pblntf_ty", PBLNTF_TY_MAJOR_REPORT)
                         .queryParam("bgn_de", since.format(DART_DATE))
                         .queryParam("end_de", until.format(DART_DATE))
+                        .queryParam("page_no", pageNo)
                         .queryParam("page_count", 100)
                         .build())
                 .retrieve()
@@ -184,6 +226,23 @@ public class MajorDisclosureDartClient {
         }
         String s = String.valueOf(o).trim();
         return s.isEmpty() ? null : s;
+    }
+
+    /**
+     * 기간 안의 발행 결정 공시와 목록을 끝까지 읽었는지.
+     *
+     * @param complete 모든 쪽을 읽었는가 — false면 배치가 그날 수집을 성공으로 기록하지 않는다
+     */
+    public record IssuanceDecisions(List<MajorDisclosureNotice> notices, boolean complete, int pagesRead, int totalPages) {
+
+        public IssuanceDecisions {
+            notices = notices == null ? List.of() : List.copyOf(notices);
+        }
+
+        /** 테스트·호출부용 — 끝까지 읽은 한 쪽 결과. */
+        public static IssuanceDecisions complete(List<MajorDisclosureNotice> notices) {
+            return new IssuanceDecisions(notices, true, 1, 1);
+        }
     }
 
     /** list.json 조회 결과 1건 — 유상증자/CB/BW/EB 발행 결정 공시. */

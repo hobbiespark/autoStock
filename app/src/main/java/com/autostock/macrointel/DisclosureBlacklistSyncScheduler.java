@@ -58,7 +58,7 @@ public class DisclosureBlacklistSyncScheduler {
         syncNow();
     }
 
-    /** 마지막으로 DART 조회까지 끝낸 날(KST) — 따라잡기 판단 기준. */
+    /** 마지막으로 DART 목록을 끝까지 읽은 날(KST) — 따라잡기 판단 기준(2026-10-13부터 일부만 읽은 날은 넣지 않는다). */
     private volatile LocalDate lastSuccessDate;
 
     // ── 따라잡기(catch-up) — 2026-09-18 운영 교훈 ─────────────────────────────────────
@@ -102,9 +102,8 @@ public class DisclosureBlacklistSyncScheduler {
         LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
         LocalDate since = today.minusDays(properties.lookbackDays());
 
-        List<MajorDisclosureDartClient.MajorDisclosureNotice> notices =
-                dartClient.fetchRecentIssuanceDecisions(since, today);
-        lastSuccessDate = today;
+        MajorDisclosureDartClient.IssuanceDecisions decisions = dartClient.fetchRecentIssuanceDecisions(since, today);
+        List<MajorDisclosureDartClient.MajorDisclosureNotice> notices = decisions.notices();
         int published = 0;
         for (MajorDisclosureDartClient.MajorDisclosureNotice notice : notices) {
             try {
@@ -118,7 +117,15 @@ public class DisclosureBlacklistSyncScheduler {
         }
         // 건별 로그는 DEBUG — 조회 창(lookback) 안의 공시를 매번 전부 다시 발행하므로 INFO로 남기면 같은
         // 29줄이 수집마다 반복된다(2026-09-30 로그). 실제 신규 등록은 risk가 판단해 "매수 금지 등록" 알림으로 남긴다.
-        log.info("공시 블랙리스트 수집 완료 — {}~{} 주요사항 {}건 중 상장사 {}건 발행", since, today, notices.size(), published);
+        if (decisions.complete()) {
+            // 목록을 끝까지 읽은 날만 성공으로 기록한다 — 실패·일부만 읽음이면 매시 점검이 다시 수집한다(10/7 로그 점검 L-5, 2026-10-13)
+            lastSuccessDate = today;
+            log.info("공시 블랙리스트 수집 완료 — {}~{} 주요사항 {}건 중 상장사 {}건 발행(목록 {}/{}쪽)", since, today,
+                    notices.size(), published, decisions.pagesRead(), decisions.totalPages());
+        } else {
+            log.warn("공시 블랙리스트 수집 미완료 — {}~{} 목록 {}/{}쪽만 읽음, 받은 주요사항 {}건 중 상장사 {}건 발행. 다음 시간별 점검에서 다시",
+                    since, today, decisions.pagesRead(), decisions.totalPages(), notices.size(), published);
+        }
     }
 
     /** @return 이벤트를 발행했으면 true(상장사), 종목코드가 없어 건너뛰었으면 false */

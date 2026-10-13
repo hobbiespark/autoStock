@@ -50,7 +50,7 @@ class DisclosureBlacklistSyncSchedulerTest {
                 "20260910000580", "00132868", "우성머티리얼스", "011300",
                 DisclosureType.PAID_IN_CAPITAL_INCREASE, "주요사항보고서(유상증자결정)",
                 LocalDate.of(2026, 9, 10));
-        when(dartClient.fetchRecentIssuanceDecisions(any(), any())).thenReturn(List.of(notice));
+        when(dartClient.fetchRecentIssuanceDecisions(any(), any())).thenReturn(MajorDisclosureDartClient.IssuanceDecisions.complete(List.of(notice)));
 
         scheduler.syncNow();
 
@@ -70,7 +70,7 @@ class DisclosureBlacklistSyncSchedulerTest {
                 "20260910000581", "00000001", "비상장회사", null,
                 DisclosureType.CONVERTIBLE_BOND, "주요사항보고서(전환사채권발행결정)",
                 LocalDate.of(2026, 9, 10));
-        when(dartClient.fetchRecentIssuanceDecisions(any(), any())).thenReturn(List.of(notice));
+        when(dartClient.fetchRecentIssuanceDecisions(any(), any())).thenReturn(MajorDisclosureDartClient.IssuanceDecisions.complete(List.of(notice)));
 
         scheduler.syncNow();
 
@@ -83,12 +83,26 @@ class DisclosureBlacklistSyncSchedulerTest {
                 "r1", "c1", "실패건", "000001", DisclosureType.CONVERTIBLE_BOND, "x", null);
         var good = new MajorDisclosureDartClient.MajorDisclosureNotice(
                 "r2", "c2", "정상건", "000002", DisclosureType.CONVERTIBLE_BOND, "x", LocalDate.of(2026, 9, 10));
-        when(dartClient.fetchRecentIssuanceDecisions(any(), any())).thenReturn(List.of(bad, good));
+        when(dartClient.fetchRecentIssuanceDecisions(any(), any())).thenReturn(MajorDisclosureDartClient.IssuanceDecisions.complete(List.of(bad, good)));
 
         scheduler.syncNow();
 
         var captor = org.mockito.ArgumentCaptor.forClass(DisclosureRisk.class);
         verify(publisher).publishEvent(captor.capture());
         assertEquals("정상건", captor.getValue().corpName());
+    }
+
+    @Test
+    void 목록을_끝까지_읽지_못한_날은_성공으로_치지_않아_매시_점검이_다시_수집한다() {
+        // 10/7 로그 점검 L-5: 자정 따라잡기에서 조회가 실패해도 "수집 완료"로 기록돼 그날 다시 하지 않았다
+        when(dartClient.fetchRecentIssuanceDecisions(any(), any()))
+                .thenReturn(new MajorDisclosureDartClient.IssuanceDecisions(List.of(), false, 1, 2))
+                .thenReturn(MajorDisclosureDartClient.IssuanceDecisions.complete(List.of()));
+
+        scheduler.catchUp("기동");
+        scheduler.catchUp("시간별 점검");   // 미완료라 다시
+        scheduler.catchUp("시간별 점검");   // 이제 완료라 하지 않는다
+
+        verify(dartClient, org.mockito.Mockito.times(2)).fetchRecentIssuanceDecisions(any(), any());
     }
 }

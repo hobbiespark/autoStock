@@ -110,4 +110,24 @@ class MacroSyncSchedulerTest {
         assertEquals(1, published.size());
         assertEquals(MacroSyncScheduler.INDICATOR_DXY, ((MacroIndicator) published.get(0)).indicatorId());
     }
+
+    @Test
+    void 따라잡기는_오늘_못_받은_지표만_다시_받는다() {
+        // 10/7 로그 점검 L-5: 네 지표 중 하나만 받아도 그날 성공으로 적어 실패한 지표를 다시 받지 않았다(10/12 07:14 ECOS 실패 실측)
+        when(fredClient.fetchLatest(any()))
+                .thenReturn(Optional.of(new FredClient.Observation(java.time.LocalDate.now(), new BigDecimal("15.4"))));
+        when(ecosClient.fetchLatest(any()))
+                .thenThrow(new RuntimeException("ECOS 일시 실패"))
+                .thenThrow(new RuntimeException("ECOS 일시 실패"))
+                .thenReturn(Optional.of(new EcosClient.Observation(java.time.LocalDate.now(), new BigDecimal("1338"))));
+        MacroSyncScheduler scheduler = schedulerWithEnabled(true);
+
+        scheduler.catchUp("기동");            // FRED 2 성공, ECOS 2 실패
+        scheduler.catchUp("시간별 점검");     // ECOS 2만 다시
+        scheduler.catchUp("시간별 점검");     // 다 받았으니 아무것도 하지 않는다
+
+        assertEquals(4, published.size());
+        org.mockito.Mockito.verify(fredClient, org.mockito.Mockito.times(2)).fetchLatest(any());
+        org.mockito.Mockito.verify(ecosClient, org.mockito.Mockito.times(4)).fetchLatest(any());
+    }
 }

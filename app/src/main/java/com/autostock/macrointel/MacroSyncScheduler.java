@@ -14,6 +14,10 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 거시 지표 수집 배치 — 매 평일 08:30 KST(정규장 09:00 시작 전) FRED/ECOS에서 VIX·달러인덱스·
@@ -57,8 +61,11 @@ public class MacroSyncScheduler {
         this.publisher = publisher;
     }
 
-    /** 마지막으로 지표를 1건 이상 발행한 날(KST) — 따라잡기 판단 기준. */
-    private volatile LocalDate lastSuccessDate;
+    /**
+     * 지표마다 오늘(KST) 받은 날 — 따라잡기는 못 받은 지표만 다시 받는다(10/7 로그 점검 L-5, 2026-10-13). 예전에는 네 지표 중
+     * 하나라도 받으면 그날 성공으로 적어, ECOS만 실패한 날(10/12 07:14 실측)도 다시 받지 않았다.
+     */
+    private final Map<String, LocalDate> collectedOn = new ConcurrentHashMap<>();
 
     /** 매 평일 08:30 KST 1회 실행 — 장 시작 전 거시 지표 수집. */
     @Scheduled(cron = "0 30 8 * * MON-FRI", zone = "Asia/Seoul")
@@ -71,6 +78,7 @@ public class MacroSyncScheduler {
     // 실패하면 다음 날까지 복구 기회가 없다. 그래서 ① 기동 직후 1회, ② 매시 05분에 "오늘 성공 기록이
     // 없으면" 다시 시도한다. 성공한 날은 시간별 점검이 아무 일도 하지 않으므로 외부 API 부하는 하루 1회 그대로다.
     // 키가 비어 있으면(CI 등) 시도 자체를 건너뛴다 — 외부 호출로 테스트가 느려지거나 실패하는 일을 막는다.
+    // 2026-10-13: 성공 기록을 지표마다 둔다 — 따라잡기는 그날 못 받은 지표만, 키가 있는 소스만 다시 받는다.
 
     @EventListener(ApplicationReadyEvent.class)
     public void catchUpOnStartup() {
@@ -86,16 +94,28 @@ public class MacroSyncScheduler {
         if (!properties.enabled()) {
             return;
         }
-        if (isBlank(properties.fredApiKey()) && isBlank(properties.ecosApiKey())) {
+        boolean fred = !isBlank(properties.fredApiKey());
+        boolean ecos = !isBlank(properties.ecosApiKey());
+        if (!fred && !ecos) {
             log.info("macro-intel 따라잡기({}) 스킵 — API 키 없음", reason);
             return;
         }
         LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
-        if (today.equals(lastSuccessDate)) {
+        List<String> missing = new ArrayList<>();
+        if (fred) {
+            missing.add(INDICATOR_VIX);
+            missing.add(INDICATOR_DXY);
+        }
+        if (ecos) {
+            missing.add(INDICATOR_USDKRW);
+            missing.add(INDICATOR_BASE_RATE);
+        }
+        missing.removeIf(id -> today.equals(collectedOn.get(id)));
+        if (missing.isEmpty()) {
             return;
         }
-        log.info("macro-intel 따라잡기({}) — 오늘 수집 기록 없음, 지금 수집", reason);
-        syncNow();
+        log.info("macro-intel 따라잡기({}) — 오늘 못 받은 지표 {}, 지금 수집", reason, missing);
+        missing.forEach(this::collect);
     }
 
     private static boolean isBlank(String s) {
@@ -116,13 +136,20 @@ public class MacroSyncScheduler {
             log.info("macro-intel 수집 비활성(macrointel.enabled=false) — 이번 배치 스킵");
             return;
         }
-        boolean any = false;
-        any |= collectFred(INDICATOR_VIX, FredClient.SERIES_VIX);
-        any |= collectFred(INDICATOR_DXY, FredClient.SERIES_DXY);
-        any |= collectEcos(INDICATOR_USDKRW, EcosClient.STAT_CODE_USDKRW);
-        any |= collectEcos(INDICATOR_BASE_RATE, EcosClient.STAT_CODE_BASE_RATE);
-        if (any) {
-            lastSuccessDate = LocalDate.now(clock.withZone(MarketConstants.KST));
+        List.of(INDICATOR_VIX, INDICATOR_DXY, INDICATOR_USDKRW, INDICATOR_BASE_RATE).forEach(this::collect);
+    }
+
+    /** 지표 하나를 받아 발행하고, 받았으면 오늘 받은 것으로 적는다. */
+    private void collect(String indicatorId) {
+        boolean ok = switch (indicatorId) {
+            case INDICATOR_VIX -> collectFred(INDICATOR_VIX, FredClient.SERIES_VIX);
+            case INDICATOR_DXY -> collectFred(INDICATOR_DXY, FredClient.SERIES_DXY);
+            case INDICATOR_USDKRW -> collectEcos(INDICATOR_USDKRW, EcosClient.STAT_CODE_USDKRW);
+            case INDICATOR_BASE_RATE -> collectEcos(INDICATOR_BASE_RATE, EcosClient.STAT_CODE_BASE_RATE);
+            default -> throw new IllegalArgumentException("모르는 지표: " + indicatorId);
+        };
+        if (ok) {
+            collectedOn.put(indicatorId, LocalDate.now(clock.withZone(MarketConstants.KST)));
         }
     }
 

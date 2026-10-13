@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -27,7 +28,7 @@ class MajorDisclosureDartClientTest {
         TestableClient client = new TestableClient(parsed);
 
         List<MajorDisclosureDartClient.MajorDisclosureNotice> notices =
-                client.fetchRecentIssuanceDecisions(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 11));
+                client.fetchRecentIssuanceDecisions(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 11)).notices();
 
         assertEquals(5, notices.size());
         assertTrue(notices.stream().anyMatch(n -> n.type() == DisclosureType.PAID_IN_CAPITAL_INCREASE
@@ -44,7 +45,7 @@ class MajorDisclosureDartClientTest {
         TestableClient client = new TestableClient(parsed);
 
         List<MajorDisclosureDartClient.MajorDisclosureNotice> notices =
-                client.fetchRecentIssuanceDecisions(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 11));
+                client.fetchRecentIssuanceDecisions(LocalDate.of(2026, 8, 1), LocalDate.of(2026, 9, 11)).notices();
 
         MajorDisclosureDartClient.MajorDisclosureNotice logismon = notices.stream()
                 .filter(n -> "로지스몬".equals(n.corpName())).findFirst().orElseThrow();
@@ -58,14 +59,53 @@ class MajorDisclosureDartClientTest {
         Map<String, Object> parsed = Map.of("status", "013", "message", "조회된 데이타가 없습니다.");
         TestableClient client = new TestableClient(parsed);
 
-        List<MajorDisclosureDartClient.MajorDisclosureNotice> notices =
+        MajorDisclosureDartClient.IssuanceDecisions decisions =
                 client.fetchRecentIssuanceDecisions(LocalDate.of(2026, 9, 1), LocalDate.of(2026, 9, 11));
 
-        assertTrue(notices.isEmpty());
+        assertTrue(decisions.notices().isEmpty());
+        assertTrue(decisions.complete(), "공시가 없는 기간은 정상 — 끝까지 읽은 것이다");
+    }
+
+    // ── 2026-10-13: 모든 쪽 읽기·실패 알림(10/7 로그 점검 L-5 후속) ──────────────────────
+
+    private static Map<String, Object> page(int totalPage, String rceptNo, String reportName) throws Exception {
+        return JSON.readValue(("{\"status\":\"000\",\"message\":\"정상\",\"total_page\":%d,\"list\":[{\"corp_code\":\"00000001\","
+                + "\"corp_name\":\"테스트\",\"stock_code\":\"123450\",\"report_nm\":\"%s\",\"rcept_no\":\"%s\","
+                + "\"rcept_dt\":\"%s\"}]}").formatted(totalPage, reportName, rceptNo, rceptNo.substring(0, 8)), Map.class);
+    }
+
+    @Test
+    void 모든_쪽을_읽어_발행_결정을_모은다() throws Exception {
+        TestableClient client = new TestableClient(null);
+        client.pages.add(page(2, "20261013000514", "주요사항보고서(유상증자결정)"));
+        client.pages.add(page(2, "20261008000300", "주요사항보고서(전환사채권발행결정)"));
+
+        MajorDisclosureDartClient.IssuanceDecisions decisions =
+                client.fetchRecentIssuanceDecisions(LocalDate.of(2026, 10, 6), LocalDate.of(2026, 10, 13));
+
+        assertTrue(decisions.complete());
+        assertEquals(2, decisions.pagesRead());
+        assertEquals(List.of(DisclosureType.PAID_IN_CAPITAL_INCREASE, DisclosureType.CONVERTIBLE_BOND),
+                decisions.notices().stream().map(MajorDisclosureDartClient.MajorDisclosureNotice::type).toList());
+    }
+
+    @Test
+    void 뒤쪽에서_실패하면_받은_쪽은_돌려주고_끝까지_읽지_못했다고_알린다() throws Exception {
+        TestableClient client = new TestableClient(null);
+        client.pages.add(page(2, "20261013000514", "주요사항보고서(유상증자결정)"));
+        client.pages.add(new IllegalStateException("connection reset"));
+
+        MajorDisclosureDartClient.IssuanceDecisions decisions =
+                client.fetchRecentIssuanceDecisions(LocalDate.of(2026, 10, 6), LocalDate.of(2026, 10, 13));
+
+        assertFalse(decisions.complete());
+        assertEquals(1, decisions.notices().size());
     }
 
     private static class TestableClient extends MajorDisclosureDartClient {
         private final Map<String, Object> response;
+        /** 쪽별 응답(Map, 또는 던질 RuntimeException) — 비어 있으면 모든 쪽에 response. */
+        final List<Object> pages = new java.util.ArrayList<>();
 
         TestableClient(Map<String, Object> response) {
             super(WebClient.builder(), ClientHttpConnectorSettings.defaults(),
@@ -74,8 +114,16 @@ class MajorDisclosureDartClientTest {
         }
 
         @Override
-        protected Map<String, Object> callList(LocalDate since, LocalDate until) {
-            return response;
+        @SuppressWarnings("unchecked")
+        protected Map<String, Object> callList(LocalDate since, LocalDate until, int pageNo) {
+            if (pages.isEmpty()) {
+                return response;
+            }
+            Object page = pages.get(pageNo - 1);
+            if (page instanceof RuntimeException e) {
+                throw e;
+            }
+            return (Map<String, Object>) page;
         }
     }
 
