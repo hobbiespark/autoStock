@@ -91,6 +91,20 @@ public class MarketSessionService {
         return current() == MarketSession.ACTIVE;
     }
 
+    /**
+     * 장 시작 직전 준비 구간인가 — 오늘이 거래일이고 지금(KST)이 {@code from} 이후·대기 해제(wake-time) 전.
+     * 장전 실측과 절전 방지가 쓴다(2026-10-08 — 밤사이 절전된 PC가 08:30 전에 다시 잠들지 않게).
+     * {@code autostock.session.enabled=false}(항상 ACTIVE)면 준비 구간은 없다.
+     */
+    public boolean isPreOpen(LocalTime from) {
+        if (!enabled || from == null) {
+            return false;
+        }
+        ZonedDateTime now = ZonedDateTime.now(clock).withZoneSameInstant(MarketConstants.KST);
+        LocalTime time = now.toLocalTime();
+        return !time.isBefore(from) && time.isBefore(wakeTime) && calendar.isTradingDay(now.toLocalDate());
+    }
+
     /** 대기 해제 시각(KST) — 로그 안내용. */
     public LocalTime wakeTime() {
         return wakeTime;

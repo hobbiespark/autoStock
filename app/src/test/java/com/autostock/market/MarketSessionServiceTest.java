@@ -94,4 +94,19 @@ class MarketSessionServiceTest {
         assertThrows(IllegalArgumentException.class,
                 () -> new MarketSessionService(calendar, clock, true, "16:00", "08:30"));
     }
+
+    @Test
+    void 장전_준비_구간은_거래일의_from_이후_장대응_시작_전이다() {
+        LocalTime from = LocalTime.of(7, 30);
+        assertEquals(true, serviceAt(WED.atTime(7, 30)).isPreOpen(from));               // 경계 포함
+        assertEquals(true, serviceAt(WED.atTime(8, 29, 59)).isPreOpen(from));
+        assertEquals(false, serviceAt(WED.atTime(7, 29, 59)).isPreOpen(from));
+        assertEquals(false, serviceAt(WED.atTime(8, 30)).isPreOpen(from));              // ACTIVE부터는 아니다
+        assertEquals(false, serviceAt(HOLIDAY.atTime(8, 0)).isPreOpen(from));           // 휴장일
+        assertEquals(false, serviceAt(LocalDate.of(2026, 10, 3).atTime(8, 0)).isPreOpen(from));   // 토요일
+        assertEquals(false, serviceAt(WED.atTime(8, 0)).isPreOpen(null));
+        Clock clock = Clock.fixed(WED.atTime(8, 0).atZone(KST).toInstant(), ZoneId.of("UTC"));
+        assertEquals(false, new MarketSessionService(calendar, clock, false, LocalTime.of(8, 30), LocalTime.of(16, 0))
+                .isPreOpen(from));                                                         // 세션 끔 = 항상 ACTIVE
+    }
 }
