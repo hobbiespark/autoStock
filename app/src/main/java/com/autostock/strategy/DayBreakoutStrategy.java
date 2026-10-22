@@ -47,6 +47,10 @@ public class DayBreakoutStrategy {
     static final String STRATEGY_ID = "VB-DAY";
     private static final String HORIZON = "DAY";
     private static final long EXIT_RETRY_MILLIS = 60_000;
+    /** 넘어온 보유 아침 매도가 이 시각 뒤에 돌면(절전 복귀로 늦게 깨어남) 그날은 건너뛴다 — 연속매매 끝(2026-10-21). */
+    static final LocalTime LATE_SELL_DEADLINE = LocalTime.of(15, 20);
+    /** 시간 청산이 이 시각 뒤에 돌면 건너뛴다 — 종가 단일가(15:20~15:30)까지는 낸다. 남은 보유는 다음 거래일 09:00:02. */
+    static final LocalTime CLOSE_AUCTION_DEADLINE = LocalTime.of(15, 29);
     private static final long ACTIVE_RECHECK_MILLIS = 30_000;
 
     private final DayBreakoutProperties properties;
@@ -97,7 +101,7 @@ public class DayBreakoutStrategy {
     /** 08:50 장전 준비. */
     @Scheduled(cron = "0 50 8 * * MON-FRI", zone = "Asia/Seoul")
     public void prepare() {
-        if (!guard.active(properties.enabled())) {
+        if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 08:50 준비", properties.exitAt())) {
             return;
         }
         String line = prepareToday();
@@ -180,7 +184,7 @@ public class DayBreakoutStrategy {
     /** 09:00:02 — 지난 거래일 시간 청산이 실패해 남은 보유를 판다(오늘 진입은 시가 확인 뒤라 아직 없다). */
     @Scheduled(cron = "2 0 9 * * MON-FRI", zone = "Asia/Seoul")
     public void sellCarriedOver() {
-        if (!guard.active(properties.enabled())) {
+        if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 09:00 넘어온 보유 매도", LATE_SELL_DEADLINE)) {
             return;
         }
         Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);
@@ -286,7 +290,7 @@ public class DayBreakoutStrategy {
     /** 15:15 시간 청산. */
     @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")
     public void timeExit() {
-        if (!guard.active(properties.enabled())) {
+        if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 시간 청산", CLOSE_AUCTION_DEADLINE)) {
             return;
         }
         Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);
@@ -302,7 +306,7 @@ public class DayBreakoutStrategy {
     /** 15:18 — 시간 청산이 아직 체결되지 않은 보유를 한 번 더(미체결 매도가 남아 있으면 RiskGate가 막는다). */
     @Scheduled(cron = "0 18 15 * * MON-FRI", zone = "Asia/Seoul")
     public void timeExitRetry() {
-        if (!guard.active(properties.enabled())) {
+        if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 시간 청산 재시도", CLOSE_AUCTION_DEADLINE)) {
             return;
         }
         Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);

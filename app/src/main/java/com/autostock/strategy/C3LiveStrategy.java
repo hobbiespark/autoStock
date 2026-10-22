@@ -28,6 +28,8 @@ import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.ZonedDateTime;
 import java.util.Arrays;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -35,6 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
 /**
@@ -160,11 +163,85 @@ public class C3LiveStrategy {
         this.tradingSystemManager = tradingSystemManager;
     }
 
+    /** 정해진 판단 시각 — 09:05 예약과 장중 따라잡기의 시작(2026-10-21). */
+    static final LocalTime RUN_AT = LocalTime.of(9, 5);
+    /**
+     * 판단 마감(2026-10-21, aiDoc/upgrade-2026-10/20-log-review-2026-10-21.md) — 09:05 예약이 절전 복귀로 이 시각 뒤에
+     * 돌거나(밤에 깨어난 PC) 장중 따라잡기가 이 시각을 넘기면 그날은 판단하지 않는다.
+     */
+    static final LocalTime JUDGE_DEADLINE = LocalTime.of(15, 0);
+    /** 장중 따라잡기 하루 시도 상한 — 조회 실패가 이어져도 1분마다 오류를 쌓지 않게. */
+    static final int CATCH_UP_MAX_ATTEMPTS = 3;
+
+    /** 국면 판정까지 간 날 — 따라잡기가 같은 날 다시 돌지 않게(재기동하면 비어 있다 — 판단 주기 저장으로 재판단은 막힌다). */
+    private volatile LocalDate ranDay;
+    private volatile LocalDate catchUpDay;
+    private volatile int catchUpAttempts;
+    /** 09:05 예약과 장중 따라잡기가 겹쳐 같은 날 두 번 판단하지 않게(블로킹 조회가 있어 synchronized 대신). */
+    private final ReentrantLock runLock = new ReentrantLock();
+
     /** 매 평일 09:05 KST(정규장 09:00 개장 직후) 1회 실행 — 클래스 설명 "왜 스케줄 기반인가" 참고. */
     @Scheduled(cron = "0 5 9 * * MON-FRI", zone = "Asia/Seoul")
     public void run() {
+        LocalTime now = LocalTime.now(clock.withZone(MarketConstants.KST));
+        if (!now.isBefore(JUDGE_DEADLINE)) {
+            // 10/20 12:16·10/19 10:17처럼 장중에 늦게 돈 것은 판단한다(지금 호가로 낸다). 장 마감 뒤(10/20 21:50 등)는 하지 않는다
+            log.info("C3: 09:05 판단 예약이 {}에 늦게 실행됨(절전 복귀 등) — {} 이후라 오늘은 판단하지 않는다",
+                    now.withNano(0), JUDGE_DEADLINE);
+            return;
+        }
+        runOnce(false);
+    }
+
+    /**
+     * 장중 기동 따라잡기(2026-10-21) — 09:05 뒤에 켜졌고(10/21 09:11 재기동 실측: 그날 C3가 돌지 않았다) 오늘 아직 국면 판정을
+     * 하지 않았으면 판단한다. 15:00까지, 하루 {@link #CATCH_UP_MAX_ATTEMPTS}번까지. 판단 주기(21거래일)는 저장된 마지막
+     * 판단일로 세므로 하루 두 번 돌아도 주기 전 종목은 다시 판단하지 않는다.
+     */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
+    public void catchUp() {
+        if (!properties.enabled()) {
+            return;
+        }
+        ZonedDateTime now = ZonedDateTime.now(clock.withZone(MarketConstants.KST));
+        LocalDate today = now.toLocalDate();
+        LocalTime time = now.toLocalTime();
+        if (time.isBefore(RUN_AT) || !time.isBefore(JUDGE_DEADLINE) || today.equals(ranDay)) {
+            return;
+        }
+        if (tradingSystemManager.status() != TradingSystemStatus.RUNNING || !marketCalendarService.isTradingDay(today)) {
+            return;
+        }
+        if (!today.equals(catchUpDay)) {
+            catchUpDay = today;
+            catchUpAttempts = 0;
+        }
+        if (catchUpAttempts >= CATCH_UP_MAX_ATTEMPTS) {
+            return;
+        }
+        catchUpAttempts++;
+        log.info("C3: 오늘 09:05 판단 기록 없음(장중 기동 등) — 지금 판단한다({}/{}번째)", catchUpAttempts,
+                CATCH_UP_MAX_ATTEMPTS);
+        runOnce(true);
+    }
+
+    /** 한 번 판단하고 요약을 남긴다. 따라잡기면 잠금 안에서 오늘 이미 판정했는지 다시 본다. */
+    private void runOnce(boolean catchUp) {
+        runLock.lock();
+        try {
+            if (catchUp && LocalDate.now(clock.withZone(MarketConstants.KST)).equals(ranDay)) {
+                return;
+            }
+            runAndReport();
+        } finally {
+            runLock.unlock();
+        }
+    }
+
+    private void runAndReport() {
         RunSummary summary = execute();
         if (summary != null) {
+            ranDay = summary.date();
             // 판단 결과는 signal_decisions(DB)에만 남는다 — 실행 여부와 결과를 로그로도 확인할 수 있게
             // 요약 1줄을 남긴다(2026-10-01 로그 점검 F-2, aiDoc/run-summary-logs.md).
             String line = summary.toLogLine();

@@ -739,4 +739,69 @@ class C3LiveStrategyTest {
         assertEquals(1, onlySignals(published).size());
         assertEquals(1, strategy.execute().count(C3LiveStrategy.Outcome.NOT_DUE), "메모리에는 남아 같은 날 다시 사지 않는다");
     }
+
+    // ── 장중 기동 따라잡기·늦게 깨어난 09:05 예약(2026-10-21, aiDoc/upgrade-2026-10/20-log-review-2026-10-21.md) ──
+
+    private static Clock kstAt(int month, int day, int hour, int minute) {
+        return Clock.fixed(LocalDate.of(2026, month, day).atTime(hour, minute)
+                .atZone(java.time.ZoneId.of("Asia/Seoul")).toInstant(), ZoneOffset.UTC);
+    }
+
+    private C3LiveStrategy downtrendStrategy(String symbol, Clock clock, List<Object> published) {
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put(symbol, downtrendSymbolCandles(symbol));
+        return new C3LiveStrategy(properties(true, List.of(symbol), 5), chart, marketData, new PositionBook(),
+                published::add, marketCalendarService, runningManager(), clock, stateStore);
+    }
+
+    private static long runs(List<Object> published) {
+        return published.stream().filter(StrategyRunCompleted.class::isInstance).count();
+    }
+
+    @Test
+    void 장중에_켜져_09시5분을_놓쳤으면_따라잡아_한_번만_판단한다() {
+        // 10/21 09:11 재기동 실측 — 그날 C3가 돌지 않았다
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = downtrendStrategy("035720", kstAt(10, 1, 9, 12), published);
+
+        strategy.catchUp();
+        strategy.catchUp();
+
+        assertEquals(1, runs(published));
+        assertEquals(LocalDate.of(2026, 10, 1), stateStore.saved.get("035720"));
+    }
+
+    @Test
+    void 이미_09시5분에_판단했으면_따라잡지_않는다() {
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = downtrendStrategy("035720", OCT_1_0905, published);
+
+        strategy.run();
+        strategy.catchUp();
+
+        assertEquals(1, runs(published));
+    }
+
+    @Test
+    void 따라잡기는_09시5분부터_15시_전까지만() {
+        List<Object> early = new ArrayList<>();
+        downtrendStrategy("035720", kstAt(10, 1, 8, 50), early).catchUp();
+        List<Object> late = new ArrayList<>();
+        downtrendStrategy("035720", kstAt(10, 1, 15, 10), late).catchUp();
+
+        assertEquals(0, runs(early));
+        assertEquals(0, runs(late));
+        assertTrue(stateStore.saved.isEmpty());
+    }
+
+    @Test
+    void 절전_복귀로_밤에_늦게_돈_09시5분_예약은_판단하지_않는다() {
+        // 10/20 21:50 실측 — 밤에 깨어난 PC에서 09:05 예약이 돌았다
+        List<Object> published = new ArrayList<>();
+        downtrendStrategy("035720", kstAt(10, 1, 21, 50), published).run();
+
+        assertEquals(0, runs(published));
+        assertTrue(stateStore.saved.isEmpty());
+    }
 }

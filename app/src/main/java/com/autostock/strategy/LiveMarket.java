@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -100,6 +101,18 @@ public class LiveMarket {
 
     public LocalDate today() {
         return LocalDate.now(clock.withZone(MarketConstants.KST));
+    }
+
+    /** 미리 받기 마감(2026-10-21) — 절전 복귀로 08:45·09:00:05 예약이 이 시각 뒤에 돌면 받지 않는다(밤에 TR만 쓴다). */
+    static final LocalTime PREFETCH_DEADLINE = LocalTime.of(15, 0);
+
+    private boolean tooLate(String job) {
+        LocalTime now = LocalTime.now(clock.withZone(MarketConstants.KST));
+        if (now.isBefore(PREFETCH_DEADLINE)) {
+            return false;
+        }
+        log.info("{}: 예약 시각을 지나 {}에 실행됨(절전 복귀 등으로 늦게 깨어남) — 건너뜀", job, now.withNano(0));
+        return true;
     }
 
     /** 오늘 이전 완료된 일봉(오름차순). 하루 한 번 받아 둔다. 실패하면 빈 목록(다음 호출에서 다시). */
@@ -193,7 +206,7 @@ public class LiveMarket {
     /** 평일 08:45 — 등록된 종목의 완료된 일봉을 미리 받는다(09:00 판단이 기다리지 않게). */
     @Scheduled(cron = "0 45 8 * * MON-FRI", zone = "Asia/Seoul")
     public void prefetchBars() {
-        if (owners.isEmpty() || !calendar.isTradingDay(today())) {
+        if (owners.isEmpty() || !calendar.isTradingDay(today()) || tooLate("전략용 일봉 미리 받기(08:45)")) {
             return;
         }
         int ok = 0;
@@ -209,7 +222,7 @@ public class LiveMarket {
     /** 평일 09:00:05 — 등록된 종목의 오늘 시가를 차례로 받는다. */
     @Scheduled(cron = "5 0 9 * * MON-FRI", zone = "Asia/Seoul")
     public void prefetchOpens() {
-        if (owners.isEmpty() || !calendar.isTradingDay(today())) {
+        if (owners.isEmpty() || !calendar.isTradingDay(today()) || tooLate("전략용 시가 받기(09:00:05)")) {
             return;
         }
         int ok = 0;

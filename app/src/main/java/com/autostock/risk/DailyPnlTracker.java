@@ -11,6 +11,7 @@ import com.autostock.common.util.StockNames;
 import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -109,9 +110,22 @@ public class DailyPnlTracker {
     private LocalDate currentDay;
     private BigDecimal realizedPnlToday = BigDecimal.ZERO;
     private BigDecimal limitPnlToday = BigDecimal.ZERO;
+    /** 운용 자금(2026-10-21) — 켜져 있으면 한도 기준이 min(계좌 평가액, 운용 자금)과 오늘 최대 보유액 중 큰 값이다. */
+    private final TradingCapitalProperties capital;
+    /** 오늘 가장 많이 들고 있던 금액(기준가 × 수량 합) — 운용 자금이 켜져 있을 때 한도 기준의 하한. lock 안에서만 바꾼다. */
+    private BigDecimal peakHeldToday = BigDecimal.ZERO;
 
+    /** 운용 자금 없는 생성자 — 시험용(예전 동작). */
     public DailyPnlTracker(RiskProperties properties, EquitySource equitySource,
                            KillSwitch killSwitch, RiskStateStore store, Clock clock) {
+        this(properties, equitySource, killSwitch, store, clock, TradingCapitalProperties.none());
+    }
+
+    @Autowired
+    public DailyPnlTracker(RiskProperties properties, EquitySource equitySource,
+                           KillSwitch killSwitch, RiskStateStore store, Clock clock,
+                           TradingCapitalProperties capital) {
+        this.capital = capital == null ? TradingCapitalProperties.none() : capital;
         this.properties = properties;
         this.equitySource = equitySource;
         this.killSwitch = killSwitch;
@@ -171,6 +185,7 @@ public class DailyPnlTracker {
             log.info("DailyPnlTracker: 원가 장부 시드(브로커 잔고): {} {}주 @ {} · 일 손실 기준가 {}",
                     StockNames.label(restored.symbol()), restored.quantity(), restored.avgPrice(), mark);
         }
+        notePeakHeld();
     }
 
     /**
@@ -204,6 +219,7 @@ public class DailyPnlTracker {
                 }
             }
             log.info("DailyPnlTracker: {} 일 손실 기준가 갱신(전일 종가) — {}종목", currentDay, marked);
+            notePeakHeld();
         } finally {
             lock.unlock();
         }
@@ -230,6 +246,7 @@ public class DailyPnlTracker {
             return new Lot(newQty, weighted(current.avgPrice(), current.quantity(), price, qty, newQty),
                     weighted(current.mark(), current.quantity(), price, qty, newQty));
         });
+        notePeakHeld();
     }
 
     private static BigDecimal weighted(BigDecimal oldValue, long oldQty, BigDecimal price, long qty, long newQty) {
@@ -251,6 +268,7 @@ public class DailyPnlTracker {
             return;
         }
 
+        notePeakHeld();   // 줄이기 전 보유액 — 오늘 최대 보유액(운용 자금 한도 기준)에 넣는다
         long soldQty = fill.filledQuantity().value();
         long remaining = current.quantity() - soldQty;
         if (remaining <= 0) {
@@ -304,7 +322,46 @@ public class DailyPnlTracker {
             currentDay = now;
             realizedPnlToday = BigDecimal.ZERO;
             limitPnlToday = BigDecimal.ZERO;
+            peakHeldToday = heldAtMarks();   // 밤사이 들고 온 보유부터 센다
         }
+    }
+
+    /** 지금 들고 있는 금액(기준가 × 수량 합, 2026-10-21) — 자체 장부 기준. */
+    private BigDecimal heldAtMarks() {
+        BigDecimal sum = BigDecimal.ZERO;
+        for (Lot lot : lots.values()) {
+            if (lot.mark() != null && lot.quantity() > 0) {
+                sum = sum.add(lot.mark().multiply(BigDecimal.valueOf(lot.quantity())));
+            }
+        }
+        return sum;
+    }
+
+    /** 오늘 최대 보유액을 갱신한다(2026-10-21, 운용 자금 한도 기준 — {@link #limitBase}). */
+    private void notePeakHeld() {
+        lock.lock();
+        try {
+            rollDayIfNeeded();
+            BigDecimal now = heldAtMarks();
+            if (now.compareTo(peakHeldToday) > 0) {
+                peakHeldToday = now;
+            }
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * 일 손실 한도의 기준 금액(2026-10-21). 운용 자금이 꺼져 있으면 계좌 평가액(예전과 같다). 켜져 있으면
+     * min(계좌 평가액, 운용 자금)과 오늘 최대 보유액(기준가 기준) 중 큰 값 — 운용 자금보다 큰 예전 보유를 정리하는 날
+     * (10/22: 10/21 종가 매수 약 6,800만 원) 한도가 운용 자금의 5%로 줄어 정리 도중 킬스위치가 켜지지 않게.
+     * 호출자가 lock을 쥐고 있어야 한다.
+     */
+    private BigDecimal limitBase(BigDecimal equity) {
+        if (!capital.limited()) {
+            return equity;
+        }
+        return capital.sizingBase(equity).max(peakHeldToday);
     }
 
     private LocalDate today() {
@@ -322,12 +379,17 @@ public class DailyPnlTracker {
             return;
         }
         // dailyMaxLossPct는 음수(예: -0.02)이므로 threshold도 음수 — "이 값보다 더 밑으로 내려가면 위험".
-        BigDecimal threshold = equity.multiply(BigDecimal.valueOf(properties.dailyMaxLossPct()));
+        BigDecimal base = limitBase(equity);
+        BigDecimal threshold = base.multiply(BigDecimal.valueOf(properties.dailyMaxLossPct()));
         if (limitPnlToday.compareTo(threshold) <= 0) {
-            killSwitch.engage((LOSS_LIMIT_REASON_PREFIX + ": 오늘 손익 %s원(밤사이 보유분은 전일 종가 기준, 한도 %s원, equity=%s원 · "
+            String basis = capital.limited()
+                    ? "기준 %s원(운용 자금 %s원·오늘 최대 보유 %s원 중 큰 값)".formatted(base.setScale(0, RoundingMode.HALF_UP),
+                            capital.limit().toPlainString(), peakHeldToday.setScale(0, RoundingMode.HALF_UP))
+                    : "equity=%s원".formatted(equity.setScale(0, RoundingMode.HALF_UP));
+            killSwitch.engage((LOSS_LIMIT_REASON_PREFIX + ": 오늘 손익 %s원(밤사이 보유분은 전일 종가 기준, 한도 %s원, %s · "
                     + "매입가 기준 실현손익 %s원) — 장중 평가손익 미포함(TODO: 시세 연동 필요)")
                     .formatted(limitPnlToday.setScale(0, RoundingMode.HALF_UP), threshold.setScale(0, RoundingMode.HALF_UP),
-                            equity.setScale(0, RoundingMode.HALF_UP), realizedPnlToday.setScale(0, RoundingMode.HALF_UP)));
+                            basis, realizedPnlToday.setScale(0, RoundingMode.HALF_UP)));
         }
     }
 

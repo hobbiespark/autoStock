@@ -16,6 +16,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -44,6 +45,12 @@ public class OvernightCloseStrategy {
     private static final Logger log = LoggerFactory.getLogger(OvernightCloseStrategy.class);
     static final String STRATEGY_ID = "ON-CLOSE";
     private static final String HORIZON = "DAY";
+    /** 아침 매도(재시도 포함)가 이 시각 뒤에 돌면(절전 복귀로 늦게 깨어남) 건너뛴다 — 연속매매 끝(2026-10-21). */
+    static final LocalTime SELL_DEADLINE = LocalTime.of(15, 20);
+    /** 15:15 후보 선정이 이 시각 뒤에 돌면 건너뛴다 — 15:26 종가 매수 전에 끝나야 의미가 있다. */
+    static final LocalTime SCAN_DEADLINE = LocalTime.of(15, 25);
+    /** 15:26 종가 매수가 이 시각 뒤에 돌면 건너뛴다 — 15:30 종가 체결 전. */
+    static final LocalTime BUY_DEADLINE = LocalTime.of(15, 29);
 
     private final OvernightCloseProperties properties;
     private final LiveMarket market;
@@ -80,7 +87,7 @@ public class OvernightCloseStrategy {
     /** 09:00:30 — 어제 산 보유 매도. */
     @Scheduled(cron = "30 0 9 * * MON-FRI", zone = "Asia/Seoul")
     public void morningExit() {
-        if (!guard.active(properties.enabled())) {
+        if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 09:00:30 아침 매도", SELL_DEADLINE)) {
             return;
         }
         Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);
@@ -105,7 +112,7 @@ public class OvernightCloseStrategy {
     @Scheduled(cron = "0 10,30 9 * * MON-FRI", zone = "Asia/Seoul")
     @Scheduled(cron = "0 0/30 10-14 * * MON-FRI", zone = "Asia/Seoul")
     public void retryExit() {
-        if (!guard.active(properties.enabled())) {
+        if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 아침 매도 재시도", SELL_DEADLINE)) {
             return;
         }
         Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);
@@ -120,7 +127,7 @@ public class OvernightCloseStrategy {
     /** 15:15 — 후보 선정. */
     @Scheduled(cron = "0 15 15 * * MON-FRI", zone = "Asia/Seoul")
     public void scan() {
-        if (!guard.active(properties.enabled())) {
+        if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 15:15 후보 선정", SCAN_DEADLINE)) {
             return;
         }
         LocalDate today = guard.today();
@@ -161,7 +168,7 @@ public class OvernightCloseStrategy {
     /** 15:26 — 종가 단일가 매수. */
     @Scheduled(cron = "0 26 15 * * MON-FRI", zone = "Asia/Seoul")
     public void buyAtClose() {
-        if (!guard.active(properties.enabled())) {
+        if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 15:26 종가 매수", BUY_DEADLINE)) {
             return;
         }
         Picks today = picks;

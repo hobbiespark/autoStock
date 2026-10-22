@@ -98,6 +98,8 @@ public class RiskGate {
     /** 전략별 장부 — 슬리브가 있는 전략의 보유 판단(2026-10-16). null이면 슬리브를 쓰지 않는다(시험용 생성자). */
     private final StrategyBook strategyBook;
     private final MultiStrategyRiskProperties multiStrategy;
+    /** 운용 자금 한도(2026-10-21) — 사이징 기준·전체 매수 원가 상한·1주 허용. 꺼져 있으면 예전 동작. */
+    private final TradingCapitalProperties capital;
 
     /** 슬리브 없는 생성자 — 기존 시험용. 운영은 {@link #RiskGate(ApplicationEventPublisher, KillSwitch, RiskProperties, PositionSizer, PositionBook, DailyLimitTracker, EquitySource, Clock, MarketCalendarService, MacroGuard, DisclosureBlacklist, OpenOrderQuery, StrategyBook, MultiStrategyRiskProperties)}. */
     public RiskGate(ApplicationEventPublisher publisher,
@@ -117,7 +119,7 @@ public class RiskGate {
                 MultiStrategyRiskProperties.none());
     }
 
-    @Autowired
+    /** 운용 자금 없는 생성자 — 다전략 시험용(RiskGateSleeveTest). 운영은 운용 자금을 받는 아래 생성자. */
     public RiskGate(ApplicationEventPublisher publisher,
                     KillSwitch killSwitch,
                     RiskProperties properties,
@@ -132,6 +134,28 @@ public class RiskGate {
                     OpenOrderQuery openOrderQuery,
                     StrategyBook strategyBook,
                     MultiStrategyRiskProperties multiStrategy) {
+        this(publisher, killSwitch, properties, sizer, positionBook, dailyLimits, equitySource, clock,
+                marketCalendarService, macroGuard, disclosureBlacklist, openOrderQuery, strategyBook, multiStrategy,
+                TradingCapitalProperties.none());
+    }
+
+    @Autowired
+    public RiskGate(ApplicationEventPublisher publisher,
+                    KillSwitch killSwitch,
+                    RiskProperties properties,
+                    PositionSizer sizer,
+                    PositionBook positionBook,
+                    DailyLimitTracker dailyLimits,
+                    EquitySource equitySource,
+                    Clock clock,
+                    MarketCalendarService marketCalendarService,
+                    MacroGuard macroGuard,
+                    DisclosureBlacklist disclosureBlacklist,
+                    OpenOrderQuery openOrderQuery,
+                    StrategyBook strategyBook,
+                    MultiStrategyRiskProperties multiStrategy,
+                    TradingCapitalProperties capital) {
+        this.capital = capital == null ? TradingCapitalProperties.none() : capital;
         this.strategyBook = strategyBook;
         this.multiStrategy = multiStrategy == null ? MultiStrategyRiskProperties.none() : multiStrategy;
         this.publisher = publisher;
@@ -214,6 +238,16 @@ public class RiskGate {
                     signal.refPrice(), limitPrice);
         }
 
+        // ── 2-2단계: 운용 자금 한도(2026-10-21) ────────────────────────
+        // 계좌 보유 매수 원가 + 미체결 매수 + 이번 주문이 운용 자금을 넘지 않게 수량을 줄인다(수동 주문 포함).
+        // 지정가가 정해진 뒤라 실제로 걸리는 금액으로 센다. 슬롯을 쓰기 전에 본다.
+        if (signal.side() == Side.BUY && capital.limited()) {
+            quantity = fitWithinCapital(signal, quantity, aligned);
+            if (quantity <= 0) {
+                return;
+            }
+        }
+
         // ── 3단계: 일 주문 한도 ─────────────────────────────────────────
         // 사이징까지 통과한 "진짜 주문 후보"만 슬롯을 소비한다.
         Optional<DailyLimitTracker.OrderSlot> slot = dailyLimits.tryAcquireOrderSlot();
@@ -254,9 +288,64 @@ public class RiskGate {
         return signal.refPrice() == null ? null : signal.refPrice().value();
     }
 
+    /** 사이징 기준 금액 — 운용 자금이 켜져 있으면 min(계좌 평가액, 운용 자금)(2026-10-21). */
+    private BigDecimal sizingEquity() {
+        return capital.sizingBase(equitySource.equity());
+    }
+
+    /**
+     * 운용 자금 한도에 맞춘 매수 수량(2026-10-21, aiDoc/multi-strategy-paper-2026-10-16.md 8절). 계좌 보유 매수 원가
+     * (계좌 장부 평단 × 수량 — 평단 미상은 세지 못한다) + 미체결 매수 남은 금액 + 이번 주문(수량 × 지정가)이 운용 자금을
+     * 넘으면 남은 여유만큼으로 줄인다. 한 주도 못 사거나 미체결 금액을 모르면 거부한다(모르면 사지 않는다).
+     */
+    private long fitWithinCapital(Signal signal, long quantity, BigDecimal price) {
+        BigDecimal held = BigDecimal.ZERO;
+        for (PositionBook.Position position : positionBook.snapshot().values()) {
+            if (position.avgPrice() != null && position.quantity() > 0) {
+                held = held.add(position.avgPrice().multiply(BigDecimal.valueOf(position.quantity())));
+            }
+        }
+        BigDecimal pending;
+        try {
+            pending = openOrderQuery.openBuyAmount();
+        } catch (RuntimeException e) {
+            log.warn("미체결 매수 금액 조회 실패 — 매수 거부(운용 자금 한도를 셀 수 없다): {} {}", signal.strategyId(),
+                    StockNames.label(signal.symbol()), e);
+            publishRejected(signal, "미체결 매수 금액 조회 실패 — 매수 거부", Map.of());
+            return 0;
+        }
+        if (pending == null) {
+            pending = BigDecimal.ZERO;
+        }
+        BigDecimal limit = capital.limit();
+        BigDecimal room = limit.subtract(held).subtract(pending);
+        long fit = room.signum() <= 0 ? 0 : room.divide(price, 0, java.math.RoundingMode.DOWN).longValue();
+        if (fit >= quantity) {
+            return quantity;
+        }
+        String heldText = held.setScale(0, java.math.RoundingMode.HALF_UP).toPlainString();
+        String pendingText = pending.setScale(0, java.math.RoundingMode.HALF_UP).toPlainString();
+        if (fit <= 0) {
+            log.info("운용 자금 한도 — 매수 거부: {} {} {}주 × {}원 (한도 {}원, 보유 원가 {}원 + 미체결 매수 {}원)",
+                    signal.strategyId(), StockNames.label(signal.symbol()), quantity, price.toPlainString(),
+                    limit.toPlainString(), heldText, pendingText);
+            publishRejected(signal, "운용 자금 한도 — 매수 거부", Map.of("capitalLimit", limit.toPlainString(),
+                    "heldCost", heldText, "pendingBuy", pendingText, "requestedQuantity", String.valueOf(quantity)));
+            return 0;
+        }
+        log.info("운용 자금 한도 — 매수 수량 {}주 → {}주: {} {} (한도 {}원, 보유 원가 {}원 + 미체결 매수 {}원)", quantity, fit,
+                signal.strategyId(), StockNames.label(signal.symbol()), limit.toPlainString(), heldText, pendingText);
+        return fit;
+    }
+
     /** 기동 — 다전략 슬리브 설정을 한 줄로 남긴다(설정이 실제로 들어갔는지 로그로 확인). */
     @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
     public void announceSleeves() {
+        if (capital.limited()) {
+            log.info("운용 자금 {}원 — 사이징 기준 min(계좌 평가액, 운용 자금) · 계좌 보유 매수 원가 + 미체결 매수 + 새 주문 ≤ 운용 자금"
+                    + " · 예산으로 0주면 1주 값이 예산의 {}배 이하일 때 1주", "%,d".formatted(capital.limitKrw()),
+                    capital.oneShareMaxBudgetMultiple());
+        }
         if (multiStrategy.sleeves().isEmpty()) {
             return;
         }
@@ -361,16 +450,24 @@ public class RiskGate {
                 return 0;
             }
         }
-        BigDecimal equity = equitySource.equity();
+        BigDecimal equity = sizingEquity();
         double confidence = clampConfidence(signal);
         BigDecimal price = refPriceOf(signal);
         long qty = 0;
+        BigDecimal budget = null;
         if (price != null && price.signum() > 0 && equity != null && equity.signum() > 0) {
             // 실수 나눗셈(0.15/3 = 0.0499…)으로 1주가 깎이지 않게 금액 단위로 나눈다
-            BigDecimal budget = equity.multiply(BigDecimal.valueOf(sleeve.fraction()))
+            budget = equity.multiply(BigDecimal.valueOf(sleeve.fraction()))
                     .divide(BigDecimal.valueOf(sleeve.maxPositions()), 10, java.math.RoundingMode.HALF_UP)
                     .multiply(BigDecimal.valueOf(confidence));
             qty = budget.divide(price, 0, java.math.RoundingMode.DOWN).longValue();
+        }
+        if (qty <= 0 && capital.allowsOneShare(budget, price)) {
+            // 1주 허용(2026-10-21, 운용 자금 — TradingCapitalProperties). 전체 매수 원가 상한은 2-2단계가 다시 본다
+            log.info("예산 {}원 < 1주 {}원 — 1주 허용(예산의 {}배 이내): {} {}",
+                    budget.setScale(0, java.math.RoundingMode.DOWN).toPlainString(), price.toPlainString(),
+                    capital.oneShareMaxBudgetMultiple(), strategy, StockNames.label(signal.symbol()));
+            qty = 1;
         }
         if (qty <= 0) {
             log.info("사이징 결과 0주 — 매수 불가: {} {} (equity={}, 슬리브 {}÷{}, price={}, confidence={})", strategy,
@@ -489,7 +586,7 @@ public class RiskGate {
         // equity 조회는 EquitySource에 위임한다 — SIM은 설정값 고정(PaperEquitySource),
         // LIVE는 브로커 잔고 조회(execution.BrokerEquitySource, 60초 캐시)로 실행 모드에 따라
         // 조건부로 갈린다(RiskGate는 둘 중 무엇이 떠 있는지 모른다).
-        BigDecimal equity = equitySource.equity();
+        BigDecimal equity = sizingEquity();
         double confidence = clampConfidence(signal);
         long qty = sizer.sizeBuy(equity, refPriceOf(signal), confidence);
         if (qty <= 0) {
@@ -576,7 +673,7 @@ public class RiskGate {
                 return 0;
             }
         }
-        long cap = sizer.sizeBuy(equitySource.equity(), refPriceOf(signal), clampConfidence(signal));
+        long cap = sizer.sizeBuy(sizingEquity(), refPriceOf(signal), clampConfidence(signal));
         if (cap <= 0) {
             publishRejected(signal, "예산 캡 0주 — 수동 매수 불가", Map.of());
             return 0;

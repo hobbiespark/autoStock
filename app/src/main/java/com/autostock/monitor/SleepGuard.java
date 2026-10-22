@@ -124,8 +124,10 @@ public class SleepGuard {
         String message = "절전 복귀 감지 — %s ~ %s (%d시간 %d분) 동안 앱이 멈춰 있었다".formatted(
                 kst(previous), kst(now), gap.toHours(), gap.toMinutesPart());
         if (active || wasActive) {
-            notifier.notify(NoticeLevel.WARN,
-                    message + ". 장 대응 시간이 걸려 있어 이 구간의 시세·체결통보·예약 작업이 누락됐다");
+            String warning = message + ". 장 대응 시간이 걸려 있어 이 구간의 시세·체결통보·예약 작업이 누락됐다";
+            // 알림만 보내면 로그 점검에서 보이지 않는다(10/19 10:17·10/20 12:16 장중 복귀가 로그에 없었다 — 2026-10-21)
+            log.warn(warning);
+            notifier.notify(NoticeLevel.WARN, warning);
         } else {
             log.info("{} (장외 구간 — 누락 없음)", message);
         }

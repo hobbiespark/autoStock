@@ -5,6 +5,7 @@ import com.autostock.common.util.StockCode;
 import com.autostock.risk.OpenOrderQuery;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.util.EnumSet;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -47,5 +48,14 @@ class OpenOrderQueryAdapter implements OpenOrderQuery {
                 .filter(o -> o.getStrategyId() != null && o.getStrategyId().equalsIgnoreCase(strategyId))
                 .map(OrderEntity::getSymbol)
                 .collect(Collectors.toUnmodifiableSet());
+    }
+
+    /** 미체결 매수 남은 금액 — 지정가 × (주문 수량 − 체결 수량), 지정가가 없으면 0(운용 자금 한도, 2026-10-21). */
+    @Override
+    public BigDecimal openBuyAmount() {
+        return orderRepository.findBySideAndStatusIn(Side.BUY, OPEN_STATUSES).stream()
+                .map(o -> o.getLimitPrice() == null ? BigDecimal.ZERO
+                        : o.getLimitPrice().multiply(BigDecimal.valueOf(Math.max(0L, o.getQuantity() - o.getFilledQuantity()))))
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
 }

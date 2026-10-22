@@ -15,9 +15,12 @@ import static com.autostock.strategy.StrategyTestSupport.CLOCK;
 import static com.autostock.strategy.StrategyTestSupport.TODAY;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /** 종가 → 다음 날 시가(ON-CLOSE) — 15:15 후보, 15:26 종가 매수, 다음 날 09:00:30 매도. */
@@ -99,6 +102,19 @@ class OvernightCloseStrategyTest {
         assertEquals("ON-CLOSE", signals.get(0).strategyId());
         assertEquals(0, new BigDecimal("10500").compareTo(signals.get(0).refPrice().value()));
         assertTrue(t.runs().get(0).summary().contains("선택 1"));
+    }
+
+    @Test
+    void 절전_복귀로_밤에_늦게_돈_후보_선정과_종가_매수는_건너뛴다() {
+        // 10/19 22:04·10/20 21:50 실측 — 15:15 후보 선정이 밤에 돌아 그날 후보처럼 남았다(2026-10-21)
+        when(guard.tooLate(anyString(), any())).thenReturn(true);
+
+        strategy.scan();
+        strategy.buyAtClose();
+
+        verify(market, never()).risingRanking(anyString());
+        assertTrue(t.signals().isEmpty());
+        assertTrue(t.runs().isEmpty());
     }
 
     @Test

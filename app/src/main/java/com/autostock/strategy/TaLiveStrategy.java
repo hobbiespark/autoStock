@@ -43,6 +43,8 @@ public class TaLiveStrategy {
     private static final Logger log = LoggerFactory.getLogger(TaLiveStrategy.class);
     static final String SUMMARY_ID = "TA";
     private static final String HORIZON = "SWING";
+    /** 하루 판단 마감 — 09:01 예약이든 장중 따라잡기든 이 시각부터는 그날 판단을 하지 않는다(2026-10-21). */
+    static final LocalTime JUDGE_DEADLINE = LocalTime.of(15, 0);
     private static final long ACTIVE_RECHECK_MILLIS = 30_000;
 
     private final TaLiveProperties properties;
@@ -94,6 +96,10 @@ public class TaLiveStrategy {
     /** 09:01 — 시가 확인 뒤 하루 판단. */
     @Scheduled(cron = "0 1 9 * * MON-FRI", zone = "Asia/Seoul")
     public void run() {
+        // 절전 복귀로 09:01 예약이 15:00 뒤에 돌면(10/20 21:50 실측) 그날 판단은 하지 않는다 — 장중 따라잡기와 같은 마감
+        if (properties.enabled() && guard.tooLate(SUMMARY_ID + " 09:01 판단", JUDGE_DEADLINE)) {
+            return;
+        }
         runIfDue("09:01");
     }
 
@@ -104,7 +110,7 @@ public class TaLiveStrategy {
             return;
         }
         LocalTime now = guard.now();
-        if (now.isBefore(LocalTime.of(9, 1)) || !now.isBefore(LocalTime.of(15, 0))) {
+        if (now.isBefore(LocalTime.of(9, 1)) || !now.isBefore(JUDGE_DEADLINE)) {
             return;
         }
         if (!guard.today().equals(ranDay)) {

@@ -66,7 +66,12 @@ public class NotificationDispatcher implements SmartLifecycle {
         try {
             executor.execute(() -> send(level, message));
         } catch (RejectedExecutionException e) {
-            log.error("알림 대기열이 가득 찼거나 종료 중 — 버림: level={} message={}", level, message);
+            if (executor.isShutdown()) {
+                // 앱 종료 중 — 예상된 일이라 ERROR가 아니다(10/21 09:10 종료 때 VB-DAY 준비 알림 한 건)
+                log.warn("앱 종료 중 — 알림 버림: level={} message={}", level, message);
+            } else {
+                log.error("알림 대기열이 가득 참 — 버림: level={} message={}", level, message);
+            }
         }
     }
 

@@ -2,9 +2,13 @@ package com.autostock.monitor;
 
 import com.autostock.monitor.PowerSource.PowerStatus;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.DisabledOnOs;
+import org.junit.jupiter.api.condition.EnabledOnOs;
+import org.junit.jupiter.api.condition.OS;
 
 import java.util.Optional;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 /**
@@ -31,8 +35,15 @@ class WindowsPowerSourceTest {
     }
 
     @Test
+    @DisabledOnOs(OS.WINDOWS)   // 운영 PC(Windows)에서 돌리면 실제 전원 상태를 읽는다(2026-10-21 PC 시험에서 실패로 드러남)
     void Windows가_아니면_빈_값이다() {
         assertEquals(Optional.empty(), new WindowsPowerSource().read());   // 컨테이너(리눅스)
+    }
+
+    @Test
+    @EnabledOnOs(OS.WINDOWS)
+    void Windows에서는_실제_전원_상태를_예외_없이_읽는다() {
+        assertDoesNotThrow(() -> new WindowsPowerSource().read());
     }
 
     @Test

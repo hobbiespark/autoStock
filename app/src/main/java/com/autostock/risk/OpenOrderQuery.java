@@ -3,6 +3,7 @@ package com.autostock.risk;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
 
+import java.math.BigDecimal;
 import java.util.Set;
 
 /**
@@ -36,5 +37,16 @@ public interface OpenOrderQuery {
      */
     default Set<StockCode> symbolsWithOpenOrder(String strategyId, Side side) {
         return side == Side.BUY ? symbolsWithOpenBuy() : Set.of();
+    }
+
+    /**
+     * 결과가 확정되지 않은 매수 주문의 남은 금액 합 — 지정가 × (주문 수량 − 체결 수량). 운용 자금 한도(2026-10-21,
+     * {@link TradingCapitalProperties})가 "이미 쓰기로 한 돈"으로 센다. 어제의 UNKNOWN도 넣는다(아직 포지션이 될 수 있다).
+     *
+     * <p>기본 구현은 0이다(시험의 람다 구현 호환). 실제 구현({@code trading.OpenOrderQueryAdapter})은 주문 표에서 센다.
+     * 조회가 실패하면 예외를 던져도 된다 — {@link RiskGate}가 그 매수를 거부한다.
+     */
+    default BigDecimal openBuyAmount() {
+        return BigDecimal.ZERO;
     }
 }
