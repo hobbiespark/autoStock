@@ -34,7 +34,7 @@ class EventFeedTest {
     @Test
     void 주문요청_요약에_수량이_숫자로_찍힌다() {
         feed.on(new OrderRequest("20260930-C3-005930-BUY-001", "C3", new StockCode("005930"), Side.BUY,
-                new Quantity(14), new Price(new BigDecimal("70000")), AT));
+                new Quantity(14), new Price(new BigDecimal("70000")), AT, null));
 
         assertEquals("[삼성전자(005930)] BUY 14주 @ 70000 주문요청", feed.recent().get(0).summary());
     }

@@ -23,8 +23,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * 슬리피지 계측 — Perold(1988) Implementation Shortfall의 "가격 격차" 성분을
  * 주문 단위로 기록한다 (PLAN 6절, PROGRESS 4-1 트랙 C2).
  *
- * <p><b>정의</b>: 결정가(decision price) = RiskGate가 주문을 발행한 시점의 기준가
- * ({@link OrderRequest#limitPrice()} — Signal.refPrice에서 옴). 체결가와의 격차를
+ * <p><b>정의</b>: 결정가(decision price) = 전략이 그 가격에 사고팔 생각이었던 기준가
+ * ({@link OrderRequest#benchmarkPrice()} — 2026-10-22부터, 다전략은 백테스트 체결가·신호 시점 시세). 기준가가 없으면
+ * 지정가({@link OrderRequest#limitPrice()} — C3·수동 주문은 지정가가 곧 최우선 호가다). 다전략 주문은 체결을 위해
+ * 지정가에 여유(×1.05·×0.98)를 둬서, 예전처럼 지정가로 재면 여유폭만 쟀다(10/21·10/22 로그 −200~−550bps). 체결가와의 격차를
  * bps로 환산하되, <b>부호는 "양수 = 나에게 불리"</b>로 통일한다:
  * 매수는 (체결가−결정가)/결정가, 매도는 (결정가−체결가)/결정가.
  *
@@ -65,7 +67,8 @@ public class SlippageTracker {
     private double maxBps;
     private String maxBpsSymbol = "";
 
-    private record PendingOrder(BigDecimal decisionPrice, Side side) {
+    /** @param limitPrice 지정가 — 기준가와 다를 때 로그에 함께 보인다(null이면 같음) */
+    private record PendingOrder(BigDecimal decisionPrice, Side side, BigDecimal limitPrice) {
     }
 
     /**
@@ -92,7 +95,10 @@ public class SlippageTracker {
             log.warn("슬리피지 결정가 캐시 상한({}) 도달 — 캐시를 비움", MAX_PENDING);
             pending.clear();
         }
-        pending.put(order.idempotencyKey(), new PendingOrder(order.limitPrice().value(), order.side()));
+        BigDecimal limit = order.limitPrice().value();
+        BigDecimal decision = order.benchmarkPrice() != null ? order.benchmarkPrice().value() : limit;
+        pending.put(order.idempotencyKey(),
+                new PendingOrder(decision, order.side(), decision.compareTo(limit) == 0 ? null : limit));
     }
 
     @EventListener
@@ -124,9 +130,10 @@ public class SlippageTracker {
                 maxBpsSymbol = fill.symbol().value();
             }
         }
-        log.info("슬리피지: {} {} {}주 결정가 {} → 체결가 {} = {}bps",
+        log.info("슬리피지: {} {} {}주 결정가 {} → 체결가 {} = {}bps{}",
                 StockNames.label(fill.symbol()), origin.side(), fill.filledQuantity().value(),
-                origin.decisionPrice(), fill.fillPrice(), String.format("%.2f", bps));
+                origin.decisionPrice().stripTrailingZeros().toPlainString(), fill.fillPrice(), String.format("%.2f", bps),
+                origin.limitPrice() == null ? "" : " (지정가 " + origin.limitPrice().stripTrailingZeros().toPlainString() + ")");
     }
 
     public SlippageSummary todaySummary() {

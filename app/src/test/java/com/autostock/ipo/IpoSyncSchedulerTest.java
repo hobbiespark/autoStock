@@ -115,6 +115,10 @@ class IpoSyncSchedulerTest {
 
         assertFalse(IpoDemandForecastCollector.wantsFloat(spac));
         assertTrue(IpoDemandForecastCollector.wantsFloat(normal));
+        // 2026-10-22: 상장했거나 청약이 끝났으면 그만 찾는다(멜콘·진코스텍이 상장 뒤에도 매일 "찾지 못함")
+        assertTrue(IpoDemandForecastCollector.wantsFloat(normal, LocalDate.of(2026, 10, 1)));
+        normal.applyMetrics(null, null, LocalDate.of(2026, 10, 15), Instant.now());   // 상장일
+        assertFalse(IpoDemandForecastCollector.wantsFloat(normal, LocalDate.of(2026, 10, 15)));
     }
 
     @Test
@@ -157,6 +161,7 @@ class IpoSyncSchedulerTest {
         entity.applyOfferingDetail(new DartClient.OfferingDetail(
                 "20260910000583", today.plusDays(1), today.plusDays(2), null, "SK증권",
                 new BigDecimal("5030"), 3_800_000L), Instant.now());
+        entity.applyMetrics(new BigDecimal("1200"), new BigDecimal("0.30"), Instant.now());   // 청약 권고 딜만 D-1(2026-10-22)
         when(repository.findAll()).thenReturn(List.of(entity));
         when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(DartClient.RecentFilings.complete(List.of()));
 
@@ -175,6 +180,8 @@ class IpoSyncSchedulerTest {
         IpoDealEntity entity = new IpoDealEntity(corpCode, corpName, rceptNo, "DART", Instant.now());
         entity.applyOfferingDetail(new DartClient.OfferingDetail(rceptNo, start, start.plusDays(1), null, "SK증권",
                 new BigDecimal(price), 3_800_000L), Instant.now());
+        // 청약 D-1·시작 알림은 청약 권고 딜만(2026-10-22) — 기관 1,200:1(+2)이면 균등만
+        entity.applyMetrics(new BigDecimal("1200"), new BigDecimal("0.30"), Instant.now());
         return entity;
     }
 

@@ -280,7 +280,8 @@ public class RiskGate {
                 signal.side(),
                 new Quantity(quantity),
                 limitPrice,
-                clock.instant()));
+                clock.instant(),
+                signal.benchmarkPrice()));
     }
 
     /** 시그널 기준가(원). 없으면 null — 사이징(매수)과 지정가 산출(매도)이 각각 거부 사유로 다룬다. */

@@ -282,3 +282,11 @@
 | risk | `DailyPnlTracker` | 한도 기준 = max(min(계좌, 운용 자금), 오늘 최대 보유액) |
 | 설정 | `application.yml` | `risk.capital.limit-krw: 20000000`, `one-share-max-budget-multiple: 2.0` |
 | 시험 | `RiskGateCapitalTest`(10)·`DailyPnlTrackerCapitalTest`(4)·`OpenOrderQueryAdapterAmountTest`(1) | 기준·1주 허용·상한·거부·매도 무관·범위, 한도 기준 |
+
+### 8-5. 성과 측정 다시 시작(2026-10-22)
+
+- 요청(사용자 10/22): "금액 한도 설정에 의한 성과 추이 초기화 후 다시 측정 필요"
+- **시작일 2026-10-23**(설정 `monitor.performance.since`). 10/22는 운용 자금 전 보유(약 6,833만 원)를 아침에 정리한 날이라 뺀다. 10/22 15:26 첫 운용 자금 매수(삼성E&A 17주·파인엠텍 93주, 약 188만 원)가 10/23 아침에 팔리며 첫 표본이 된다.
+- 지난 기록(daily_performance·strategy_fills·event_store)은 **지우지 않는다** — 성과 추이 화면·일일 리포트 누적·trial 집계가 보는 범위만 자른다.
+- trial 집계: T-PAPER-ON·VB·TA 모두 **10/23 이후 청산분**부터 센다. 10/21 매수 → 10/22 매도 3건(모두 손실, −1.3~−1.8% 비용 전)은 기록으로만 남긴다(8-3의 10/16 매수분 제외와 같은 이유 — 이번에는 사이징 기준이 달라서).
+- 슬리피지(T-PAPER-TA)는 10/22부터 신호 시점 기준가로 잰다([21-log-review-2026-10-22.md](upgrade-2026-10/21-log-review-2026-10-22.md) M-3) — 그 전 슬리피지 값은 지정가 여유폭이라 쓰지 않는다.

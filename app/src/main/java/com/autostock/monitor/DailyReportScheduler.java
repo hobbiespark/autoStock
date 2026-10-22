@@ -9,6 +9,7 @@ import com.autostock.risk.DailyLimitTracker;
 import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.MacroGuard;
+import com.autostock.risk.TradingCapitalProperties;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.portfolio.StrategyBook;
 import com.autostock.trading.TradingProperties;
@@ -18,8 +19,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -62,6 +66,19 @@ public class DailyReportScheduler {
         this.strategyBook = strategyBook;
     }
 
+    /** 성과 측정 시작일부터의 누적(2026-10-22, {@link PerformanceProperties}) — 없으면 누적 줄을 내지 않는다. */
+    private DailyPerformanceRepository performanceRepository;
+    private PerformanceProperties performance = PerformanceProperties.none();
+    private TradingCapitalProperties capital = TradingCapitalProperties.none();
+
+    @Autowired(required = false)
+    void setPerformanceTracking(DailyPerformanceRepository performanceRepository, PerformanceProperties performance,
+                                TradingCapitalProperties capital) {
+        this.performanceRepository = performanceRepository;
+        this.performance = performance == null ? PerformanceProperties.none() : performance;
+        this.capital = capital == null ? TradingCapitalProperties.none() : capital;
+    }
+
     public DailyReportScheduler(PositionBook positionBook,
                                 BrokerPort brokerPort,
                                 DailyLimitTracker dailyLimits,
@@ -101,6 +118,55 @@ public class DailyReportScheduler {
         if (!strategyLines.isEmpty()) {
             log.info("일일 리포트 전략별 — {}", String.join(" / ", strategyLines));
         }
+        List<String> cumulative = cumulativeLines();
+        if (!cumulative.isEmpty()) {
+            log.info("일일 리포트 누적 — {}", String.join(" / ", cumulative));
+        }
+    }
+
+    /**
+     * 성과 측정 시작일부터의 누적(2026-10-22, 사용자 "금액 한도 설정에 의한 성과 추이 초기화 후 다시 측정"). 계좌 실현손익(매입가
+     * 기준)은 일별 기록(daily_performance) + 오늘 값, 전략별은 전략 장부 체결 표. 지난 기록은 지우지 않는다 — 보는 범위만 자른다.
+     */
+    List<String> cumulativeLines() {
+        LocalDate since = performance.since();
+        if (since == null) {
+            return List.of();
+        }
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
+        if (today.isBefore(since)) {
+            return List.of("운용 자금 성과: %s부터 잰다(그 전 기록은 운용 자금 전 사이징이라 넣지 않는다)".formatted(since));
+        }
+        List<String> lines = new ArrayList<>();
+        try {
+            BigDecimal total = dailyPnl.todayRealizedPnl() == null ? BigDecimal.ZERO : dailyPnl.todayRealizedPnl();
+            int days = 1;
+            if (performanceRepository != null) {
+                for (DailyPerformanceEntity row : performanceRepository.findByTradeDateGreaterThanEqualOrderByTradeDateAsc(since)) {
+                    if (row.getTradeDate().isBefore(today)) {
+                        total = total.add(row.getRealizedPnl());
+                        days++;
+                    }
+                }
+            }
+            String vsCapital = "";
+            if (capital.limited()) {
+                BigDecimal pct = total.multiply(BigDecimal.valueOf(100)).divide(capital.limit(), 2, RoundingMode.HALF_UP);
+                vsCapital = " — 운용 자금 %,d원 대비 %s%s%%".formatted(capital.limitKrw(), pct.signum() > 0 ? "+" : "",
+                        pct.toPlainString());
+            }
+            lines.add("운용 자금 성과(%s~, 기록 %d일): 누적 실현손익 %,d원(매입가 기준)%s".formatted(since, days,
+                    total.setScale(0, RoundingMode.HALF_UP).longValue(), vsCapital));
+            if (strategyBook != null) {
+                strategyBook.summaries(since, today).stream()
+                        .filter(s -> s.wins() + s.losses() > 0 || s.openPositions() > 0)
+                        .forEach(s -> lines.add("%s 누적 — 청산 이익 %d·손실 %d, 실현 %,d원, 보유 %d".formatted(s.strategyId(),
+                                s.wins(), s.losses(), won(s.realizedPnl()), s.openPositions())));
+            }
+        } catch (RuntimeException e) {
+            log.warn("일일 리포트 누적 성과 집계 실패: {}", e.toString());
+        }
+        return lines;
     }
 
     /**
@@ -112,7 +178,7 @@ public class DailyReportScheduler {
         }
         try {
             return strategyBook.daySummaries(LocalDate.now(clock.withZone(MarketConstants.KST))).stream()
-                    .map(s -> "%s 매수 %d·매도 %d 실현 %,d원(이익 %d·손실 %d) 보유 %d".formatted(s.strategyId(), s.buyFills(),
+                    .map(s -> "%s 체결 매수 %d·매도 %d 실현 %,d원(종목별 이익 %d·손실 %d) 보유 %d".formatted(s.strategyId(), s.buyFills(),
                             s.sellFills(), won(s.realizedPnl()), s.wins(), s.losses(), s.openPositions()))
                     .toList();
         } catch (RuntimeException e) {
@@ -158,6 +224,11 @@ public class DailyReportScheduler {
         if (!strategyLines.isEmpty()) {
             sb.append("\n전략별(오늘, 실현손익은 추정 비용 차감):");
             strategyLines.forEach(line -> sb.append("\n- ").append(line));
+        }
+        List<String> cumulative = cumulativeLines();
+        if (!cumulative.isEmpty()) {
+            sb.append("\n누적(성과 측정 시작일부터):");
+            cumulative.forEach(line -> sb.append("\n- ").append(line));
         }
         sb.append('\n').append(balanceLine());
         return sb.toString();

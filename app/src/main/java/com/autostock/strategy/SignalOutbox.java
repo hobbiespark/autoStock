@@ -47,20 +47,35 @@ public class SignalOutbox {
     /** 매수 신호 — 판단 근거(SignalDecision BUY)와 함께. refPrice가 지정가 겸 사이징 기준이다(RiskGate가 호가단위로 맞춘다). */
     public void buy(String strategyId, String horizon, String symbol, BigDecimal refPrice, double confidence,
                     String reason, Map<String, String> metrics) {
+        buy(strategyId, horizon, symbol, refPrice, null, confidence, reason, metrics);
+    }
+
+    /**
+     * 매수 신호 + 슬리피지 기준가(2026-10-22, {@link Signal#benchmarkPrice()}) — 전략이 그 가격에 살 생각이었던 값.
+     * null이면 지정가로 잰다.
+     */
+    public void buy(String strategyId, String horizon, String symbol, BigDecimal refPrice, BigDecimal benchmark,
+                    double confidence, String reason, Map<String, String> metrics) {
         submit(() -> {
             publishDecision(strategyId, horizon, symbol, "BUY", reason, metrics);
             publisher.publishEvent(new Signal(strategyId, new StockCode(symbol), Side.BUY, priceOrNull(refPrice),
-                    confidence, clock.instant()));
+                    confidence, null, clock.instant(), priceOrNull(benchmark)));
         });
     }
 
     /** 매도 신호 — 슬리브 전략은 RiskGate가 그 전략 보유 수량만 판다. */
     public void sell(String strategyId, String horizon, String symbol, BigDecimal refPrice, String reason,
                      Map<String, String> metrics) {
+        sell(strategyId, horizon, symbol, refPrice, null, reason, metrics);
+    }
+
+    /** 매도 신호 + 슬리피지 기준가(2026-10-22). null이면 지정가로 잰다. */
+    public void sell(String strategyId, String horizon, String symbol, BigDecimal refPrice, BigDecimal benchmark,
+                     String reason, Map<String, String> metrics) {
         submit(() -> {
             publishDecision(strategyId, horizon, symbol, "SELL", reason, metrics);
             publisher.publishEvent(new Signal(strategyId, new StockCode(symbol), Side.SELL, priceOrNull(refPrice), 1.0,
-                    clock.instant()));
+                    null, clock.instant(), priceOrNull(benchmark)));
         });
     }
 

@@ -36,6 +36,18 @@ class PerformanceControllerTest {
     }
 
     @Test
+    void 성과_측정_시작일_전_기록은_보지_않는다() {
+        // 2026-10-22: 운용 자금 2,000만 원으로 바꾼 뒤 성과 추이를 다시 잰다 — 지난 행은 지우지 않고 조회 범위만 자른다
+        when(repository.findByTradeDateGreaterThanEqualOrderByTradeDateAsc(any())).thenReturn(List.of());
+        PerformanceController fromStart = new PerformanceController(repository, clock,
+                new PerformanceProperties(LocalDate.of(2026, 9, 1)));
+
+        fromStart.daily(90);
+
+        verify(repository).findByTradeDateGreaterThanEqualOrderByTradeDateAsc(LocalDate.of(2026, 9, 1));
+    }
+
+    @Test
     void days_90_초과_요청은_90일로_보정한다() {
         when(repository.findByTradeDateGreaterThanEqualOrderByTradeDateAsc(any())).thenReturn(List.of());
 

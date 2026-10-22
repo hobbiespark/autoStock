@@ -26,7 +26,8 @@ import java.util.stream.Collectors;
  *   <li>NEW — 회사의 첫 딜이 생긴 지 {@value #NEW_WINDOW_DAYS}일 안이고 공모주로 판정됨 / 청약이 끝나지 않은 공모주 / -</li>
  *   <li>METRICS — 수요예측 결과를 DART에서 자동으로 읽어 <b>청약 추천</b>(비례까지·균등만·패스, 2026-10-15)이 정해짐 / 청약이 끝나지 않은
  *       공모주 / [발행조건확정] 접수번호. 문구는 "[청약 추천] …" — 등급·점수·근거·청약 방법을 싣는다</li>
- *   <li>D-1·START — 청약 시작 전날·당일(예전과 같음) / 모든 공모주 / 청약 시작일</li>
+ *   <li>D-1·START — 청약 시작 전날·당일 / <b>청약 권고(RECOMMEND — 비례까지·균등만) 딜만</b>(2026-10-22 사용자 "공모주 청약권고인
+ *       것만 청약 시작일에 메시지 전송" — 예전엔 패스·판단 보류 딜에도 나갔다) / 청약 시작일</li>
  *   <li>END — 청약 마지막 날(시작일과 다를 때) / 관심 딜 / 청약 마감일</li>
  *   <li>REFUND — 환불·납입일 / 관심 딜 / 환불일</li>
  *   <li>LISTING-D1·LISTING — 상장 전날·당일(상장일을 알 때) / 관심 딜 / 상장일</li>
@@ -129,7 +130,8 @@ final class IpoAlertPlanner {
                 && corp.rep.getRecommendation() != IpoRecommendation.PENDING && open) {
             add(alerts, sent, corp, PHASE_METRICS, corp.rep.getMetricsRceptNo(), metricsMessage(corp));
         }
-        if (corp.start != null) {
+        // 청약 D-1·시작은 청약 권고 딜만(2026-10-22) — 패스 딜은 [청약 추천] 알림에서 이미 "패스"로 알렸다
+        if (corp.start != null && corp.rep.getRecommendation() == IpoRecommendation.RECOMMEND) {
             if (corp.start.minusDays(1).isEqual(today)) {
                 add(alerts, sent, corp, PHASE_D_MINUS_1, corp.start.toString(), dMinus1Message(corp));
             } else if (corp.start.isEqual(today)) {

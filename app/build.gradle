@@ -53,6 +53,10 @@ tasks.named('test') {
     // DartIpoSmokeIT(실제 OpenDART 서버 호출)용 키 — 없으면 빈 문자열이 전달되고, 테스트는
     // 그 경우 assumeTrue로 스스로 스킵한다(KiwoomSmokeIT와 동일 관례, ADR-9).
     environment 'DART_API_KEY', System.getenv('DART_API_KEY') ?: ''
+    // 시험 로그를 운영 로그(app/logs/autostock.log)와 나눈다(2026-10-22) — 운영 PC에서 시험을 돌리자 시험 컨텍스트의
+    // 가짜 잔고 복원·TR 실측·거시 지표 줄이 운영 로그에 섞였다(10/21 20:38~20:48). logback-spring.xml의 LOG_FILE을
+    // 시험 JVM에서만 바꾼다 — 마스킹 패턴·롤링 설정은 그대로 쓴다.
+    systemProperty 'LOG_FILE', layout.buildDirectory.file('test-logs/autostock-test.log').get().asFile.absolutePath
 }
 
 tasks.named('bootRun') {

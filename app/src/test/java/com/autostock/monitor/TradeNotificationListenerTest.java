@@ -56,17 +56,23 @@ class TradeNotificationListenerTest {
 
         assertEquals(1, sent().size());
         assertEquals(NoticeLevel.INFO, notices.get(0).level());
-        assertEquals("체결: 삼성전자(005930) BUY 10주 @ 70000", notices.get(0).message());
+        assertEquals("체결: 삼성전자(005930) 매수 10주 × 70,000원 = 700,000원", notices.get(0).message());
+    }
+
+    @Test
+    void 부분_체결_증분_단가가_소수면_둘째_자리까지_쓴다() {
+        assertEquals("220,500.89", TradeNotificationListener.won(new BigDecimal("220500.8889")));
+        assertEquals("1,271,000", TradeNotificationListener.won(new BigDecimal("1271000.0000")));
     }
 
     @Test
     void OrderRequest는_INFO로_발송되고_이름을_모르면_미확인으로_표시한다() {
         listener.onOrderRequest(new OrderRequest("20260813-TEST-005930-BUY-001", "test-strategy",
-                new StockCode("005930"), Side.BUY, new Quantity(14), new Price(new BigDecimal("70000")), Instant.now()));
+                new StockCode("005930"), Side.BUY, new Quantity(14), new Price(new BigDecimal("70000")), Instant.now(), null));
 
         assertEquals(1, sent().size());
         assertEquals(NoticeLevel.INFO, notices.get(0).level());
-        assertEquals("주문요청: 종목명 미확인(005930) BUY 14주 @ 70000 (20260813-TEST-005930-BUY-001)",
+        assertEquals("주문요청: 종목명 미확인(005930) 매수 14주 × 70,000원 = 980,000원(지정가 기준) (20260813-TEST-005930-BUY-001)",
                 notices.get(0).message());
     }
 

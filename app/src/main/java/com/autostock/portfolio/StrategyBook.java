@@ -51,10 +51,25 @@ public class StrategyBook {
     }
 
     /**
+     * 청산 중인 (전략, 종목)의 매도 누계(2026-10-22) — 부분 체결이 수십 건이라(10/22 09:00 ON-CLOSE 3종목 매도 체결 48건)
+     * 체결마다 INFO를 남기면 로그가 묻힌다. 체결마다는 DEBUG, 청산이 끝나면 INFO 한 줄. 메모리에만 둔다(재기동하면 그 뒤 체결부터).
+     */
+    private static final class ExitTally {
+        long quantity;
+        BigDecimal proceeds = BigDecimal.ZERO;
+        BigDecimal realized = BigDecimal.ZERO;
+        int fills;
+    }
+
+    private final Map<String, ExitTally> exits = new HashMap<>();
+
+    /**
      * 하루 전략별 요약 — 일일 리포트 한 줄.
      *
      * @param realizedPnl 매도 실현손익 합(추정 비용 차감). 평단을 몰라 못 센 매도는 빠진다
-     * @param wins        실현손익 > 0인 매도 체결 수(부분 체결은 체결마다 센다)
+     * @param wins        그날 매도 실현손익 합이 0보다 큰 종목 수 — 2026-10-22부터 종목 단위(예전엔 부분 체결마다 세서
+     *                    10/22 ON-CLOSE 3종목 청산이 "손실 48"로 보였다)
+     * @param losses      그날 매도 실현손익 합이 0 이하인 종목 수
      */
     public record DaySummary(String strategyId, int buyFills, int sellFills, BigDecimal realizedPnl, int wins,
                              int losses, int openPositions) {
@@ -168,9 +183,30 @@ public class StrategyBook {
         persist(strategyId, symbol, next, new StrategyFillEntity(strategyId, symbol.value(), fill.side().name(), qty,
                 price, fill.orderIdempotencyKey(), avgBefore, realized, at));
         if (fill.side() == Side.SELL && realized != null) {
-            log.info("전략별 장부: {} {} 매도 {}주 @ {} — 평단 {}, 실현손익 {}원(추정 비용 차감){}", strategyId,
+            log.debug("전략별 장부: {} {} 매도 {}주 @ {} — 평단 {}, 실현손익 {}원(추정 비용 차감){}", strategyId,
                     StockNames.label(symbol), qty, price.toPlainString(), avgBefore.toPlainString(),
                     realized.toPlainString(), next == null ? ", 청산" : ", 남은 " + next.quantity() + "주");
+            String key = strategyId + "|" + symbol.value();
+            ExitTally tally = exits.computeIfAbsent(key, k -> new ExitTally());
+            tally.quantity += qty;
+            tally.proceeds = tally.proceeds.add(price.multiply(BigDecimal.valueOf(qty)));
+            tally.realized = tally.realized.add(realized);
+            tally.fills++;
+            if (next == null) {
+                exits.remove(key);
+                BigDecimal avgSell = tally.proceeds.divide(BigDecimal.valueOf(tally.quantity), 0, RoundingMode.HALF_UP);
+                BigDecimal pct = avgSell.subtract(avgBefore).multiply(BigDecimal.valueOf(100))
+                        .divide(avgBefore, 2, RoundingMode.HALF_UP);
+                log.info("전략별 장부: {} {} 청산 {}주 — 평단 {}원 → 평균 매도가 {}원({}%), 매도 금액 {}원, 실현손익 {}원"
+                                + "(추정 비용 차감, 체결 {}건)",
+                        strategyId, StockNames.label(symbol), tally.quantity,
+                        "%,d".formatted(avgBefore.setScale(0, RoundingMode.HALF_UP).longValue()),
+                        "%,d".formatted(avgSell.longValue()), (pct.signum() > 0 ? "+" : "") + pct.toPlainString(),
+                        "%,d".formatted(tally.proceeds.setScale(0, RoundingMode.HALF_UP).longValue()),
+                        "%,d".formatted(tally.realized.setScale(0, RoundingMode.HALF_UP).longValue()), tally.fills);
+            }
+        } else if (fill.side() == Side.BUY && current == null) {
+            exits.remove(strategyId + "|" + symbol.value());   // 새 보유 — 지난 청산 누계가 남아 있으면 버린다
         }
     }
 
@@ -261,11 +297,20 @@ public class StrategyBook {
      * 그날(KST) 전략별 요약 — 체결 표에서 센다. 체결이 없어도 보유가 있는 전략은 넣는다.
      */
     public List<DaySummary> daySummaries(LocalDate day) {
-        Instant from = day.atStartOfDay(MarketConstants.KST).toInstant();
-        Instant to = day.plusDays(1).atStartOfDay(MarketConstants.KST).toInstant();
+        return summaries(day, day);
+    }
+
+    /**
+     * 기간(KST, 양 끝 포함) 전략별 요약(2026-10-22 — 운용 자금 뒤 성과를 다시 재는 누적 줄). 이익·손실은 (종목, 매도한 날)마다
+     * 센다 — 같은 종목을 다른 날 다시 사고팔면 따로 센다.
+     */
+    public List<DaySummary> summaries(LocalDate fromDay, LocalDate toDayInclusive) {
+        Instant from = fromDay.atStartOfDay(MarketConstants.KST).toInstant();
+        Instant to = toDayInclusive.plusDays(1).atStartOfDay(MarketConstants.KST).toInstant();
         List<StrategyFillEntity> rows = fillRepository.findByFilledAtGreaterThanEqualAndFilledAtLessThan(from, to);
         Map<String, int[]> counts = new TreeMap<>();          // buys, sells, wins, losses
         Map<String, BigDecimal> pnl = new HashMap<>();
+        Map<String, Map<String, BigDecimal>> bySymbol = new HashMap<>();   // 전략 → (종목|매도일) → 실현손익 합
         for (StrategyFillEntity row : rows) {
             int[] c = counts.computeIfAbsent(row.getStrategyId(), k -> new int[4]);
             if ("BUY".equals(row.getSide())) {
@@ -274,14 +319,21 @@ public class StrategyBook {
                 c[1]++;
                 if (row.getRealizedPnl() != null) {
                     pnl.merge(row.getStrategyId(), row.getRealizedPnl(), BigDecimal::add);
-                    if (row.getRealizedPnl().signum() > 0) {
-                        c[2]++;
-                    } else {
-                        c[3]++;
-                    }
+                    String exitDay = row.getFilledAt() == null ? ""
+                            : LocalDate.ofInstant(row.getFilledAt(), MarketConstants.KST).toString();
+                    bySymbol.computeIfAbsent(row.getStrategyId(), k -> new HashMap<>())
+                            .merge(row.getSymbol() + "|" + exitDay, row.getRealizedPnl(), BigDecimal::add);
                 }
             }
         }
+        bySymbol.forEach((strategy, symbols) -> symbols.values().forEach(sum -> {
+            int[] c = counts.get(strategy);
+            if (sum.signum() > 0) {
+                c[2]++;
+            } else {
+                c[3]++;
+            }
+        }));
         Map<String, Integer> open = new HashMap<>();
         synchronized (this) {
             ensureLoaded();

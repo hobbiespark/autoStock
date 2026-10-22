@@ -136,4 +136,31 @@ class StrategyBookTest {
         assertEquals(1, s.wins());
         assertEquals(1, s.losses());
     }
+
+    @Test
+    void 이익_손실은_부분_체결이_아니라_종목마다_센다() {
+        // 10/22 ON-CLOSE: 3종목 청산이 부분 체결 48건이라 "손실 48"로 보였다(2026-10-22)
+        StrategyFillEntity part1 = new StrategyFillEntity("ON-CLOSE", "000660", "SELL", 1, new BigDecimal("1272000"), "a",
+                new BigDecimal("1294000"), new BigDecimal("-24928"), NOW);
+        StrategyFillEntity part2 = new StrategyFillEntity("ON-CLOSE", "000660", "SELL", 16, new BigDecimal("1271000"), "a",
+                new BigDecimal("1294000"), new BigDecimal("-400000"), NOW);
+        StrategyFillEntity other = new StrategyFillEntity("ON-CLOSE", "005930", "SELL", 10, new BigDecimal("226000"), "b",
+                new BigDecimal("223500"), new BigDecimal("20000"), NOW);
+        when(fills.findByFilledAtGreaterThanEqualAndFilledAtLessThan(any(), any())).thenReturn(List.of(part1, part2, other));
+
+        StrategyBook.DaySummary s = book.daySummaries(LocalDate.of(2026, 10, 19)).get(0);
+
+        assertEquals(3, s.sellFills(), "체결 수는 그대로 체결마다");
+        assertEquals(1, s.wins());
+        assertEquals(1, s.losses(), "SK하이닉스 부분 체결 2건은 한 종목");
+    }
+
+    @Test
+    void 부분_체결로_청산해도_장부는_마지막에_비워진다() {
+        book.onFill(fill("ON-CLOSE", Side.BUY, 17, "1294000"));
+        book.onFill(fill("ON-CLOSE", Side.SELL, 7, "1271000"));
+        assertEquals(10, book.position("ON-CLOSE", SAMSUNG).orElseThrow().quantity());
+        book.onFill(fill("ON-CLOSE", Side.SELL, 10, "1272000"));
+        assertFalse(book.holds("ON-CLOSE", SAMSUNG));
+    }
 }

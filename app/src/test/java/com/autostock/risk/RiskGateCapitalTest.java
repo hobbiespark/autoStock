@@ -203,6 +203,18 @@ class RiskGateCapitalTest {
     }
 
     @Test
+    void 슬리피지_기준가는_주문_요청으로_옮긴다() {
+        // 2026-10-22: 지정가(×1.05)가 아니라 전략이 정한 기준가로 슬리피지를 잰다
+        Signal withBenchmark = new Signal("VB-DAY", new StockCode("005930"), Side.BUY, new Price(new BigDecimal("105000")),
+                1.0, null, Instant.now(), new Price(new BigDecimal("100000")));
+
+        gate(CAPITAL_20M).onSignal(withBenchmark);
+
+        assertEquals(new Price(new BigDecimal("100000")), orders().get(0).benchmarkPrice());
+        assertEquals(new Price(new BigDecimal("105000")), orders().get(0).limitPrice());
+    }
+
+    @Test
     void 운용_자금은_0_또는_200만에서_2000만_원만_받는다() {
         assertDoesNotThrow(() -> new TradingCapitalProperties(0, 2.0));
         assertDoesNotThrow(() -> new TradingCapitalProperties(2_000_000, 2.0));

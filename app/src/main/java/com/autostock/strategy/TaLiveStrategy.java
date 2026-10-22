@@ -205,7 +205,9 @@ public class TaLiveStrategy {
                         if (plan.has(DailyRuleBook.RuleOrder.Kind.BUY_AT_OPEN)) {
                             BigDecimal ask = market.bestAsk(symbol);
                             metrics.put("bestAsk", ask == null ? "N/A" : ask.toPlainString());
-                            outbox.buy(rule, HORIZON, symbol, ask, 1.0, name + " — 진입(시가)", metrics);
+                            // 슬리피지 기준 = 오늘 시가(백테스트 체결가) — T-PAPER-TA가 재는 값(2026-10-22)
+                            outbox.buy(rule, HORIZON, symbol, ask, market.knownOpen(symbol), 1.0, name + " — 진입(시가)",
+                                    metrics);
                             buys++;
                             if (stop != null) {
                                 pairedStops.put(key, stop.price());
@@ -271,7 +273,7 @@ public class TaLiveStrategy {
                     && buyStops.remove(key) != null) {
                 log.info("{}: 장중 돌파 매수 {} {} — 체결가 {} ≥ {}", SUMMARY_ID, key.rule(), StockNames.label(symbol),
                         price.toPlainString(), trigger.toPlainString());
-                outbox.buy(key.rule(), HORIZON, symbol, SignalOutbox.times(price, 1 + properties.buySlack()), 1.0,
+                outbox.buy(key.rule(), HORIZON, symbol, SignalOutbox.times(price, 1 + properties.buySlack()), trigger, 1.0,
                         "장중 돌파 — 체결가 " + price.toPlainString() + " ≥ " + trigger.toPlainString(),
                         Map.of("trigger", trigger.toPlainString(), "price", price.toPlainString()));
             }
@@ -285,7 +287,7 @@ public class TaLiveStrategy {
                     && sellStops.remove(key) != null) {
                 log.info("{}: 장중 손절 {} {} — 체결가 {} ≤ {}", SUMMARY_ID, key.rule(), StockNames.label(symbol),
                         price.toPlainString(), stop.toPlainString());
-                outbox.sell(key.rule(), HORIZON, symbol, SignalOutbox.times(price, 1 - properties.sellSlack()),
+                outbox.sell(key.rule(), HORIZON, symbol, SignalOutbox.times(price, 1 - properties.sellSlack()), stop,
                         "장중 손절 — 체결가 " + price.toPlainString() + " ≤ " + stop.toPlainString(),
                         Map.of("stop", stop.toPlainString(), "price", price.toPlainString()));
             }
@@ -295,7 +297,9 @@ public class TaLiveStrategy {
     private void sellNow(String rule, String symbol, String reason, Map<String, String> metrics) {
         BigDecimal bid = market.bestBid(symbol);
         metrics.put("bestBid", bid == null ? "N/A" : bid.toPlainString());
-        outbox.sell(rule, HORIZON, symbol, SignalOutbox.times(bid, 1 - properties.sellSlack()), reason, metrics);
+        // 시가 청산 — 슬리피지 기준 = 오늘 시가(백테스트 체결가)
+        outbox.sell(rule, HORIZON, symbol, SignalOutbox.times(bid, 1 - properties.sellSlack()), market.knownOpen(symbol),
+                reason, metrics);
     }
 
     private boolean isActive() {

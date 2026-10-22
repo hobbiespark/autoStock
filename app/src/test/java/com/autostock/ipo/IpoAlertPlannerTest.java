@@ -115,6 +115,20 @@ class IpoAlertPlannerTest {
     }
 
     @Test
+    void 청약_전날과_시작일_알림은_청약_권고_딜만() {
+        // 2026-10-22: 10/22 07:05 패스 딜(이에스티 −2·래블업 −5)에도 [청약 시작]이 나갔다 — 사용자 요청으로 권고 딜만
+        IpoDealEntity pass = brils();
+        pass.applyRecommendation(IpoRecommendation.SKIP, "패스(점수 -2) — 기관 630.10:1(+1)", OLD);
+        IpoDealEntity recommended = brils();
+        recommend(recommended);
+        Set<String> sent = Set.of(IpoAlertLogEntity.key("01801026", "METRICS", "20261016000234"));
+
+        assertTrue(IpoAlertPlanner.plan(List.of(pass), LocalDate.of(2026, 10, 19), Set.of()).alerts().isEmpty(), "패스 — D-1 없음");
+        assertTrue(IpoAlertPlanner.plan(List.of(pass), LocalDate.of(2026, 10, 20), Set.of()).alerts().isEmpty(), "패스 — 시작일 없음");
+        assertEquals(List.of("START"), phases(IpoAlertPlanner.plan(List.of(recommended), LocalDate.of(2026, 10, 20), sent)));
+    }
+
+    @Test
     void 유상증자는_어떤_알림도_없다() {
         IpoDealEntity rights = brils();
         rights.classifyOffering(OfferingKind.RIGHTS, OLD);

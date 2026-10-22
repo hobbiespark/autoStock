@@ -385,7 +385,8 @@ public final class InverseSwitchWalkForwardRunner {
                 side,
                 new Quantity(qty),
                 new Price(candle.open()),   // 기록용 — 체결가는 executionHandler가 referencePrice로 정한다
-                candle.date().atStartOfDay().toInstant(ZoneOffset.UTC)
+                candle.date().atStartOfDay().toInstant(ZoneOffset.UTC),
+                null                         // 슬리피지 기준가 — 백테스트는 쓰지 않는다
         );
     }
 

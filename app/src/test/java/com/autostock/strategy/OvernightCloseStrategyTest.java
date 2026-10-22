@@ -101,6 +101,8 @@ class OvernightCloseStrategyTest {
         assertEquals(1, signals.size());
         assertEquals("ON-CLOSE", signals.get(0).strategyId());
         assertEquals(0, new BigDecimal("10500").compareTo(signals.get(0).refPrice().value()));
+        assertEquals(0, new BigDecimal("10000").compareTo(signals.get(0).benchmarkPrice().value()),
+                "슬리피지 기준가는 15:15 현재가(2026-10-22)");
         assertTrue(t.runs().get(0).summary().contains("선택 1"));
     }
 

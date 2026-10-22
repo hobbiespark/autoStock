@@ -53,9 +53,9 @@ public class EventAuditListener {
      */
     static final Map<String, Integer> SCHEMA_VERSIONS = Map.of(
             "MarketTick", 1,
-            "Signal", 2,            // fixedQuantity 추가(운영 1일차 ⑦)
+            "Signal", 3,            // v2 fixedQuantity(운영 1일차 ⑦), v3 benchmarkPrice(2026-10-22 슬리피지 기준가)
             "SignalDecision", 1,
-            "OrderRequest", 1,
+            "OrderRequest", 2,      // v2 benchmarkPrice(2026-10-22)
             "Fill", 1,
             "MacroIndicator", 1,
             "NewsSentiment", 1);

@@ -185,8 +185,9 @@ public class OvernightCloseStrategy {
             metrics.put("high", pick.high().toPlainString());
             metrics.put("open", pick.open().toPlainString());
             metrics.put("tradingValue", pick.tradingValue().toPlainString());
+            // 슬리피지 기준 = 15:15 현재가(판단 시점). 지정가는 그 ×(1 + 여유)라 종가에 체결된다
             outbox.buy(STRATEGY_ID, HORIZON, pick.code(), SignalOutbox.times(pick.scanPrice(), 1 + properties.buyPremium()),
-                    1.0, "종가 매수(단일가) — 15:15 등락률 +" + pick.changeRate().toPlainString() + "%, 고가 근처 마감", metrics);
+                    pick.scanPrice(), 1.0, "종가 매수(단일가) — 15:15 등락률 +" + pick.changeRate().toPlainString() + "%, 고가 근처 마감", metrics);
         }
         if (!today.items().isEmpty()) {
             log.info("{}: 종가 단일가 매수 신호 {}종목", STRATEGY_ID, today.items().size());
@@ -194,7 +195,7 @@ public class OvernightCloseStrategy {
     }
 
     private void sell(String symbol, BigDecimal bid, String reason) {
-        outbox.sell(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(bid, 1 - properties.sellDiscount()), reason,
+        outbox.sell(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(bid, 1 - properties.sellDiscount()), bid, reason,
                 Map.of("bestBid", bid == null ? "N/A" : bid.toPlainString()));
     }
 

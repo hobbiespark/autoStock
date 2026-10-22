@@ -47,7 +47,7 @@ class ValueObjectJsonTest {
             String json = mapper.writeValueAsString(new com.autostock.common.event.OrderRequest(
                     "20260930-C3-005930-BUY-001", "C3", new StockCode("005930"),
                     com.autostock.common.event.Side.BUY, new Quantity(1), new Price(new java.math.BigDecimal("258000")),
-                    java.time.Instant.parse("2026-09-30T01:00:00Z")));
+                    java.time.Instant.parse("2026-09-30T01:00:00Z"), null));
 
             org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"symbol\":\"005930\""), json);
             org.junit.jupiter.api.Assertions.assertTrue(json.contains("Quantity\":1,") || json.contains("quantity\":1,"), json);
@@ -88,6 +88,7 @@ class ValueObjectJsonTest {
                     com.autostock.common.event.Signal.class);
             assertEquals(new StockCode("005930"), old.symbol());
             assertEquals(new Price(new java.math.BigDecimal("258000")), old.refPrice());   // 조각 21
+            org.junit.jupiter.api.Assertions.assertNull(old.benchmarkPrice());   // v3 필드(2026-10-22) — 과거 행은 null
             org.junit.jupiter.api.Assertions.assertTrue(json.contains("\"refPrice\":258000,"), json);
 
             // 기준가 없음(null)도 예전처럼 null로 쓰고 읽는다

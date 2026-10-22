@@ -5,9 +5,13 @@ import com.autostock.common.event.KillSwitchChanged;
 import com.autostock.common.event.MacroIndicatorStale;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.PositionMismatch;
+import com.autostock.common.event.Side;
 import com.autostock.common.util.StockNames;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 
 /**
  * 매매 이벤트를 텔레그램(Notifier)로 이어주는 브리지 — EventFeed(대시보드용 전체 이력)와
@@ -34,21 +38,41 @@ public class TradeNotificationListener {
         this.dispatcher = dispatcher;
     }
 
-    /** 체결 요약 — INFO. */
+    /** 체결 요약 — INFO. 수량 × 단가 = 금액을 함께 보인다(2026-10-22 사용자 요청 "체결 X 단가로 총 금액 알 수 있게"). */
     @EventListener
     public void onFill(Fill fill) {
+        long qty = fill.filledQuantity().value();
+        BigDecimal price = fill.fillPrice().value();
         dispatcher.submit(NoticeLevel.INFO,
-                "체결: %s %s %d주 @ %s".formatted(
-                        StockNames.label(fill.symbol()), fill.side(), fill.filledQuantity().value(), fill.fillPrice()));
+                "체결: %s %s %d주 × %s원 = %s원".formatted(StockNames.label(fill.symbol()), sideText(fill.side()), qty,
+                        won(price), won(price.multiply(BigDecimal.valueOf(qty)))));
     }
 
-    /** 주문 요청 발행 — INFO. RiskGate를 통과했다는 뜻(=실제로 브로커에 나갈 주문). */
+    /** 주문 요청 발행 — INFO. RiskGate를 통과했다는 뜻(=실제로 브로커에 나갈 주문). 금액은 지정가 기준. */
     @EventListener
     public void onOrderRequest(OrderRequest order) {
+        long qty = order.quantity().value();
+        BigDecimal price = order.limitPrice().value();
         dispatcher.submit(NoticeLevel.INFO,
-                "주문요청: %s %s %d주 @ %s (%s)".formatted(
-                        StockNames.label(order.symbol()), order.side(), order.quantity().value(),
-                        order.limitPrice(), order.idempotencyKey()));
+                "주문요청: %s %s %d주 × %s원 = %s원(지정가 기준) (%s)".formatted(StockNames.label(order.symbol()),
+                        sideText(order.side()), qty, won(price), won(price.multiply(BigDecimal.valueOf(qty))),
+                        order.idempotencyKey()));
+    }
+
+    private static String sideText(Side side) {
+        return side == Side.BUY ? "매수" : "매도";
+    }
+
+    /** 원 단위 쉼표. 단가에 소수가 있으면(부분 체결 증분 단가) 소수 둘째 자리까지. */
+    static String won(BigDecimal value) {
+        if (value == null) {
+            return "?";
+        }
+        BigDecimal stripped = value.stripTrailingZeros();
+        if (stripped.scale() <= 0) {
+            return "%,d".formatted(value.setScale(0, RoundingMode.HALF_UP).longValue());
+        }
+        return "%,.2f".formatted(value);
     }
 
     /**

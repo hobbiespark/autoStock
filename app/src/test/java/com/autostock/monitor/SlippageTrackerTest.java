@@ -64,7 +64,7 @@ class SlippageTrackerTest {
 
     private OrderRequest order(String key, Side side, String decisionPrice) {
         return new OrderRequest(key, "C3", new StockCode("005930"), side, new Quantity(10),
-                new Price(new BigDecimal(decisionPrice)), DAY1);
+                new Price(new BigDecimal(decisionPrice)), DAY1, null);
     }
 
     private Fill fill(String key, Side side, long qty, String price) {
@@ -84,6 +84,18 @@ class SlippageTrackerTest {
         assertEquals(10.0, s.maxBps(), 1e-9);
         assertEquals("005930", s.maxBpsSymbol());
         assertEquals("삼성전자", s.maxBpsSymbolName()); // 화면이 종목명과 코드를 함께 보여준다
+    }
+
+    @Test
+    void 기준가가_있으면_지정가가_아니라_기준가로_잰다() {
+        // 2026-10-22: 10/22 ON-CLOSE 파인엠텍 — 지정가 10,700(15:15 현재가 10,190 × 1.05), 체결 10,110.
+        // 지정가로 재면 −551bps(여유폭), 15:15 현재가로 재면 −78.5bps(종가가 15:15보다 쌌다)
+        tracker.onOrderRequest(new OrderRequest("O9", "ON-CLOSE", new StockCode("441270"), Side.BUY, new Quantity(93),
+                new Price(new BigDecimal("10700")), DAY1, new Price(new BigDecimal("10190"))));
+        tracker.onFill(new Fill("O9", new BrokerOrderId("B9"), new StockCode("441270"), Side.BUY, new Quantity(93),
+                new Price(new BigDecimal("10110")), DAY1));
+
+        assertEquals(-78.5083, tracker.todaySummary().avgBps(), 1e-3);
     }
 
     @Test

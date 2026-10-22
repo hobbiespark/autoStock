@@ -6,7 +6,7 @@ import com.autostock.common.util.StockCode;
 import java.time.Instant;
 
 /**
- * 전략이 발행하는 매매 시그널. (스키마 v2 — fixedQuantity 추가)
+ * 전략이 발행하는 매매 시그널. (스키마 v3 — v2 fixedQuantity, v3 benchmarkPrice 추가)
  * 시그널은 주문이 아니다 — risk 모듈 게이트 통과 후에만 OrderRequest가 된다.
  *
  * <p><b>fixedQuantity (2026-09-11 추가, 운영 1일차 ⑦)</b>: 대시보드 수동 시그널처럼
@@ -20,6 +20,11 @@ import java.time.Instant;
  *
  * <p><b>refPrice</b>: {@link Price} 값 객체이고 <b>null일 수 있다</b>(기준가 없음 — 예: 평단 미상 포지션, 호가 조회
  * 실패). 매수는 사이징에서, 매도는 지정가 산출에서 RiskGate가 거부한다. JSON은 기존과 같은 숫자다.
+ *
+ * <p><b>benchmarkPrice (2026-10-22 추가, 스키마 v3)</b>: 슬리피지를 잴 기준가 — 전략이 "이 값에 사고팔 생각이었다"는 가격
+ * (차트 기법은 백테스트 체결가인 오늘 시가·돌파선·손절선, 단타는 목표가·청산 계기 체결가, 종가→익일은 15:15 현재가·아침 매수호가).
+ * refPrice는 체결을 위해 여유를 둔 지정가(×1.05·×0.98 등)라 슬리피지 기준으로 쓰면 여유폭만 잰다(10/21·10/22 로그 −200~−550bps).
+ * null이면 지정가로 잰다(C3·수동 주문 — 지정가 자체가 최우선 호가다). 과거 이벤트는 null로 역직렬화된다.
  */
 public record Signal(
         String strategyId,
@@ -28,12 +33,19 @@ public record Signal(
         Price refPrice,
         double confidence,
         Long fixedQuantity,
-        Instant timestamp
+        Instant timestamp,
+        Price benchmarkPrice
 ) {
+
+    /** v2 호환 생성자 — benchmarkPrice 없이(지정가로 슬리피지를 잰다). */
+    public Signal(String strategyId, StockCode symbol, Side side, Price refPrice, double confidence,
+                  Long fixedQuantity, Instant timestamp) {
+        this(strategyId, symbol, side, refPrice, confidence, fixedQuantity, timestamp, null);
+    }
 
     /** v1 호환 생성자 — 기존 호출부(전략·테스트)는 fixedQuantity 없이 그대로 컴파일된다. */
     public Signal(String strategyId, StockCode symbol, Side side, Price refPrice,
                   double confidence, Instant timestamp) {
-        this(strategyId, symbol, side, refPrice, confidence, null, timestamp);
+        this(strategyId, symbol, side, refPrice, confidence, null, timestamp, null);
     }
 }

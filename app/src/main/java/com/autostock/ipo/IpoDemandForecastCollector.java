@@ -121,7 +121,7 @@ class IpoDemandForecastCollector {
     /** 지표나 확정 공모가가 비어 있고 청약이 최근이거나 다가오는 공모주 딜. */
     static boolean needsWork(IpoDealEntity deal, LocalDate today) {
         if (deal.isRightsOffering() || (deal.getMetricsSource() != null && deal.getOfferPriceFinal() != null
-                && !wantsFloat(deal))) {
+                && !wantsFloat(deal, today))) {
             return false; // 유상증자, 또는 지표(자동·수동)·확정가·유통가능물량(스팩 아닌 공모주만)을 다 채웠다
         }
         LocalDate start = deal.getSubscriptionStart();
@@ -143,10 +143,23 @@ class IpoDemandForecastCollector {
                 && !IpoSyncScheduler.isSpac(deal.getCorpName());
     }
 
+    /**
+     * 오늘도 유통가능물량을 찾을 딜 — 청약이 끝났거나 상장했으면 그만 찾는다(2026-10-22). 유통가능물량은 청약 전 추천에만 쓰는데,
+     * 10/15 상장한 멜콘·진코스텍을 매일 다시 읽어 "찾지 못함(내일 다시)"이 이어졌다.
+     */
+    static boolean wantsFloat(IpoDealEntity deal, LocalDate today) {
+        if (!wantsFloat(deal)) {
+            return false;
+        }
+        LocalDate end = deal.getSubscriptionEnd();
+        LocalDate listing = deal.getListingDate();
+        return (end == null || !end.isBefore(today)) && (listing == null || listing.isAfter(today));
+    }
+
     private Result collectCorp(String corpCode, List<IpoDealEntity> pending, LocalDate today) {
         boolean metricsWanted = pending.stream().anyMatch(d -> d.getMetricsSource() == null);
         boolean priceWanted = pending.stream().anyMatch(d -> d.getOfferPriceFinal() == null);
-        boolean floatWanted = pending.stream().anyMatch(IpoDemandForecastCollector::wantsFloat);
+        boolean floatWanted = pending.stream().anyMatch(d -> wantsFloat(d, today));
         LocalDate firstFiled = pending.stream()
                 .map(d -> IpoOfferingClassifier.rceptDate(d.getRceptNo()).orElse(today))
                 .min(Comparator.naturalOrder())

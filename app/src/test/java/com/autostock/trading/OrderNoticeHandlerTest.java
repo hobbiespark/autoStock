@@ -96,7 +96,7 @@ class OrderNoticeHandlerTest {
 
     private OrderRequest order(String idempotencyKey) {
         return new OrderRequest(idempotencyKey, "test-strategy", new StockCode("005930"), Side.BUY,
-                new Quantity(10), new Price(new BigDecimal("70000")), Instant.now());
+                new Quantity(10), new Price(new BigDecimal("70000")), Instant.now(), null);
     }
 
     private OrderNotice notice(String status, long filledQuantity, BigDecimal fillPrice) {

@@ -42,7 +42,7 @@ class EventAuditListenerTest {
     private static final Instant AT = Instant.parse("2026-10-06T00:05:00Z");
 
     @Test
-    void 타입별_스키마_버전을_남긴다_Signal은_2_Fill은_1() {
+    void 타입별_스키마_버전을_남긴다_Signal은_3_Fill은_1() {
         listener.on(new Signal("C3-MOMENTUM", new StockCode("005930"), Side.BUY, new Price(new BigDecimal("259500")),
                 0.8, AT));
         listener.on(new Fill("k1", new BrokerOrderId("0119433"), new StockCode("005930"), Side.BUY, new Quantity(3),
@@ -51,7 +51,7 @@ class EventAuditListenerTest {
         ArgumentCaptor<EventRecord> saved = ArgumentCaptor.forClass(EventRecord.class);
         verify(repository, org.mockito.Mockito.times(2)).save(saved.capture());
         assertEquals("Signal", saved.getAllValues().get(0).getEventType());
-        assertEquals(2, saved.getAllValues().get(0).getSchemaVersion());
+        assertEquals(3, saved.getAllValues().get(0).getSchemaVersion());   // v3 benchmarkPrice(2026-10-22)
         assertEquals("Fill", saved.getAllValues().get(1).getEventType());
         assertEquals(1, saved.getAllValues().get(1).getSchemaVersion());
     }

@@ -26,16 +26,25 @@ public class PerformanceController {
 
     private final DailyPerformanceRepository repository;
     private final Clock clock;
+    /** 성과 측정 시작일(2026-10-22) — 운용 자금 2,000만 원 전 기록은 추이에 넣지 않는다. */
+    private final PerformanceProperties performance;
 
+    /** 시작일 없는 생성자 — 시험용(예전 동작). */
     public PerformanceController(DailyPerformanceRepository repository, Clock clock) {
+        this(repository, clock, PerformanceProperties.none());
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public PerformanceController(DailyPerformanceRepository repository, Clock clock, PerformanceProperties performance) {
         this.repository = repository;
         this.clock = clock;
+        this.performance = performance == null ? PerformanceProperties.none() : performance;
     }
 
     @GetMapping("/daily")
     public List<DailyPerformanceView> daily(@RequestParam(required = false) Integer days) {
         int effectiveDays = clampDays(days);
-        LocalDate since = LocalDate.now(clock.withZone(MarketConstants.KST)).minusDays(effectiveDays);
+        LocalDate since = performance.clamp(LocalDate.now(clock.withZone(MarketConstants.KST)).minusDays(effectiveDays));
         return repository.findByTradeDateGreaterThanEqualOrderByTradeDateAsc(since).stream()
                 .map(PerformanceController::toView)
                 .toList();

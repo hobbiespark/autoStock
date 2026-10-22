@@ -236,7 +236,7 @@ public class DayBreakoutStrategy {
                 : "평단×(1−" + properties.stopLoss() + ")");
         log.info("{}: {} {} — 체결가 {} / 평단 {}", STRATEGY_ID, reason, StockNames.label(symbol), price.toPlainString(),
                 position.avgPrice().toPlainString());
-        outbox.sell(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(price, 1 - properties.sellSlack()),
+        outbox.sell(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(price, 1 - properties.sellSlack()), price,
                 reason + " — 체결가 " + price.toPlainString() + ", 평단 " + position.avgPrice().toPlainString(), metrics);
     }
 
@@ -283,7 +283,8 @@ public class DayBreakoutStrategy {
         metrics.put("sma", setup.smaClose().toPlainString());
         log.info("{}: 돌파 매수 {} — 체결가 {} ≥ 목표가 {}(시가 {} + {}×전일폭)", STRATEGY_ID, StockNames.label(symbol),
                 price.toPlainString(), target.toPlainString(), open.toPlainString(), properties.k());
-        outbox.buy(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(price, 1 + properties.buySlack()), 1.0,
+        // 슬리피지 기준 = 목표가(백테스트 B안의 체결가). 지정가는 체결가 × (1 + 여유)
+        outbox.buy(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(price, 1 + properties.buySlack()), target, 1.0,
                 "변동성 돌파 — 체결가 " + price.toPlainString() + " ≥ 목표가 " + target.toPlainString(), metrics);
     }
 
@@ -323,17 +324,45 @@ public class DayBreakoutStrategy {
             return;
         }
         int left = book.openPositionCount(STRATEGY_ID);
-        String line = "%s %s 요약 — 진입 %d · 익절 %d · 손절 %d · 시간 청산 %d%s".formatted(STRATEGY_ID, guard.today(),
-                entries.get(), takeProfits.get(), stopLosses.get(), timeExits.get(),
+        String line = "%s %s 요약 — %s · 진입 %d · 익절 %d · 손절 %d · 시간 청산 %d%s".formatted(STRATEGY_ID, guard.today(),
+                funnel(), entries.get(), takeProfits.get(), stopLosses.get(), timeExits.get(),
                 left > 0 ? " · 아직 보유 " + left + "종목(내일 09:00 정리)" : "");
         log.info(line);
         publisher.publishEvent(new StrategyRunCompleted(STRATEGY_ID, guard.today(), line, left > 0 ? 1 : 0,
                 clock.instant()));
     }
 
+    /**
+     * 진입 단계별 수(2026-10-22) — "진입 0"만으로는 왜 안 샀는지 로그로 알 수 없었다(10/21·10/22 전일 양봉 1·8, 진입 0).
+     * 전일 양봉 → 시가 확인 → 시가 &gt; SMA(필터 통과, 목표가 함께). 목표가 도달 여부는 진입 수로 본다.
+     */
+    String funnel() {
+        int prevUp = 0;
+        int opened = 0;
+        List<String> passed = new ArrayList<>();
+        for (Map.Entry<String, DayBreakoutMath.Setup> e : setups.entrySet()) {
+            if (!e.getValue().prevUp()) {
+                continue;
+            }
+            prevUp++;
+            BigDecimal open = market.knownOpen(e.getKey());
+            if (open == null) {
+                continue;
+            }
+            opened++;
+            if (DayBreakoutMath.passesFilters(e.getValue(), open)) {
+                passed.add(StockNames.label(e.getKey()) + " 목표 "
+                        + DayBreakoutMath.target(e.getValue(), open, properties.k()).setScale(0, java.math.RoundingMode.HALF_UP)
+                                .toPlainString());
+            }
+        }
+        return "전일 양봉 %d · 시가 확인 %d · 시가>SMA%d %d%s".formatted(prevUp, opened, properties.smaDays(), passed.size(),
+                passed.isEmpty() ? "" : "(" + String.join(", ", passed) + ")");
+    }
+
     private void sellNow(String symbol, String reason) {
         BigDecimal bid = market.bestBid(symbol);
-        outbox.sell(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(bid, 1 - properties.sellSlack()), reason,
+        outbox.sell(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(bid, 1 - properties.sellSlack()), bid, reason,
                 Map.of("bestBid", bid == null ? "N/A" : bid.toPlainString()));
     }
 

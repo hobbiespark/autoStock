@@ -123,7 +123,26 @@ class DailyReportSchedulerTest {
 
         String notice = (String) notices.get(0);
         assertTrue(notice.contains("전략별(오늘"), notice);
-        assertTrue(notice.contains("VB-DAY 매수 0·매도 0 실현 0원(이익 0·손실 0) 보유 1"), notice);
+        assertTrue(notice.contains("VB-DAY 체결 매수 0·매도 0 실현 0원(종목별 이익 0·손실 0) 보유 1"), notice);
+    }
+
+    @Test
+    void 성과_측정_시작일부터_누적을_붙인다() {
+        // 2026-10-22: 운용 자금 2,000만 원 뒤로 성과를 다시 잰다 — 시작일 전 행은 조회 범위에서 빠진다(저장소가 거른다)
+        DailyPerformanceRepository repository = mock(DailyPerformanceRepository.class);
+        DailyPerformanceEntity yesterday = new DailyPerformanceEntity(LocalDate.of(2026, 8, 12), Instant.now());
+        yesterday.update(new BigDecimal("50000"), 2, 2, 0.0, 0.0, false, false);
+        org.mockito.Mockito.when(repository.findByTradeDateGreaterThanEqualOrderByTradeDateAsc(LocalDate.of(2026, 8, 12)))
+                .thenReturn(List.of(yesterday));
+        DailyReportScheduler withTracking = scheduler(TradingProperties.Mode.SIM, clock);
+        withTracking.setPerformanceTracking(repository, new PerformanceProperties(LocalDate.of(2026, 8, 12)),
+                new com.autostock.risk.TradingCapitalProperties(20_000_000, 2.0));
+
+        withTracking.sendDailyReport();
+
+        String notice = (String) notices.get(0);
+        assertTrue(notice.contains("운용 자금 성과(2026-08-12~, 기록 2일): 누적 실현손익 50,000원(매입가 기준) — 운용 자금 20,000,000원 대비 +0.25%"),
+                notice);
     }
 
     @Test
@@ -169,7 +188,7 @@ class DailyReportSchedulerTest {
     void 슬리피지_최대_종목도_종목명과_코드로_표시한다() {
         StockNames.learn("000660", "SK하이닉스", StockNames.Source.KIWOOM);
         slippageTracker.onOrderRequest(new OrderRequest("O1", "C3", new StockCode("000660"), Side.BUY, new Quantity(1),
-                new Price(new BigDecimal("200000")), Instant.now()));
+                new Price(new BigDecimal("200000")), Instant.now(), null));
         slippageTracker.onFill(new Fill("O1", new BrokerOrderId("b1"), new StockCode("000660"), Side.BUY, new Quantity(1),
                 new Price(new BigDecimal("200200")), Instant.now()));
 
