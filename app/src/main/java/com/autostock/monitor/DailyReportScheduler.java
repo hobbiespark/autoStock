@@ -10,14 +10,17 @@ import com.autostock.risk.DailyPnlTracker;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.MacroGuard;
 import com.autostock.portfolio.PositionBook;
+import com.autostock.portfolio.StrategyBook;
 import com.autostock.trading.TradingProperties;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.LocalDate;
+import java.util.List;
 
 /**
  * 일일 성과 리포트 — 매 평일 15:50(KST) 장 마감(15:30) 직후 오늘 하루 요약을 알림으로 보낸다.
@@ -51,6 +54,13 @@ public class DailyReportScheduler {
     private final MarketCalendarService marketCalendar;
     private final TradingProperties tradingProperties;
     private final Clock clock;
+    /** 전략별 장부(2026-10-16 다전략) — 있으면 리포트에 전략별 줄을 붙인다. 시험 생성자 호환을 위해 setter 주입. */
+    private StrategyBook strategyBook;
+
+    @Autowired(required = false)
+    void setStrategyBook(StrategyBook strategyBook) {
+        this.strategyBook = strategyBook;
+    }
 
     public DailyReportScheduler(PositionBook positionBook,
                                 BrokerPort brokerPort,
@@ -87,6 +97,28 @@ public class DailyReportScheduler {
         log.info("일일 리포트 발송 — 주문 {}건 · 실현손익 {}원(매입가 기준) · 한도 기준 손익 {}원 · 킬스위치 {} · 보유 {}종목",
                 dailyLimits.todayOrderCount(), won(dailyPnl.todayRealizedPnl()), won(dailyPnl.todayPnlForLimit()),
                 killSwitch.isEngaged() ? "작동 중" : "정상", positionBook.snapshot().size());
+        List<String> strategyLines = strategyLines();
+        if (!strategyLines.isEmpty()) {
+            log.info("일일 리포트 전략별 — {}", String.join(" / ", strategyLines));
+        }
+    }
+
+    /**
+     * 전략별 한 줄(2026-10-16) — 체결 수·실현손익(추정 비용 차감)·이익/손실 매도 수·보유 종목 수. 장부가 없거나 조회가 실패하면 빈 목록.
+     */
+    List<String> strategyLines() {
+        if (strategyBook == null) {
+            return List.of();
+        }
+        try {
+            return strategyBook.daySummaries(LocalDate.now(clock.withZone(MarketConstants.KST))).stream()
+                    .map(s -> "%s 매수 %d·매도 %d 실현 %,d원(이익 %d·손실 %d) 보유 %d".formatted(s.strategyId(), s.buyFills(),
+                            s.sellFills(), won(s.realizedPnl()), s.wins(), s.losses(), s.openPositions()))
+                    .toList();
+        } catch (RuntimeException e) {
+            log.warn("일일 리포트 전략별 집계 실패: {}", e.toString());
+            return List.of();
+        }
     }
 
     /** 리포트와 같은 집계값으로 그날의 성과 스냅샷을 upsert한다(FE-2). */
@@ -122,6 +154,11 @@ public class DailyReportScheduler {
         positions.forEach((symbol, position) ->
                 sb.append("\n- ").append(StockNames.label(symbol)).append(' ')
                         .append(position.quantity()).append("주 @ ").append(position.avgPriceText()));
+        List<String> strategyLines = strategyLines();
+        if (!strategyLines.isEmpty()) {
+            sb.append("\n전략별(오늘, 실현손익은 추정 비용 차감):");
+            strategyLines.forEach(line -> sb.append("\n- ").append(line));
+        }
         sb.append('\n').append(balanceLine());
         return sb.toString();
     }

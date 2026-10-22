@@ -175,18 +175,27 @@ public class KiwoomBrokerAdapter implements BrokerPort {
             return null;
         }
         StockCode symbol = new StockCode(rawSymbol);
-        Side side = parseSide(raw.get("trde_tp")); // TODO 실측: "1"=매도/"2"=매수 등 코드 체계 추정
+        // 실측(2026-10-15·16 TR 실측 ka10075, data/measured/tr_probe): 방향은 io_tp_nm("+매수"/"-매도"), trde_tp는 매매구분
+        // ("보통" = 지정가)이라 방향이 아니다 — 예전에는 trde_tp를 읽어 "예상 밖 값: 보통 — BUY로 간주" WARN이 났다(10/16 15:28).
+        Side side = parseSide(raw.get("io_tp_nm"), raw.get("trde_tp"));
         long quantity = KiwoomNumbers.toLongOrZero(raw.get("ord_qty"));
-        // TODO 실측: 미체결잔량 필드명 추정("un_qty" 등 실제 값 미확인) — 없으면 주문수량 전량 미체결로 간주
-        long remaining = raw.containsKey("un_qty")
-                ? KiwoomNumbers.toLongOrZero(raw.get("un_qty"))
+        // 실측: 미체결잔량 = oso_qty. 없으면(옛 추정 un_qty) 그 값, 둘 다 없으면 주문수량 전량 미체결로 간주
+        long remaining = raw.containsKey("oso_qty") ? KiwoomNumbers.toLongOrZero(raw.get("oso_qty"))
+                : raw.containsKey("un_qty") ? KiwoomNumbers.toLongOrZero(raw.get("un_qty"))
                 : quantity;
         return new BrokerOutstandingOrder(brokerOrderId, symbol, side, quantity, remaining);
     }
 
-    /** TODO 실측: 매매구분 코드 체계 추정. 알 수 없는 값은 안전하게 BUY로 간주하지 않고 로그만 남긴다. */
-    private Side parseSide(Object raw) {
-        String code = String.valueOf(raw);
+    /** 방향 — io_tp_nm("+매수"·"-매도"·"매수정정" 등, 실측)을 먼저 보고, 없으면 옛 추정(코드 "1"/"2"). */
+    private Side parseSide(Object ioTypeName, Object tradeType) {
+        String name = ioTypeName == null ? "" : String.valueOf(ioTypeName);
+        if (name.contains("매도")) {
+            return Side.SELL;
+        }
+        if (name.contains("매수")) {
+            return Side.BUY;
+        }
+        String code = String.valueOf(tradeType);
         if ("2".equals(code)) {
             return Side.BUY;
         }

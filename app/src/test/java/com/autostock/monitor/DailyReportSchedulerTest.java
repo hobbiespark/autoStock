@@ -105,6 +105,28 @@ class DailyReportSchedulerTest {
     }
 
     @Test
+    void 전략별_장부가_있으면_전략별_줄을_붙인다() {
+        com.autostock.portfolio.StrategyFillRepository fills = mock(com.autostock.portfolio.StrategyFillRepository.class);
+        com.autostock.portfolio.StrategyPositionRepository positions = mock(com.autostock.portfolio.StrategyPositionRepository.class);
+        org.mockito.Mockito.when(positions.findAll()).thenReturn(List.of());
+        org.mockito.Mockito.when(fills.findByFilledAtGreaterThanEqualAndFilledAtLessThan(org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.any())).thenReturn(List.of());
+        com.autostock.portfolio.StrategyBook book = new com.autostock.portfolio.StrategyBook(positions, fills, clock,
+                0.00015, 0.0020);
+        book.onFill(new com.autostock.common.event.Fill("20260813-VB-DAY-005930-BUY-001", new BrokerOrderId("b1"),
+                new StockCode("005930"), com.autostock.common.event.Side.BUY, new com.autostock.common.util.Quantity(10),
+                new com.autostock.common.util.Price(new BigDecimal("100000")), clock.instant()));
+        DailyReportScheduler withBook = scheduler(TradingProperties.Mode.SIM, clock);
+        withBook.setStrategyBook(book);
+
+        withBook.sendDailyReport();
+
+        String notice = (String) notices.get(0);
+        assertTrue(notice.contains("전략별(오늘"), notice);
+        assertTrue(notice.contains("VB-DAY 매수 0·매도 0 실현 0원(이익 0·손실 0) 보유 1"), notice);
+    }
+
+    @Test
     void SIM이면_잔고를_조회하지_않는다() {
         balanceFailure = new IllegalStateException("호출되면 안 됨");
 

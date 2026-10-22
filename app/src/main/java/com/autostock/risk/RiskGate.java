@@ -12,8 +12,10 @@ import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.portfolio.PositionBook;
+import com.autostock.portfolio.StrategyBook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
@@ -22,6 +24,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDateTime;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -92,7 +95,11 @@ public class RiskGate {
     private final MacroGuard macroGuard;
     private final DisclosureBlacklist disclosureBlacklist;
     private final OpenOrderQuery openOrderQuery;
+    /** 전략별 장부 — 슬리브가 있는 전략의 보유 판단(2026-10-16). null이면 슬리브를 쓰지 않는다(시험용 생성자). */
+    private final StrategyBook strategyBook;
+    private final MultiStrategyRiskProperties multiStrategy;
 
+    /** 슬리브 없는 생성자 — 기존 시험용. 운영은 {@link #RiskGate(ApplicationEventPublisher, KillSwitch, RiskProperties, PositionSizer, PositionBook, DailyLimitTracker, EquitySource, Clock, MarketCalendarService, MacroGuard, DisclosureBlacklist, OpenOrderQuery, StrategyBook, MultiStrategyRiskProperties)}. */
     public RiskGate(ApplicationEventPublisher publisher,
                     KillSwitch killSwitch,
                     RiskProperties properties,
@@ -105,6 +112,28 @@ public class RiskGate {
                     MacroGuard macroGuard,
                     DisclosureBlacklist disclosureBlacklist,
                     OpenOrderQuery openOrderQuery) {
+        this(publisher, killSwitch, properties, sizer, positionBook, dailyLimits, equitySource, clock,
+                marketCalendarService, macroGuard, disclosureBlacklist, openOrderQuery, null,
+                MultiStrategyRiskProperties.none());
+    }
+
+    @Autowired
+    public RiskGate(ApplicationEventPublisher publisher,
+                    KillSwitch killSwitch,
+                    RiskProperties properties,
+                    PositionSizer sizer,
+                    PositionBook positionBook,
+                    DailyLimitTracker dailyLimits,
+                    EquitySource equitySource,
+                    Clock clock,
+                    MarketCalendarService marketCalendarService,
+                    MacroGuard macroGuard,
+                    DisclosureBlacklist disclosureBlacklist,
+                    OpenOrderQuery openOrderQuery,
+                    StrategyBook strategyBook,
+                    MultiStrategyRiskProperties multiStrategy) {
+        this.strategyBook = strategyBook;
+        this.multiStrategy = multiStrategy == null ? MultiStrategyRiskProperties.none() : multiStrategy;
         this.publisher = publisher;
         this.killSwitch = killSwitch;
         this.properties = properties;
@@ -139,9 +168,14 @@ public class RiskGate {
         // 텔레그램 명령·일 손실 한도·WS 단절 등 어떤 이유로든 비상 정지 상태면
         // 신규 주문은 전면 차단된다.
         if (killSwitch.isEngaged()) {
-            log.warn("킬스위치 작동 중 — 시그널 거부: {}", StockNames.label(signal.symbol()));
-            publishRejected(signal, "킬스위치 작동 중 — 시그널 거부", Map.of());
-            return;
+            if (reducingSellAllowed(signal)) {
+                log.info("킬스위치(일 손실 한도) 작동 중 — 보유 이내 매도는 허용(D-20 b): {} {}", signal.strategyId(),
+                        StockNames.label(signal.symbol()));
+            } else {
+                log.warn("킬스위치 작동 중 — 시그널 거부: {}", StockNames.label(signal.symbol()));
+                publishRejected(signal, "킬스위치 작동 중 — 시그널 거부", Map.of());
+                return;
+            }
         }
 
         // ── 2단계: 사이징 (몇 주?) ──────────────────────────────────────
@@ -153,8 +187,9 @@ public class RiskGate {
         long quantity = signal.fixedQuantity() != null
                 ? sizeManual(signal)
                 : switch (signal.side()) {
-                    case BUY -> sizeBuy(signal);
-                    case SELL -> sizeSell(signal);
+                    case BUY -> sleeveOf(signal).map(s -> sizeSleeveBuy(signal, s)).orElseGet(() -> sizeBuy(signal));
+                    case SELL -> sleeveOf(signal).isPresent() && strategyBook != null
+                            ? sizeSleeveSell(signal) : sizeSell(signal);
                 };
         if (quantity <= 0) {
             return; // 거부 사유는 sizeBuy/sizeSell 안에서 이미 로그로 남겼다
@@ -217,6 +252,173 @@ public class RiskGate {
     /** 시그널 기준가(원). 없으면 null — 사이징(매수)과 지정가 산출(매도)이 각각 거부 사유로 다룬다. */
     private static BigDecimal refPriceOf(Signal signal) {
         return signal.refPrice() == null ? null : signal.refPrice().value();
+    }
+
+    /** 기동 — 다전략 슬리브 설정을 한 줄로 남긴다(설정이 실제로 들어갔는지 로그로 확인). */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void announceSleeves() {
+        if (multiStrategy.sleeves().isEmpty()) {
+            return;
+        }
+        String sleeves = multiStrategy.sleeves().stream()
+                .map(s -> "%s %s%%/%d".formatted(s.strategy(),
+                        BigDecimal.valueOf(s.fraction()).movePointRight(2).stripTrailingZeros().toPlainString(),
+                        s.maxPositions()))
+                .collect(java.util.stream.Collectors.joining(" · "));
+        log.info("다전략 슬리브: {} — 일 손실 한도 {}%, 일 주문 {}건, 계좌 동시 보유 {}, 손실 한도 킬스위치 중 보유 매도 {}", sleeves,
+                BigDecimal.valueOf(properties.dailyMaxLossPct()).movePointRight(2).stripTrailingZeros().toPlainString(),
+                properties.dailyMaxOrders(), properties.maxConcurrentPositions(),
+                multiStrategy.allowReducingSellOnLossLimit() ? "허용" : "차단");
+    }
+
+    /** 슬리브가 있는 전략인가 — 전략 장부가 없으면(시험용 생성자) 슬리브를 쓰지 않는다. */
+    private Optional<MultiStrategyRiskProperties.Sleeve> sleeveOf(Signal signal) {
+        if (strategyBook == null) {
+            return Optional.empty();
+        }
+        return multiStrategy.sleeveOf(signal.strategyId());
+    }
+
+    /**
+     * 킬스위치 중 매도 예외(D-20 b, 2026-10-16) — 설정이 켜져 있고, 킬스위치 사유가 일 손실 한도이고, 매도이며,
+     * 팔 보유가 있을 때만. 사이징 단계가 보유 수량 이내로 자른다(매도는 노출을 줄이는 방향이다).
+     */
+    private boolean reducingSellAllowed(Signal signal) {
+        if (!multiStrategy.allowReducingSellOnLossLimit() || signal.side() != Side.SELL) {
+            return false;
+        }
+        boolean lossLimit = killSwitch.engagedReason().map(r -> r.contains(DailyPnlTracker.LOSS_LIMIT_REASON_PREFIX))
+                .orElse(false);
+        return lossLimit && positionBook.holds(signal.symbol());
+    }
+
+    /** 전략 ID 정규화 — ClientOrderId·전략 장부는 대문자다. */
+    private static String strategyKey(Signal signal) {
+        return signal.strategyId() == null ? "" : signal.strategyId().toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * 슬리브 전략의 매수 수량(2026-10-16, aiDoc/multi-strategy-paper-2026-10-16.md 1-1절).
+     * <ul>
+     *   <li>거시 보수 모드·공시 블랙리스트 — 예전과 같다(계좌 공통)</li>
+     *   <li>보유 중복·미체결 매수·동시 보유 — <b>그 전략</b> 기준(다른 전략이 든 종목도 살 수 있다)</li>
+     *   <li>계좌 동시 보유 상한({@code risk.max-concurrent-positions}) — 새 종목이 늘어날 때만 센다</li>
+     *   <li>예산 = 계좌 평가액 × 슬리브 ÷ 전략 동시 보유 상한 × 신호 비중</li>
+     * </ul>
+     */
+    private long sizeSleeveBuy(Signal signal, MultiStrategyRiskProperties.Sleeve sleeve) {
+        Optional<String> macroBlock = macroGuard.buyBlockReason();
+        if (macroBlock.isPresent()) {
+            log.info("{}: {} {}", macroBlock.get(), signal.strategyId(), StockNames.label(signal.symbol()));
+            publishRejected(signal, macroBlock.get(), Map.of());
+            return 0;
+        }
+        if (disclosureBlacklist.isBlacklisted(signal.symbol().value())) {
+            log.info("공시 블랙리스트 종목 — 매수 거부: {} {}", signal.strategyId(), StockNames.label(signal.symbol()));
+            publishRejected(signal, "공시 블랙리스트 종목 — 매수 거부", Map.of());
+            return 0;
+        }
+        String strategy = strategyKey(signal);
+        if (strategyBook.holds(strategy, signal.symbol())) {
+            log.info("이 전략이 이미 보유 중 — 추가 매수 차단: {} {}", strategy, StockNames.label(signal.symbol()));
+            publishRejected(signal, "이 전략이 이미 보유 중 — 추가 매수 차단", Map.of());
+            return 0;
+        }
+        Set<StockCode> strategyOpenBuys;
+        Set<StockCode> accountOpenBuys;
+        try {
+            strategyOpenBuys = openOrderQuery.symbolsWithOpenOrder(strategy, Side.BUY);
+            accountOpenBuys = openOrderQuery.symbolsWithOpenBuy();
+        } catch (RuntimeException e) {
+            log.warn("미체결 주문 조회 실패 — 매수 거부: {} {}", strategy, StockNames.label(signal.symbol()), e);
+            publishRejected(signal, "미체결 주문 조회 실패 — 매수 거부", Map.of());
+            return 0;
+        }
+        if (strategyOpenBuys.contains(signal.symbol())) {
+            log.info("이 전략의 미체결 매수 있음 — 추가 매수 차단: {} {}", strategy, StockNames.label(signal.symbol()));
+            publishRejected(signal, "이 전략의 미체결 매수 있음 — 추가 매수 차단", Map.of());
+            return 0;
+        }
+        long strategyPending = strategyOpenBuys.stream().filter(s -> !strategyBook.holds(strategy, s)).count();
+        int strategyOpen = strategyBook.openPositionCount(strategy);
+        if (strategyOpen + strategyPending >= sleeve.maxPositions()) {
+            log.info("전략 동시 보유 한도 도달({}) — 매수 거부: {} {} (보유 {}, 미체결 매수 {})", sleeve.maxPositions(),
+                    strategy, StockNames.label(signal.symbol()), strategyOpen, strategyPending);
+            publishRejected(signal, "전략 동시 보유 한도 도달(" + sleeve.maxPositions() + ") — 매수 거부",
+                    Map.of("openPositionCount", String.valueOf(strategyOpen),
+                            "pendingBuyCount", String.valueOf(strategyPending)));
+            return 0;
+        }
+        if (!positionBook.holds(signal.symbol()) && !accountOpenBuys.contains(signal.symbol())) {
+            long accountPending = accountOpenBuys.stream().filter(s -> !positionBook.holds(s)).count();
+            int accountOpen = positionBook.openPositionCount();
+            if (accountOpen + accountPending >= properties.maxConcurrentPositions()) {
+                log.info("계좌 동시 보유 한도 도달({}) — 매수 거부: {} {}", properties.maxConcurrentPositions(), strategy,
+                        StockNames.label(signal.symbol()));
+                publishRejected(signal, "계좌 동시 보유 한도 도달(" + properties.maxConcurrentPositions() + ") — 매수 거부",
+                        Map.of("openPositionCount", String.valueOf(accountOpen),
+                                "pendingBuyCount", String.valueOf(accountPending)));
+                return 0;
+            }
+        }
+        BigDecimal equity = equitySource.equity();
+        double confidence = clampConfidence(signal);
+        BigDecimal price = refPriceOf(signal);
+        long qty = 0;
+        if (price != null && price.signum() > 0 && equity != null && equity.signum() > 0) {
+            // 실수 나눗셈(0.15/3 = 0.0499…)으로 1주가 깎이지 않게 금액 단위로 나눈다
+            BigDecimal budget = equity.multiply(BigDecimal.valueOf(sleeve.fraction()))
+                    .divide(BigDecimal.valueOf(sleeve.maxPositions()), 10, java.math.RoundingMode.HALF_UP)
+                    .multiply(BigDecimal.valueOf(confidence));
+            qty = budget.divide(price, 0, java.math.RoundingMode.DOWN).longValue();
+        }
+        if (qty <= 0) {
+            log.info("사이징 결과 0주 — 매수 불가: {} {} (equity={}, 슬리브 {}÷{}, price={}, confidence={})", strategy,
+                    StockNames.label(signal.symbol()), equity, sleeve.fraction(), sleeve.maxPositions(),
+                    signal.refPrice(), confidence);
+            publishRejected(signal, "사이징 결과 0주 — 매수 불가",
+                    Map.of("equity", String.valueOf(equity), "confidence", String.valueOf(confidence),
+                            "sleeve", String.valueOf(sleeve.fraction())));
+        }
+        return qty;
+    }
+
+    /**
+     * 슬리브 전략의 매도 수량 — 그 전략이 든 수량 전부(계좌 수량보다 많으면 계좌 수량까지). 그 전략의 미체결 매도가
+     * 이미 있으면 거부한다(같은 청산을 두 번 내지 않게).
+     */
+    private long sizeSleeveSell(Signal signal) {
+        String strategy = strategyKey(signal);
+        Optional<PositionBook.Position> mine = strategyBook.position(strategy, signal.symbol());
+        if (mine.isEmpty()) {
+            log.info("이 전략은 보유하지 않음 — 매도 시그널 무시: {} {}", strategy, StockNames.label(signal.symbol()));
+            publishRejected(signal, "이 전략은 보유하지 않음 — 매도 시그널 무시", Map.of());
+            return 0;
+        }
+        try {
+            if (openOrderQuery.symbolsWithOpenOrder(strategy, Side.SELL).contains(signal.symbol())) {
+                log.info("이 전략의 미체결 매도 있음 — 중복 매도 차단: {} {}", strategy, StockNames.label(signal.symbol()));
+                publishRejected(signal, "이 전략의 미체결 매도 있음 — 중복 매도 차단", Map.of());
+                return 0;
+            }
+        } catch (RuntimeException e) {
+            log.warn("미체결 매도 조회 실패 — 그대로 진행(매도는 노출을 줄인다): {} {}", strategy,
+                    StockNames.label(signal.symbol()), e);
+        }
+        long qty = mine.get().quantity();
+        PositionBook.Position account = positionBook.get(signal.symbol());
+        if (account == null) {
+            log.warn("전략 장부엔 {}주 있는데 계좌 장부엔 없음 — 매도 거부(장부 어긋남 확인 필요): {} {}", qty, strategy,
+                    StockNames.label(signal.symbol()));
+            publishRejected(signal, "계좌 장부에 보유 없음 — 매도 거부(장부 어긋남)", Map.of("strategyQuantity", String.valueOf(qty)));
+            return 0;
+        }
+        if (account.quantity() < qty) {
+            log.warn("전략 장부 {}주 > 계좌 {}주 — 계좌 수량까지만 매도: {} {}", qty, account.quantity(), strategy,
+                    StockNames.label(signal.symbol()));
+            qty = account.quantity();
+        }
+        return qty;
     }
 
     /**
@@ -429,8 +631,24 @@ public class RiskGate {
                 clock.instant()));
     }
 
-    /** strategyId → 보유기간 지평(ADR-11) 매핑. C3 계열만 "MID", 그 외는 "TEST". */
-    private static String horizonFor(String strategyId) {
-        return strategyId != null && strategyId.startsWith("C3") ? "MID" : "TEST";
+    /**
+     * strategyId → 보유기간 지평(ADR-11) 매핑. C3 "MID", 단타·종가→익일 "DAY", 차트 기법 "SWING", 그 외 "TEST"
+     * (2026-10-16 다전략 추가).
+     */
+    static String horizonFor(String strategyId) {
+        if (strategyId == null) {
+            return "TEST";
+        }
+        String id = strategyId.toUpperCase(Locale.ROOT);
+        if (id.startsWith("C3")) {
+            return "MID";
+        }
+        if (id.startsWith("VB-") || id.startsWith("ON-")) {
+            return "DAY";
+        }
+        if (id.startsWith("TA-")) {
+            return "SWING";
+        }
+        return "TEST";
     }
 }

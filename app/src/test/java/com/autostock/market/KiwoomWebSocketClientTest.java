@@ -150,9 +150,119 @@ class KiwoomWebSocketClientTest {
         client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(
                 "{\"trnm\":\"LOGIN\",\"return_code\":0,\"return_msg\":\"\",\"sor_yn\":\"Y\"}"));
 
-        assertEquals(2, sent.size()); // 시세 REG(005930) + 체결통보 REG(grp_no 2)
-        assertTrue(sent.get(0).contains("005930"));
-        assertTrue(sent.get(1).contains("\"00\""));
+        assertEquals(2, sent.size()); // 체결통보 REG(grp_no 2) 먼저 + 시세 REG(005930)
+        assertTrue(sent.get(0).contains("\"00\""));
+        assertTrue(sent.get(1).contains("005930"));
+    }
+
+    // ── REG 묶음 전송·거절 뒤 재등록 (2026-10-16 운영: 종목별 REG 24건 중 19건 105110 거절) ─────────
+
+    private static final String LOGIN_OK = "{\"trnm\":\"LOGIN\",\"return_code\":0,\"return_msg\":\"\",\"sor_yn\":\"Y\"}";
+    private static final String REG_REJECTED =
+            "{\"trnm\":\"REG\",\"return_code\":105110,\"return_msg\":\"해당 TRNM으로 허용된 요청 건수를 초과하였습니다 (TRNM=REG)\"}";
+
+    @Test
+    void LOGIN_뒤_23종목은_체결통보_1건과_시세_REG_1건으로_묶어_보낸다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        List<String> symbols = new ArrayList<>();
+        for (int i = 0; i < 23; i++) {
+            symbols.add(String.format("%06d", 100 + i));
+        }
+        client.subscribeAll(symbols);
+        client.afterConnectionEstablished(s);
+        sent.clear();
+
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(LOGIN_OK));
+
+        assertEquals(2, sent.size());
+        assertTrue(sent.get(0).contains("\"00\"") && sent.get(0).contains("\"grp_no\":\"2\""));
+        var reg = new ObjectMapper().readTree(sent.get(1));
+        assertEquals("REG", reg.path("trnm").asText());
+        assertEquals(23, reg.path("data").get(0).path("item").size());
+        assertEquals("0B", reg.path("data").get(0).path("type").get(0).asText());
+    }
+
+    @Test
+    void 종목이_REG_CHUNK를_넘으면_나눠_보낸다() throws Exception {
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        List<String> symbols = new ArrayList<>();
+        for (int i = 0; i < KiwoomWebSocketClient.REG_CHUNK + 1; i++) {
+            symbols.add(String.format("%06d", 100 + i));
+        }
+        client.subscribeAll(symbols);
+        client.afterConnectionEstablished(s);
+        sent.clear();
+
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(LOGIN_OK));
+
+        assertEquals(3, sent.size()); // 체결통보 + 50 + 1
+    }
+
+    @Test
+    void REG가_거절되면_체결통보와_시세를_다시_등록하되_연결당_횟수를_넘지_않는다() throws Exception {
+        Runnable[] retry = new Runnable[1];
+        client.setDelayExecutors(r -> retry[0] = r, Runnable::run);
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        client.subscribeAll(List.of("005930", "000660"));
+        client.afterConnectionEstablished(s);
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(LOGIN_OK));
+        sent.clear();
+
+        // 거절 응답 여러 건이 와도 재등록 예약은 한 번
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(REG_REJECTED));
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(REG_REJECTED));
+        assertEquals(0, sent.size());
+        retry[0].run();
+        assertEquals(2, sent.size());
+        assertTrue(sent.get(0).contains("\"00\""));
+        assertTrue(sent.get(1).contains("005930") && sent.get(1).contains("000660"));
+
+        // 연결당 REG_MAX_RETRIES회까지만
+        int total = 1;
+        for (int i = 0; i < KiwoomWebSocketClient.REG_MAX_RETRIES + 2; i++) {
+            retry[0] = null;
+            client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(REG_REJECTED));
+            if (retry[0] != null) {
+                retry[0].run();
+                total++;
+            }
+        }
+        assertEquals(KiwoomWebSocketClient.REG_MAX_RETRIES, total);
+
+        // 새 LOGIN(재연결)이면 횟수가 다시 찬다
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(LOGIN_OK));
+        retry[0] = null;
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(REG_REJECTED));
+        assertTrue(retry[0] != null);
+    }
+
+    @Test
+    void LOGIN_뒤_subscribeAll은_모아서_REG_한_건으로_보낸다() throws Exception {
+        Runnable[] batch = new Runnable[1];
+        client.setDelayExecutors(Runnable::run, r -> batch[0] = r);
+        List<String> sent = new ArrayList<>();
+        var s = wsSession(sent);
+        client.afterConnectionEstablished(s);
+        client.handleTextMessage(s, new org.springframework.web.socket.TextMessage(LOGIN_OK));
+        sent.clear();
+
+        client.subscribeAll(List.of("005930", "000660"));
+        client.subscribe("035420");
+        client.subscribe("005930");   // 이미 구독 — 무시
+        assertEquals(0, sent.size());
+        batch[0].run();
+
+        assertEquals(1, sent.size());
+        var reg = new ObjectMapper().readTree(sent.get(0));
+        assertEquals(3, reg.path("data").get(0).path("item").size());
+    }
+
+    @Test
+    void 수신_버퍼는_묶음_REAL을_받을_만큼_크다() {
+        assertTrue(KiwoomWebSocketClient.MAX_TEXT_MESSAGE_BYTES >= 1024 * 1024);
     }
 
     @Test

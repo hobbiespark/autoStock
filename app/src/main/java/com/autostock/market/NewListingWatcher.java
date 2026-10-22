@@ -1,8 +1,10 @@
 package com.autostock.market;
 
+import com.autostock.common.event.ListingDayPrices;
 import com.autostock.common.event.RecentListings;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.SecretMasking;
+import com.autostock.common.util.StockNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -35,6 +37,11 @@ import java.util.stream.Collectors;
  *   <li><b>설정</b>: {@code autostock.listing-watch.enabled}(기본 꺼짐 — 시작 스크립트가 켠다. CI·테스트에서는 키움을 부르지 않는다).</li>
  * </ul>
  * 브로커 응답 번역(ka10099, 연속 조회)은 {@link MarketDataPort} 구현체가 맡는다.
+ *
+ * <p><b>상장일 시세</b>(2026-10-15, 공모주 청약 추천 — aiDoc/ipo-subscription-strategy.md): 거래일 15:40에 상장일이 최근
+ * {@value #PRICE_DAYS}일 안인 코스피·코스닥 종목(스팩·ETF·ETN 제외)의 상장일 시가·종가를 키움 일봉으로 확인해
+ * {@link ListingDayPrices}를 발행한다. ipo 모듈이 공모주 딜에 남기고, 다음 공모주의 "시장 분위기"(직전 상장 5곳의 상장일 종가 수익률)를
+ * 센다. 15:40~20:00에 켜지면 기동 직후에도 한 번 한다. 실패한 종목은 다음 거래일에 다시 본다(범위 안이면).
  */
 @Component
 public class NewListingWatcher {
@@ -48,6 +55,12 @@ public class NewListingWatcher {
     /** 기동 직후 따라잡기를 하는 시간대 — 종목 마스터가 그날 것으로 바뀐 뒤부터 저녁까지. */
     static final LocalTime CATCH_UP_FROM = LocalTime.of(8, 0);
     static final LocalTime CATCH_UP_UNTIL = LocalTime.of(20, 0);
+    /** 상장일 시세를 확인하는 범위(오늘 앞 일수) — 놓친 날(앱 꺼짐)을 다음 거래일에 메운다. */
+    static final int PRICE_DAYS = 10;
+    /** 상장일 시세 확인 시각 — 정규장 마감(15:30) 뒤. */
+    static final LocalTime PRICE_FROM = LocalTime.of(15, 40);
+    /** 공모주가 아닌 신규 상장(시장명·이름) — 상장일 시세를 보지 않는다. */
+    private static final java.util.regex.Pattern NOT_IPO = java.util.regex.Pattern.compile("스팩|기업인수목적|ETF|ETN|리츠");
     /** 로그에 이름을 다 적는 최근 상장 종목 수 상한. */
     private static final int LOG_NAMES = 10;
 
@@ -60,6 +73,10 @@ public class NewListingWatcher {
     private final AtomicBoolean running = new AtomicBoolean();
     /** 그날 확인을 마친 날(KST) — {@link #SETTLED_FROM} 뒤에 성공했거나, 모의투자 서버가 지원하지 않아 그만둔 날. */
     private volatile LocalDate doneDay;
+    /** 마지막으로 확인한 최근 상장 종목(앞뒤 {@value #WINDOW_DAYS}일) — 상장일 시세 확인 대상. */
+    private volatile List<RecentListings.Listing> lastRecent = List.of();
+    /** 상장일 시세 확인을 마친 날. */
+    private volatile LocalDate pricesDoneDay;
 
     public NewListingWatcher(MarketDataPort marketData, MarketCalendarService calendar, ApplicationEventPublisher publisher,
                              @Value("${autostock.listing-watch.enabled:false}") boolean enabled, Clock clock) {
@@ -92,7 +109,71 @@ public class NewListingWatcher {
         if (time.isBefore(CATCH_UP_FROM) || time.isAfter(CATCH_UP_UNTIL)) {
             return;
         }
-        Thread.ofVirtual().name("new-listing-catch-up").start(() -> watch("기동"));
+        Thread.ofVirtual().name("new-listing-catch-up").start(() -> {
+            watch("기동");
+            if (!time.isBefore(PRICE_FROM)) {
+                recordListingDayPrices("기동");
+            }
+        });
+    }
+
+    /** 거래일 15:40 — 최근 상장 종목의 상장일 시세(클래스 설명). */
+    @Scheduled(cron = "0 40 15 * * MON-FRI", zone = "Asia/Seoul")
+    public void listingDayPricesScheduled() {
+        recordListingDayPrices("정기");
+    }
+
+    /**
+     * 최근 상장 종목의 상장일 시가·종가를 일봉으로 확인해 발행한다. 아침 확인 목록이 없으면 먼저 목록을 받는다.
+     *
+     * @return 발행한 종목 수(발행하지 않았으면 -1)
+     */
+    int recordListingDayPrices(String reason) {
+        if (!enabled) {
+            return -1;
+        }
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
+        if (today.equals(pricesDoneDay) || !calendar.isTradingDay(today)) {
+            return -1;
+        }
+        if (lastRecent.isEmpty()) {
+            watch(reason + "·시세 전");
+        }
+        LocalDate from = today.minusDays(PRICE_DAYS);
+        List<RecentListings.Listing> targets = lastRecent.stream()
+                .filter(l -> l.listedOn() != null && !l.listedOn().isBefore(from) && !l.listedOn().isAfter(today))
+                .filter(l -> !NOT_IPO.matcher(String.valueOf(l.name()) + " " + l.marketName()).find())
+                .toList();
+        List<ListingDayPrices.Entry> entries = new ArrayList<>();
+        int failed = 0;
+        for (RecentListings.Listing listing : targets) {
+            try {
+                marketData.dailyCandles(listing.stockCode(), today).stream()
+                        .filter(c -> listing.listedOn().equals(c.date()))
+                        .findFirst()
+                        .ifPresent(c -> entries.add(new ListingDayPrices.Entry(listing.stockCode(), listing.name(),
+                                listing.listedOn(), abs(c.open()), abs(c.high()), abs(c.low()), abs(c.close()))));
+            } catch (RuntimeException e) {
+                failed++;
+                log.warn("상장일 시세 확인 실패({}) — 다음 거래일에 다시: {}", StockNames.label(listing.stockCode(), listing.name()),
+                        SecretMasking.mask(e.getClass().getSimpleName() + ": " + e.getMessage()));
+            }
+        }
+        if (failed == 0) {
+            pricesDoneDay = today;
+        }
+        log.info("상장일 시세 확인({}) — 최근 {}일 상장 공모주 {}종목 중 {}종목{}", reason, PRICE_DAYS, targets.size(), entries.size(),
+                entries.isEmpty() ? "" : ": " + entries.stream().map(e -> "%s(%s) %s 시가 %s 종가 %s".formatted(e.name(),
+                        e.stockCode(), e.listedOn(), e.open().toPlainString(), e.close().toPlainString()))
+                        .collect(Collectors.joining(", ")));
+        if (!entries.isEmpty()) {
+            publisher.publishEvent(new ListingDayPrices(today, entries));
+        }
+        return entries.size();
+    }
+
+    private static java.math.BigDecimal abs(java.math.BigDecimal v) {
+        return v == null ? null : v.abs();   // 키움 가격은 등락 부호가 붙어 올 수 있다(+27400·-15780)
     }
 
     /**
@@ -126,6 +207,7 @@ public class NewListingWatcher {
             if (!now.toLocalTime().isBefore(SETTLED_FROM)) {
                 doneDay = today;   // 08:05 성공은 08:40에 한 번 더 본다 — 그날 상장 종목이 늦게 들어올 수 있다
             }
+            lastRecent = recent;
             log.info("신규 상장 확인({}) — 코스피 {}·코스닥 {}종목 중 상장일 {}~{} {}종목{}", reason, kospi, kosdaq, from, until,
                     recent.size(), recent.isEmpty() ? "" : ": " + names(recent));
             if (!recent.isEmpty()) {

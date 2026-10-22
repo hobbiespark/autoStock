@@ -6,7 +6,9 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
 import java.math.BigDecimal;
 
 /**
- * 공모주 청약 권고 필터 임계치 (PLAN.md ADR-9 ② 필터 판단).
+ * 공모주 청약 권고 필터 임계치 (PLAN.md ADR-9 ② 필터 판단) — <b>2026-10-15부터 권고에 쓰지 않는다</b>. 권고는 청약 추천
+ * ({@link IpoSubscriptionAdvisor} — 비례까지·균등만·패스, aiDoc/ipo-subscription-strategy.md)이 정한다. 2026 하반기 확약이 평균 3%대로
+ * 떨어져 고정 임계(확약 20%)가 거의 모든 공모주를 걸렀다. 설정(ipo.filter.*)이 남아 있어도 앱이 뜨도록 클래스는 둔다.
  *
  * <p>청약경쟁률(및 상관관계가 높은 기관경쟁률)이 상장일 수익률과 정(+)의 관계를 갖는다는
  * 실증(ADR-9 인용 KCI 논문 2건)에 근거해, 기관경쟁률과 의무보유확약비율 두 지표로 단순

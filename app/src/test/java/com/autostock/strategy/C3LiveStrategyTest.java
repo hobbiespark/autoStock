@@ -142,6 +142,15 @@ class C3LiveStrategyTest {
             }
             return bySymbol.getOrDefault(symbol, List.of());
         }
+
+        /** C3는 2026-10-16부터 완료된 봉(오늘 봉 제외)을 쓴다 — 준비한 캔들은 모두 과거 봉이라 그대로 돌려준다. */
+        @Override
+        public List<Candle> fetchCompletedDaily(String symbol, LocalDate today, int minCount) {
+            completedCalls++;
+            return fetchDaily(symbol, today, minCount);
+        }
+
+        int completedCalls;
     }
 
     private Candle candle(String symbol, int dayOffset, String close) {
@@ -310,6 +319,31 @@ class C3LiveStrategyTest {
                 "confidence(fraction)는 (0,1] 구간이어야 함: " + signal.confidence());
         // 기준가는 전일 종가가 아니라 주문 시점 최유리 호가 — 매수는 최우선 매도호가(사용자 결정 2026-09-30, 조각 22)
         assertEquals(new Price(new BigDecimal("10100")), signal.refPrice());
+    }
+
+    @Test
+    void 전략별_장부가_있으면_다른_전략이_든_종목은_C3_보유로_보지_않는다() {
+        // 2026-10-16 다전략: 차트 기법(TA-H1)이 005930을 들고 있어도 C3는 자기 보유가 없으니 상승 전환이면 산다
+        StubChartService chart = new StubChartService();
+        chart.put("069500", regimeOnIndexCandles());
+        chart.put("005930", uptrendSymbolCandles("005930"));
+        StrategyTestSupport other = new StrategyTestSupport();
+        other.filled("TA-H1", "005930", Side.BUY, 3, "10000");
+        PositionBook positionBook = new PositionBook();
+        positionBook.onFill(new Fill("k1", new BrokerOrderId("b1"), new StockCode("005930"), Side.BUY, new Quantity(3), new Price(new BigDecimal("10000")), Instant.now()));
+        List<Object> published = new ArrayList<>();
+        C3LiveStrategy strategy = new C3LiveStrategy(
+                properties(true, List.of("005930"), 5), chart, marketData, positionBook, published::add, marketCalendarService,
+                runningManager(), OCT_1_0905, stateStore, other.book);
+        when(marketData.bestQuote("005930")).thenReturn(new MarketDataPort.BestQuote(
+                new BigDecimal("10100"), new BigDecimal("10050")));
+
+        strategy.run();
+
+        List<Signal> signals = onlySignals(published);
+        assertEquals(1, signals.size());
+        assertEquals(Side.BUY, signals.get(0).side());
+        assertTrue(chart.completedCalls > 0, "판단용 일봉은 오늘 봉을 뺀 완료 봉으로 받는다");
     }
 
     @Test

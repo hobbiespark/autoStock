@@ -3,6 +3,7 @@ package com.autostock.trading;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderNotice;
 import com.autostock.common.event.OrderRequest;
+import com.autostock.common.event.ProbeOrderPlaced;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Price;
@@ -16,7 +17,11 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * WS 주문체결통보(OrderNotice) → Fill 변환기.
@@ -41,8 +46,20 @@ import java.util.Optional;
  * 변동분 × 직전 누적량에 그친다 — 추정 오염을 로그로 명시).
  *
  * <p><b>실측 확정 2026-09-11</b> — 913(주문상태)의 실제 값은 "접수"/"체결" 두 문자열.
- * "접수"는 ACCEPTED 전이만, "체결"은 Fill 발행 + applyFill. 그 외("취소"/"거부" 등 —
- * 미관측, TODO 실측)는 상태기계를 오염시키지 않도록 로그만 남기고 무시한다.
+ * "접수"는 ACCEPTED 전이만, "체결"은 Fill 발행 + applyFill. 그 외("거부" 등 — 미관측, TODO 실측)는
+ * 상태기계를 오염시키지 않도록 로그만 남기고 무시한다.
+ *
+ * <p><b>취소 실측 2026-10-07·10-15</b>(data/measured/ws_orders, TR 실측 지정가 매수 취소) — 취소 한 번에 통보 셋이 온다.
+ * <ol>
+ *   <li>취소 주문번호로 "접수"(905 " 매수취소", 904 = 원주문)</li>
+ *   <li>취소 주문번호로 <b>"확인"</b>(902 미체결 0) — 취소가 거래소에서 확정됐다는 뜻</li>
+ *   <li><b>원주문</b> 번호로 "접수"가 다시(902 미체결 0)</li>
+ * </ol>
+ * 취소 결과는 취소 응답(REST)과 대사가 반영하므로 "확인"은 로그만 남긴다. 3의 "접수"는 원주문이 이미 취소 요청·취소 상태라
+ * ACCEPTED로 되돌리지 않는다(예전에는 상태 전이 예외를 ERROR로 남겼을 경로 — 앱 주문의 미체결 취소가 처음 도는 날 나왔을 것).
+ *
+ * <p><b>실측 주문</b>(execution.TrProbeJob, 2026-10-15): 앱 주문 장부 밖이다. {@link ProbeOrderPlaced}로 받은 번호의 통보는
+ * 보류하지 않고 INFO 한 줄로 넘긴다 — 예전에는 30초 보류 뒤 "수동 주문 등으로 추정" WARN이 실측 날마다 남았다.
  */
 @Component
 public class OrderNoticeHandler {
@@ -59,6 +76,12 @@ public class OrderNoticeHandler {
      */
     private static final String FILLED_KEYWORD = "체결";
 
+    /** 취소·정정 확인 통보 상태 문자열. 실측 2026-10-07·10-15(취소 주문번호로 "확인", 미체결 0). */
+    private static final String STATUS_CONFIRMED = "확인";
+
+    /** 실측 주문번호를 기억하는 기간 — 그날 통보만 오면 된다. */
+    static final Duration PROBE_ORDER_TTL = Duration.ofHours(12);
+
     private final TradingService tradingService;
     private final OrderRepository orderRepository;
     private final ApplicationEventPublisher publisher;
@@ -68,6 +91,9 @@ public class OrderNoticeHandler {
 
     /** 주문번호 등록 전에 도착한 체결 통보 보류함(R4). */
     private final PendingOrderNotices pending = new PendingOrderNotices();
+
+    /** TR 실측이 낸 주문번호(앞자리 0 뺀 값) → 받은 시각 — 앱 장부 밖 주문이라 반영하지 않는다(클래스 설명). */
+    private final Map<String, Instant> probeOrders = new ConcurrentHashMap<>();
     private final Clock clock;
 
     public OrderNoticeHandler(TradingService tradingService, OrderRepository orderRepository,
@@ -85,10 +111,19 @@ public class OrderNoticeHandler {
     @Scheduled(fixedDelay = 1_000)
     public void replayPendingNotices() {
         for (OrderNotice expired : pending.removeExpired(clock.instant())) {
+            if (isProbeOrder(expired.brokerOrderId())) {
+                logProbeNotice(expired);
+                continue;
+            }
             log.warn("brokerOrderId 매핑 없는 체결통보 무시 (보류 {}초 경과, 수동 주문 등으로 추정): {}",
                     PendingOrderNotices.HOLD.toSeconds(), expired.brokerOrderId());
         }
         for (BrokerOrderId brokerOrderId : pending.brokerOrderIds()) {
+            if (isProbeOrder(brokerOrderId)) {
+                // 통보가 실측 주문 응답보다 먼저 와서 보류됐다 — 이제 실측 주문인 것을 안다
+                pending.drain(brokerOrderId).forEach(this::logProbeNotice);
+                continue;
+            }
             if (tradingService.findByBrokerOrderId(brokerOrderId) != null
                     || orderRepository.findByBrokerOrderId(brokerOrderId).isPresent()) {
                 for (OrderNotice notice : pending.drain(brokerOrderId)) {
@@ -99,6 +134,32 @@ public class OrderNoticeHandler {
         }
     }
 
+    /** TR 실측 주문번호를 기억한다(execution → 이벤트, 클래스 설명). 오래된 번호는 함께 지운다. */
+    @EventListener
+    public void onProbeOrder(ProbeOrderPlaced placed) {
+        String key = normalized(placed.brokerOrderId());
+        if (key.isEmpty()) {
+            return;
+        }
+        Instant now = clock.instant();
+        probeOrders.values().removeIf(at -> at.isBefore(now.minus(PROBE_ORDER_TTL)));
+        probeOrders.put(key, now);
+    }
+
+    private boolean isProbeOrder(BrokerOrderId brokerOrderId) {
+        return brokerOrderId != null && probeOrders.containsKey(normalized(brokerOrderId.value()));
+    }
+
+    private void logProbeNotice(OrderNotice notice) {
+        log.info("TR 실측 주문 통보 — 앱 주문 장부 밖이라 반영하지 않음: status={}, brokerOrderId={}, 누적 체결 {}주",
+                notice.status(), notice.brokerOrderId(), notice.filledQuantity());
+    }
+
+    /** 앞자리 0을 뺀 주문번호 — REST ord_no와 WS 9203의 자릿수가 달라도 같게 본다(TrProbeJob.sameOrderNo와 같은 규칙). */
+    private static String normalized(String orderNo) {
+        return orderNo == null ? "" : orderNo.trim().replaceFirst("^0+(?=.)", "");
+    }
+
     @EventListener
     public void onOrderNotice(OrderNotice notice) {
         if (STATUS_ACCEPTED.equals(notice.status())) {
@@ -107,9 +168,12 @@ public class OrderNoticeHandler {
         }
 
         if (notice.filledQuantity() <= 0 || !isFilled(notice.status())) {
-            // 취소/거부 등 실측 미확정 상태(또는 체결수량 0) — 상태기계를 함부로 건드리지
-            // 않도록 상태 전이 없이 로그만 남기고 무시한다(TODO 실측: "취소"/"거부" 등).
-            if (notice.status() != null && !notice.status().isBlank()) {
+            // 취소 확인("확인", 실측 10/7·10/15)·거부 등(또는 체결수량 0) — 상태기계를 함부로 건드리지
+            // 않도록 상태 전이 없이 로그만 남기고 무시한다. 취소 결과는 취소 응답과 대사가 반영한다.
+            if (STATUS_CONFIRMED.equals(notice.status())) {
+                log.info("취소·정정 확인 통보 — 취소 응답·대사가 반영(로그만): brokerOrderId={}{}", notice.brokerOrderId(),
+                        isProbeOrder(notice.brokerOrderId()) ? " (TR 실측 주문)" : "");
+            } else if (notice.status() != null && !notice.status().isBlank()) {
                 log.info("접수/체결 아닌 주문상태 통보 무시(TODO 실측 대상일 수 있음): status={}, brokerOrderId={}",
                         notice.status(), notice.brokerOrderId());
             }
@@ -121,6 +185,10 @@ public class OrderNoticeHandler {
         OrderRequest original = tradingService.findByBrokerOrderId(brokerOrderId);
         Optional<OrderEntity> entity = orderRepository.findByBrokerOrderId(brokerOrderId);
 
+        if (original == null && entity.isEmpty() && isProbeOrder(brokerOrderId)) {
+            logProbeNotice(notice);
+            return;
+        }
         if (original == null && entity.isEmpty()) {
             // 주문 응답(주문번호 저장)보다 WS 통보가 먼저 온 경우일 수 있다 — 버리지 않고 보류했다가
             // 등록되면 재처리한다(R4). 보류 시간이 지나도 등록되지 않으면 수동 주문 등으로 보고 경고 후 버린다.
@@ -245,6 +313,13 @@ public class OrderNoticeHandler {
         OrderEntity found = OptimisticRetry.run("접수통보 " + notice.brokerOrderId(), null,
                 () -> orderRepository.findByBrokerOrderId(notice.brokerOrderId()),
                 order -> {
+                    if (!order.getStatus().canTransitionTo(OrderStatus.ACCEPTED)) {
+                        // 이미 접수를 지났다 — 중복 접수 통보, 또는 취소 뒤 원주문에 다시 오는 "접수"(미체결 0, 10/15 실측).
+                        // 상태를 되돌리지 않는다(예전에는 전이 예외를 ERROR로 남겼다).
+                        log.debug("접수통보 — 주문이 이미 {} 상태라 그대로 둔다(미체결 {}): {}", order.getStatus(),
+                                notice.remainingQuantity(), notice.brokerOrderId());
+                        return order;
+                    }
                     try {
                         order.transitionTo(OrderStatus.ACCEPTED, clock.instant());
                         orderRepository.save(order);

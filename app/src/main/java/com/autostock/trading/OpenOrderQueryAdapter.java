@@ -39,4 +39,13 @@ class OpenOrderQueryAdapter implements OpenOrderQuery {
                 .map(OrderEntity::getSymbol)
                 .collect(Collectors.toUnmodifiableSet());
     }
+
+    /** 전략 ID(대소문자 무시 — 주문 표에는 신호의 전략 ID가 그대로, ClientOrderId에는 대문자로 남는다)로 거른다. */
+    @Override
+    public Set<StockCode> symbolsWithOpenOrder(String strategyId, Side side) {
+        return orderRepository.findBySideAndStatusIn(side, OPEN_STATUSES).stream()
+                .filter(o -> o.getStrategyId() != null && o.getStrategyId().equalsIgnoreCase(strategyId))
+                .map(OrderEntity::getSymbol)
+                .collect(Collectors.toUnmodifiableSet());
+    }
 }

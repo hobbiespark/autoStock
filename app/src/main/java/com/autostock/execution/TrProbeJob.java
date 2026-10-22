@@ -1,5 +1,6 @@
 package com.autostock.execution;
 
+import com.autostock.common.event.ProbeOrderPlaced;
 import com.autostock.common.event.TrProbeCompleted;
 import com.autostock.common.util.KiwoomNumbers;
 import com.autostock.common.util.MarketConstants;
@@ -49,7 +50,9 @@ import java.util.Set;
  * <ol>
  *   <li>지정가 매수 1주 — 현재가보다 {@code discountPct}% 낮게(체결되지 않게) → 미체결(ka10075)·주문체결내역(kt00007) 조회 →
  *       취소(kt10003) → 주문체결내역(주문순·미체결만)·미체결·체결(ka10076) 조회</li>
- *   <li>지정가 매도 1주 — 현재가보다 {@code discountPct}% 높게(보유분, 체결되지 않게) → 미체결·주문체결내역 → 취소 → 주문체결내역</li>
+ *   <li>지정가 매도 1주 — 현재가보다 {@code discountPct}% 높게(보유분, 체결되지 않게) → 미체결·주문체결내역 → 취소 → 주문체결내역.
+ *       <b>보유가 없으면</b>(2026-10-15 실측: 10/13 국면 OFF 청산 뒤 키움 {@code 800033 매도가능수량이 부족합니다}) 실측 실패로 세지
+ *       않고 건너뛴다. 체결 왕복 날에는 시장가로 산 1주를 들고 있는 동안 지정가 매도·취소를 잰 뒤 판다</li>
  *   <li>체결 왕복({@code fillRoundTripDays}의 요일, 그날 빠졌으면 같은 주 다음 거래일) — 시장가 매수 1주 → 체결 확인
  *       (주문체결내역·체결 조회) → 시장가 매도 1주 → 조회.
  *       매수가 끝내 체결되지 않으면 취소하고 매도하지 않는다(원래 보유를 줄이지 않는다)</li>
@@ -72,9 +75,9 @@ import java.util.Set;
  *   <li>첫 지정가 매수가 접수되지 않으면(장 종료·계좌 문제 등) 나머지 주문을 내지 않는다</li>
  * </ul>
  *
- * <p>이 주문들은 앱의 주문 장부(trading)를 거치지 않는다. 주문 한도·일련번호를 쓰지 않고, 체결통보·대사에서는
- * "모르는 주문"으로 무시된다(OrderNoticeHandler "수동 주문 등으로 추정" 경로). 일별 성과의 주문 수에도 안 잡힌다.
- * 체결 왕복은 1주를 사서 1주를 파므로 보유 수량은 그대로다.
+ * <p>이 주문들은 앱의 주문 장부(trading)를 거치지 않는다. 주문 한도·일련번호를 쓰지 않고, 일별 성과의 주문 수에도 안 잡힌다.
+ * 주문번호를 받을 때마다 {@link ProbeOrderPlaced}를 발행해, trading의 체결통보 처리가 실측 주문으로 알아보고 반영하지 않는다
+ * (2026-10-15 — 예전에는 "수동 주문 등으로 추정" WARN이 실측 날마다 남았다). 체결 왕복은 1주를 사서 1주를 파므로 보유 수량은 그대로다.
  */
 @Component
 public class TrProbeJob {
@@ -112,6 +115,10 @@ public class TrProbeJob {
     private static final List<String> ORDER_NO_KEYS = List.of("ord_no", "ori_ord", "orig_ord_no", "base_orig_ord_no");
     /** 원주문 번호 키 — 취소·정정 주문 행에서 원래 주문을 가리킨다. */
     private static final List<String> ORIGINAL_NO_KEYS = List.of("ori_ord", "orig_ord_no", "base_orig_ord_no");
+    /** 보유가 없어 매도가 거부된 키움 응답 표시(2026-10-15 실측: {@code [kt10001] [2000](800033:모의투자 매도가능수량이 부족합니다.)}). */
+    private static final List<String> NO_HOLDING_MARKERS = List.of("800033", "매도가능수량");
+    /** 보유가 없어 지정가 매도를 건너뛴 결과 — 실측 실패로 세지 않는다. */
+    static final String NO_HOLDING_RESULT = "건너뜀 — 매도할 보유 없음";
 
     private final TrProbeProperties properties;
     private final KiwoomRestClient client;
@@ -331,6 +338,11 @@ public class TrProbeJob {
         return value;
     }
 
+    /** 매도할 보유가 없어 거부된 주문인가 — 키움 {@code 800033 매도가능수량이 부족합니다}(2026-10-15 실측). */
+    static boolean isNoHolding(String message) {
+        return message != null && NO_HOLDING_MARKERS.stream().anyMatch(message::contains);
+    }
+
     /** 주문번호 비교 — 응답마다 자릿수(앞자리 0)가 다를 수 있다. */
     static boolean sameOrderNo(Object a, String b) {
         if (a == null || b == null) {
@@ -430,6 +442,14 @@ public class TrProbeJob {
         private int ourOrderSeen;
         /** 현재가를 못 읽어 주문 없이 멈췄고 그날 다시 시도한다 — 요약·알림을 남기지 않는다. */
         private boolean retryLater;
+        /** 이번 실측의 현재가 — 체결 왕복 중 지정가 매도를 다시 낼 때 쓴다. */
+        private BigDecimal currentPrice;
+        /** 방금 낸 주문이 보유가 없어 거부됐다(800033) — {@link #step}이 적고 {@link #limitScenario}가 읽는다. */
+        private boolean noHoldingRejected;
+        /** 지정가 매도를 보유가 없어 건너뛰었다 — 체결 왕복 날이면 산 1주로 다시 잰다. */
+        private boolean limitSellSkipped;
+        /** 체결 왕복에서 산 1주를 들고 지정가 매도를 재는 중 — 이때 거부는 진짜 실패다. */
+        private boolean holdingProbeShare;
 
         Probe(LocalDate day, Path dir, int pct, boolean fillRoundTrip, int attempt, boolean lastAttempt) {
             this.day = day;
@@ -484,6 +504,7 @@ public class TrProbeJob {
                 problems.add("현재가를 읽지 못해 주문하지 않았다(%d번 시도)".formatted(attempt));
                 return finish(null);
             }
+            currentPrice = current;
             if (!limitScenario(true, limitPrice(current, pct))) {
                 // 첫 주문부터 거부되면(장 종료·계좌 문제 등) 나머지 주문도 같은 이유로 거부된다 — 더 내지 않는다
                 problems.add("지정가 매수가 접수되지 않아 나머지 주문을 내지 않았다");
@@ -507,11 +528,21 @@ public class TrProbeJob {
             String sideWord = buy ? "매수" : "매도";
             Map<String, Object> result = new LinkedHashMap<>();
             result.put("price", price);
+            if (holdingProbeShare) {
+                result.put("note", "보유가 없어 첫 지정가 매도는 거부(800033) — 체결 왕복에서 산 1주로 잼");
+            }
             scenarios.put("limit-" + side, result);
-            String orderNo = order(buy ? TrId.ORDER_BUY : TrId.ORDER_SELL, String.valueOf(price), "0", side + "-limit");
+            noHoldingRejected = false;
+            String orderNo = order(buy ? TrId.ORDER_BUY : TrId.ORDER_SELL, String.valueOf(price), "0", side + "-limit",
+                    !buy && !holdingProbeShare);
             result.put("orderNo", orderNo);
             if (orderNo == null) {
-                result.put("result", "접수 안 됨");
+                if (noHoldingRejected) {
+                    result.put("result", NO_HOLDING_RESULT);
+                    limitSellSkipped = true;
+                } else {
+                    result.put("result", "접수 안 됨");
+                }
                 return false;
             }
             pause();
@@ -613,6 +644,12 @@ public class TrProbeJob {
                 }
             }
             result.put("buyFilledQty", bought);
+            if (limitSellSkipped) {
+                // 보유가 없어 앞의 지정가 매도를 건너뛰었다(10/15 실측) — 방금 산 1주를 들고 있는 동안 지정가 매도·취소를 잰다
+                holdingProbeShare = true;
+                limitScenario(false, limitPriceUp(currentPrice, pct));
+                holdingProbeShare = false;
+            }
             String sellNo = order(TrId.ORDER_SELL, "", "3", "market-sell");
             if (sellNo == null) {
                 pause();
@@ -677,6 +714,11 @@ public class TrProbeJob {
 
         /** 1주 주문(kt10000 매수·kt10001 매도). {@code trde_tp} 0 = 보통(지정가), 3 = 시장가(단가 비움 — 스펙 예시 그대로). */
         private String order(TrId trId, String price, String tradeType, String label) {
+            return order(trId, price, tradeType, label, false);
+        }
+
+        /** @param noHoldingExpected 보유가 없어 거부되면(800033) 실측 실패로 세지 않는다 — 처음 내는 지정가 매도만 */
+        private String order(TrId trId, String price, String tradeType, String label, boolean noHoldingExpected) {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("dmst_stex_tp", "KRX");
             body.put("stk_cd", symbol);
@@ -686,7 +728,7 @@ public class TrProbeJob {
             if ("3".equals(tradeType)) {
                 body.put("cond_uv", "");
             }
-            Map<String, Object> response = step(trId, ORDER_PATH, body, label);
+            Map<String, Object> response = step(trId, ORDER_PATH, body, label, noHoldingExpected);
             return remember(response == null ? null : response.get("ord_no"));
         }
 
@@ -715,6 +757,8 @@ public class TrProbeJob {
             }
             String no = String.valueOf(raw).trim();
             ourOrderNos.add(no);
+            // 체결통보 처리(trading)가 이 번호를 실측 주문으로 알아보게 — 모르는 주문 WARN을 남기지 않는다(10/15)
+            publisher.publishEvent(new ProbeOrderPlaced(no, clock.instant()));
             return no;
         }
 
@@ -742,6 +786,11 @@ public class TrProbeJob {
         }
 
         private Map<String, Object> step(TrId trId, String path, Map<String, Object> body, String label) {
+            return step(trId, path, body, label, false);
+        }
+
+        private Map<String, Object> step(TrId trId, String path, Map<String, Object> body, String label,
+                                         boolean noHoldingExpected) {
             seq++;
             String file = fileName(day, seq, trId.apiId() + "_" + label);
             Map<String, Object> entry = new LinkedHashMap<>();
@@ -760,11 +809,20 @@ public class TrProbeJob {
             } catch (RuntimeException e) {
                 // 키움 오류 응답(KiwoomApiException)뿐 아니라 네트워크·유량 대기 초과도 기록만 하고 다음 단계로 간다 —
                 // 주문을 낸 뒤라면 취소·매도까지 반드시 가야 한다
-                failures++;
                 String message = e.getClass().getSimpleName() + ": " + SecretMasking.mask(String.valueOf(e.getMessage()));
                 entry.put("error", message);
-                write(dir.resolve(file), Map.of("error", message));
-                log.warn("TR 실측(1.6) {} {} 실패: {}", trId.apiId(), label, message);
+                if (noHoldingExpected && isNoHolding(message)) {
+                    // 보유가 없으면 지정가 매도는 거부된다(10/15 실측, 10/13 국면 OFF 청산 뒤) — 계좌 상태이지 주문 경로 이상이 아니다
+                    noHoldingRejected = true;
+                    entry.put("expected", NO_HOLDING_RESULT);
+                    write(dir.resolve(file), Map.of("error", message, "expected", NO_HOLDING_RESULT));
+                    log.info("TR 실측(1.6) {} {} — 매도할 보유가 없어 접수 안 됨(실측 실패 아님{})", trId.apiId(), label,
+                            fillRoundTrip ? ", 체결 왕복에서 산 1주로 다시 잰다" : ", 오늘은 건너뜀");
+                } else {
+                    failures++;
+                    write(dir.resolve(file), Map.of("error", message));
+                    log.warn("TR 실측(1.6) {} {} 실패: {}", trId.apiId(), label, message);
+                }
             }
             steps.add(entry);
             return response;

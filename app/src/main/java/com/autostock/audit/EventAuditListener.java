@@ -60,6 +60,10 @@ public class EventAuditListener {
             "MacroIndicator", 1,
             "NewsSentiment", 1);
 
+    /** 시세 감사 기록 조건(SpEL) — 기본 꺼짐. 테스트가 같은 식을 실제 컨텍스트에서 평가해 본다. */
+    static final String MARKET_TICK_CONDITION =
+            "@environment.getProperty('autostock.audit.market-ticks', 'false') == 'true'";
+
     private final EventRecordRepository repository;
     private final ObjectMapper objectMapper;
     private final Clock clock;
@@ -73,7 +77,13 @@ public class EventAuditListener {
         this.meterRegistry = meterRegistry;
     }
 
-    @EventListener
+    /**
+     * 실시간 시세는 기본으로 기록하지 않는다(2026-10-16) — 다전략 모의로 대형주 23종목을 구독하자 체결이 초당 수십~수백 건
+     * 들어온다. 건마다 비동기 트랜잭션(DB 커넥션)을 잡으면 커넥션 풀을 두고 주문·체결 저장과 다투고, 하루 수백만 행이 쌓인다.
+     * 분봉은 REST 적재(MinuteBarArchiver)가 따로 하므로 시세 원본은 감사에 필요 없다. 켜려면
+     * {@code autostock.audit.market-ticks=true}. 조건은 호출 스레드에서 먼저 평가돼 꺼져 있으면 비동기 작업도 만들지 않는다.
+     */
+    @EventListener(condition = MARKET_TICK_CONDITION)
     public void on(MarketTick e) { store("MarketTick", e, e.timestamp()); }
 
     @EventListener

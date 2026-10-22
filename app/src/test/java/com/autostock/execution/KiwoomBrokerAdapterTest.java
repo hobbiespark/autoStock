@@ -93,6 +93,23 @@ class KiwoomBrokerAdapterTest {
     }
 
     @Test
+    void 미체결_방향은_io_tp_nm_잔량은_oso_qty로_읽는다() {
+        // 실측(2026-10-15·16 ka10075): "io_tp_nm":"+매수", "trde_tp":"보통"(매매구분), "oso_qty":"1"(미체결)
+        when(client.call(eq(TrId.OUTSTANDING_ORDERS), anyString(), any())).thenReturn(Map.of("oso", List.of(
+                Map.of("ord_no", "0042006", "stk_cd", "069500", "ord_qty", "3", "oso_qty", "2", "io_tp_nm", "+매수",
+                        "trde_tp", "보통"),
+                Map.of("ord_no", "0042007", "stk_cd", "069500", "ord_qty", "5", "oso_qty", "5", "io_tp_nm", "-매도",
+                        "trde_tp", "보통"))));
+
+        List<BrokerOutstandingOrder> orders = adapter.outstandingOrders();
+
+        assertEquals(com.autostock.common.event.Side.BUY, orders.get(0).side());
+        assertEquals(2, orders.get(0).remainingQuantity());
+        assertEquals(com.autostock.common.event.Side.SELL, orders.get(1).side());
+        assertEquals(5, orders.get(1).remainingQuantity());
+    }
+
+    @Test
     void 미체결_목록에서_종목코드_형식이_틀린_행은_건너뛴다() {
         when(client.call(eq(TrId.OUTSTANDING_ORDERS), anyString(), any())).thenReturn(Map.of("oso", List.of(
                 Map.of("ord_no", "0119433", "stk_cd", "A005930", "ord_qty", "10"),

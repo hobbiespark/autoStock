@@ -5,6 +5,16 @@ REM autoStock start - paper profile, LIVE(mock) mode + C3 + WS + auto-start (RUN
 REM No goto/labels in this file (line-ending safe). Env load + docker wait are delegated to PowerShell.
 cd /d D:\myApp\autoStock
 
+REM ---- already running? (2026-10-15 07:53: started twice 17s apart; the 2nd died on port 8080 after touching the DB) ----
+REM the app itself also refuses a 2nd copy (SingleInstanceGuard file lock) - this only gives a quicker, clearer message
+powershell -NoProfile -Command "if (Get-NetTCPConnection -LocalPort 8080 -State Listen -ErrorAction SilentlyContinue) { exit 1 } else { exit 0 }"
+if errorlevel 1 (
+  echo [X] port 8080 is already listening - autoStock seems to be running. Not starting a second copy.
+  echo     stop it first with scripts\stop_autostock.bat, then run this again.
+  pause
+  exit /b 1
+)
+
 if not exist ".env" (
   echo [X] .env not found in D:\myApp\autoStock
   pause
@@ -54,6 +64,6 @@ if defined TG_ARGS (echo [O] telegram on) else (echo [.] telegram off - set TELE
 if "%MONITOR_HEARTBEAT_URL%"=="" (echo [.] heartbeat off - set MONITOR_HEARTBEAT_URL in .env to enable) else (echo [O] heartbeat on)
 
 echo [O] starting autoStock (stop = Ctrl+C or scripts\stop_autostock.bat)
-REM flags: LIVE(mock) mode, C3, WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync + new-listing check (+ telegram when keys exist)
-call gradlew.bat :app:bootRun --args="--execution.mode=LIVE --strategy.c3.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true --autostock.listing-watch.enabled=true%TG_ARGS%"
+REM flags: LIVE(mock) mode, C3 + multi-strategy paper trial (VB-DAY, ON-CLOSE, TA-H1..H5 - aiDoc/multi-strategy-paper-2026-10-16.md), WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync + new-listing check (+ telegram when keys exist)
+call gradlew.bat :app:bootRun --args="--execution.mode=LIVE --strategy.c3.enabled=true --strategy.vb.enabled=true --strategy.on.enabled=true --strategy.ta.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true --autostock.listing-watch.enabled=true%TG_ARGS%"
 pause

@@ -147,5 +147,10 @@ public class PositionRestorer {
             publisher.publishEvent(new PositionRestored(holding.symbol(), holding.quantity(), holding.avgPrice(),
                     holding.previousClose()));
         }
+        // 성공도 한 줄 남긴다 — 10/15 07:53 기동 때 실패 WARN 뒤 5분 재시도가 성공했는지 로그로 알 수 없었다
+        log.info("포지션 복원({}) — 잔고 조회 성공, 보유 {}종목{}", trigger, balance.holdings().size(),
+                balance.holdings().isEmpty() ? "" : ": " + balance.holdings().stream()
+                        .map(h -> StockNames.label(h.symbol()) + " " + h.quantity() + "주")
+                        .collect(java.util.stream.Collectors.joining(", ")));
     }
 }

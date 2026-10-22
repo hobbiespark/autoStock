@@ -44,6 +44,7 @@ public class KiwoomMarketDataAdapter implements MarketDataPort {
     private static final String DAILY_FIELD = "stk_dt_pole_chart_qry";
     private static final String MINUTE_FIELD = "stk_min_pole_chart_qry";
     private static final String LIST_FIELD = "list";
+    private static final String RANK_FIELD = "pred_pre_flu_rt_upper";
     /** 종목정보 리스트 연속 조회 상한 — 브로커가 끝없이 다음 키를 줘도 멈춘다. */
     static final int LIST_MAX_PAGES = 20;
 
@@ -165,6 +166,49 @@ public class KiwoomMarketDataAdapter implements MarketDataPort {
             log.warn("종목정보 리스트 연속 조회 {}쪽 상한 도달({}) — 받은 {}종목만 쓴다", LIST_MAX_PAGES, market.label(), stocks.size());
         }
         return stocks;
+    }
+
+    /**
+     * 등락률 상위(ka10027) — 캐시하지 않는다(거래일 15:15에 몇 번만 부른다). 실측(2026-10-16 09:40, 모의 도메인): 응답 배열
+     * {@code pred_pre_flu_rt_upper[] stk_cd/stk_nm/cur_prc(부호)/flu_rt(+12.34)/now_trde_qty}, 조건을 걸면 160행·연속조회 없음.
+     */
+    @Override
+    public List<RankedStock> risingRanking(String stockCondition, String priceCondition, String tradingValueCondition) {
+        Map<String, Object> body = new java.util.LinkedHashMap<>();
+        body.put("mrkt_tp", "000");          // 전체(코스피+코스닥)
+        body.put("sort_tp", "1");            // 상승률
+        body.put("trde_qty_cnd", "0000");    // 거래량 조건 없음
+        body.put("stk_cnd", stockCondition);
+        body.put("crd_cnd", "0");
+        body.put("updown_incls", "0");       // 상하한가 미포함
+        body.put("pric_cnd", priceCondition);
+        body.put("trde_prica_cnd", tradingValueCondition);
+        body.put("stex_tp", "1");            // KRX
+        Map<String, Object> r = client.call(TrId.RANK_FLUCTUATION, "/api/dostk/rkinfo", body);
+        if (!(r.get(RANK_FIELD) instanceof List<?> rows)) {
+            log.warn("등락률 상위 응답에 배열 없음(종목조건 {}): 키={}", stockCondition, r.keySet());
+            return List.of();
+        }
+        List<RankedStock> out = new ArrayList<>(rows.size());
+        for (Object row : rows) {
+            if (row instanceof Map<?, ?> item) {
+                String code = trimmed(item.get("stk_cd"));
+                if (code == null) {
+                    continue;
+                }
+                @SuppressWarnings("unchecked")
+                Map<String, Object> m = (Map<String, Object>) item;
+                BigDecimal rate;
+                try {
+                    rate = KiwoomNumbers.toBigDecimal(item.get("flu_rt"));
+                } catch (RuntimeException e) {
+                    rate = null;
+                }
+                out.add(new RankedStock(code.length() > 6 ? code.substring(0, 6) : code, trimmed(item.get("stk_nm")),
+                        price(m, "cur_prc"), rate, KiwoomNumbers.toLongOrZero(item.get("now_trde_qty"))));
+            }
+        }
+        return out;
     }
 
     private static LocalDate parseDay(Object raw) {

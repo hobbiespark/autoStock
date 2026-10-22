@@ -3,6 +3,7 @@ package com.autostock.trading;
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.OrderNotice;
 import com.autostock.common.event.OrderRequest;
+import com.autostock.common.event.ProbeOrderPlaced;
 import com.autostock.common.event.Side;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Price;
@@ -293,6 +294,44 @@ class OrderNoticeHandlerTest {
 
         assertEquals(0, published.size());
         assertEquals(OrderStatus.SUBMITTED, entity.getStatus()); // 손대지 않았다
+    }
+
+    @Test
+    void TR_실측_주문의_체결통보는_보류하지_않고_반영하지_않는다() {
+        // 10/15 09:30 — 실측 체결 왕복(시장가 매수·매도)의 통보가 30초 보류 뒤 "수동 주문 등으로 추정" WARN으로 남았다
+        handler.onProbeOrder(new ProbeOrderPlaced(BROKER_ORDER_ID, clock.instant()));
+
+        handler.onOrderNotice(notice("체결", 1, new BigDecimal("89130"), 0));
+        stubEntity("key-same-no", Side.BUY, 1);   // 보류함에 남아 있다면 등록 뒤 재처리돼 Fill이 나갈 것이다
+        handler.replayPendingNotices();
+
+        assertEquals(0, published.size());
+    }
+
+    @Test
+    void 실측_주문_응답보다_먼저_와서_보류된_통보도_실측_주문으로_알게_되면_버린다() {
+        handler.onOrderNotice(notice("체결", 1, new BigDecimal("89130"), 0));   // 응답 전 — 보류
+        handler.onProbeOrder(new ProbeOrderPlaced(BROKER_ORDER_ID, clock.instant()));
+        handler.replayPendingNotices();                                          // 실측 주문 — 꺼내 버린다
+
+        stubEntity("key-same-no", Side.BUY, 1);
+        handler.replayPendingNotices();
+
+        assertEquals(0, published.size());
+    }
+
+    @Test
+    void 취소_뒤_원주문에_다시_온_접수_통보는_상태를_되돌리지_않는다() {
+        // 10/15 실측(ws_orders): 취소 주문 "접수" → 취소 주문 "확인"(미체결 0) → 원주문 "접수"(미체결 0)
+        OrderEntity entity = stubEntity("key-cancelled", Side.BUY, 1);
+        entity.transitionTo(OrderStatus.CANCEL_REQUESTED, Instant.now());
+        entity.transitionTo(OrderStatus.CANCELLED, Instant.now());
+
+        handler.onOrderNotice(notice("확인", 0, null, 0));
+        handler.onOrderNotice(notice("접수", 0, null, 0));
+
+        assertEquals(0, published.size());
+        assertEquals(OrderStatus.CANCELLED, entity.getStatus());
     }
 
     @Test

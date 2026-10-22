@@ -1,10 +1,13 @@
 package com.autostock.market;
 
+import com.autostock.common.event.Candle;
+import com.autostock.common.event.ListingDayPrices;
 import com.autostock.common.event.RecentListings;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.context.ApplicationEventPublisher;
 
+import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -14,6 +17,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -126,5 +130,60 @@ class NewListingWatcherTest {
         Thread.sleep(200);   // 따라잡기는 가상 스레드에서 돈다 — 돌았다면 이 사이에 불렀다
 
         verify(marketData, never()).listedStocks(any());
+    }
+
+    // ── 상장일 시세(2026-10-15, 공모주 청약 추천의 시장 분위기 재료) ───────────────────────────────
+
+    private static Candle candle(String code, LocalDate date, String open, String close) {
+        return new Candle(code, date, new BigDecimal(open), new BigDecimal(open), new BigDecimal(close), new BigDecimal(close), 1_000);
+    }
+
+    @Test
+    void 장_마감_뒤_최근_상장_공모주의_상장일_시가_종가를_발행하고_ETF와_스팩은_뺀다() {
+        LocalDate today = LocalDate.of(2026, 10, 15);
+        when(calendar.isTradingDay(any())).thenReturn(true);
+        when(marketData.listedStocks(MarketDataPort.ListingMarket.KOSPI)).thenReturn(List.of(
+                new MarketDataPort.ListedStock("0241D0", "KODEX 미국AI에이전트액티브", LocalDate.of(2026, 10, 13), "ETF")));
+        when(marketData.listedStocks(MarketDataPort.ListingMarket.KOSDAQ)).thenReturn(List.of(
+                stock("179880", "멜콘", today),
+                stock("468670", "브릴스", LocalDate.of(2026, 10, 8)),
+                stock("468671", "보름전상장", LocalDate.of(2026, 10, 1)),
+                stock("499990", "한화플러스제6호스팩", LocalDate.of(2026, 10, 14)),
+                stock("123480", "다음주상장", LocalDate.of(2026, 10, 20))));
+        // 키움 가격은 등락 부호가 붙어 온다(-15780) — 절댓값으로
+        when(marketData.dailyCandles(eq("179880"), eq(today))).thenReturn(List.of(
+                candle("179880", today, "+27400", "-16700")));
+        when(marketData.dailyCandles(eq("468670"), eq(today))).thenReturn(List.of(
+                candle("468670", LocalDate.of(2026, 10, 8), "61800", "31100"),
+                candle("468670", LocalDate.of(2026, 10, 9), "30000", "29000")));
+        NewListingWatcher watcher = watcher(true, LocalDateTime.of(2026, 10, 15, 15, 40));
+
+        assertEquals(2, watcher.recordListingDayPrices("정기"));
+        assertEquals(-1, watcher.recordListingDayPrices("정기"), "그날은 한 번");
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(publisher, times(2)).publishEvent(captor.capture());   // 아침 목록(먼저 받음) + 상장일 시세
+        ListingDayPrices prices = (ListingDayPrices) captor.getAllValues().get(1);
+        assertEquals(List.of("179880", "468670"), prices.entries().stream().map(ListingDayPrices.Entry::stockCode).toList());
+        assertEquals(new BigDecimal("27400"), prices.entries().get(0).open());
+        assertEquals(new BigDecimal("16700"), prices.entries().get(0).close());
+        assertEquals(new BigDecimal("31100"), prices.entries().get(1).close(), "상장일 행을 고른다(그 뒤 행이 아니라)");
+        verify(marketData, never()).dailyCandles(eq("0241D0"), any());
+        verify(marketData, never()).dailyCandles(eq("499990"), any());
+        verify(marketData, never()).dailyCandles(eq("123480"), any());
+        verify(marketData, never()).dailyCandles(eq("468671"), any());   // 상장일 시세는 최근 10일만(놓친 날 메우기)
+    }
+
+    @Test
+    void 상장일_시세_조회가_실패하면_다음_거래일에_다시_본다() {
+        LocalDate today = LocalDate.of(2026, 10, 15);
+        when(calendar.isTradingDay(any())).thenReturn(true);
+        when(marketData.listedStocks(MarketDataPort.ListingMarket.KOSPI)).thenReturn(List.of());
+        when(marketData.listedStocks(MarketDataPort.ListingMarket.KOSDAQ)).thenReturn(List.of(stock("179880", "멜콘", today)));
+        when(marketData.dailyCandles(eq("179880"), any())).thenThrow(new IllegalStateException("키움 1631"));
+        NewListingWatcher watcher = watcher(true, LocalDateTime.of(2026, 10, 15, 15, 40));
+
+        assertEquals(0, watcher.recordListingDayPrices("정기"));
+        assertEquals(0, watcher.recordListingDayPrices("재시도"), "실패한 날은 마친 것으로 치지 않는다");
     }
 }

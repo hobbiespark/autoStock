@@ -17,6 +17,7 @@ import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -84,6 +85,45 @@ class HolidaySyncServiceTest {
         verify(repository, times(2)).save(any());
         // 실패한 2월 때문에 이미 저장된 1월·3월 데이터를 지우는 호출(delete류)은 전혀 없어야 한다.
         verifyDeleteNeverCalled(repository);
+    }
+
+    @Test
+    void 특일이_없는_달은_items가_빈_문자열로_와도_정상으로_본다() {
+        // 실측 2026-10-15 09:10 — 2026년 11월 응답 그대로(totalCount=0이면 items가 객체가 아니라 "")
+        Map<String, Object> body = new HashMap<>();
+        body.put("items", "");
+        body.put("numOfRows", 50);
+        body.put("pageNo", 1);
+        body.put("totalCount", 0);
+        Map<String, Object> emptyMonth = Map.of("response", Map.of(
+                "header", Map.of("resultCode", "00", "resultMsg", "NORMAL SERVICE."), "body", body));
+
+        assertTrue(HolidaySyncService.parseItems(emptyMonth).isEmpty());
+
+        FakeHolidaySyncService sync = new FakeHolidaySyncService(true);
+        sync.stub(11, emptyMonth);
+        sync.stub(12, responseWithItems(item("20261225", "기독탄신일", "Y")));
+        when(sync.repository.findById(any())).thenReturn(Optional.empty());
+
+        assertDoesNotThrow(() -> sync.syncMonths(List.of(
+                new HolidaySyncService.YearMonthPair(2026, 11), new HolidaySyncService.YearMonthPair(2026, 12))));
+        verify(sync.repository, times(1)).save(any());   // 12월 성탄절만
+    }
+
+    @Test
+    void 형식이_다른_응답은_예외로_올려_그_달만_실패로_센다() {
+        Map<String, Object> odd = Map.of("response", Map.of("body", Map.of("items", 42)));
+
+        assertThrows(IllegalStateException.class, () -> HolidaySyncService.parseItems(odd));
+
+        FakeHolidaySyncService sync = new FakeHolidaySyncService(true);
+        sync.stub(1, responseWithItems(item("20270101", "신정", "Y")));
+        sync.stub(2, odd);
+        when(sync.repository.findById(any())).thenReturn(Optional.empty());
+
+        assertDoesNotThrow(() -> sync.syncYear(2027), "한 달의 형식 오류가 전체 배치를 멈추면 안 됨");
+        verify(sync.repository, times(1)).save(any());   // 1월은 저장, 2월은 실패로 건너뜀
+        verifyDeleteNeverCalled(sync.repository);
     }
 
     @Test

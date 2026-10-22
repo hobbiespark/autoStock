@@ -17,6 +17,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -167,5 +170,35 @@ class KiwoomMarketDataAdapterTest {
                 .thenReturn(new KiwoomRestClient.Page(Map.of("return_code", 0), null));
 
         assertTrue(adapter.listedStocks(MarketDataPort.ListingMarket.KOSPI).isEmpty());
+    }
+
+    @Test
+    void 등락률_상위는_실측_응답을_번역하고_요청에_조건을_싣는다() {
+        // 2026-10-16 09:40 모의 도메인 실측 행(ka10027, ETF+ETN 제외·1천 원 이상·거래대금 100억 이상)
+        Map<String, Object> row1 = new HashMap<>(Map.of("stk_cls", "28", "stk_cd", "396300", "stk_nm", "HT로보틱스",
+                "cur_prc", "+8810", "pred_pre_sig", "2", "pred_pre", "+1660", "flu_rt", "+23.22", "now_trde_qty", "20301237"));
+        Map<String, Object> row2 = new HashMap<>(Map.of("stk_cls", "17", "stk_cd", "079650", "stk_nm", "서산",
+                "cur_prc", "+7850", "flu_rt", "+19.48", "now_trde_qty", "8493721"));
+        when(client.call(eq(TrId.RANK_FLUCTUATION), eq("/api/dostk/rkinfo"), argThat(body ->
+                "16".equals(body.get("stk_cnd")) && "1".equals(body.get("sort_tp")) && "0".equals(body.get("updown_incls"))
+                        && "8".equals(body.get("pric_cnd")) && "1000".equals(body.get("trde_prica_cnd"))
+                        && "1".equals(body.get("stex_tp")) && "000".equals(body.get("mrkt_tp")))))
+                .thenReturn(Map.of("return_code", 0, "pred_pre_flu_rt_upper", List.of(row1, row2)));
+
+        List<MarketDataPort.RankedStock> rows = adapter.risingRanking("16", "8", "1000");
+
+        assertEquals(2, rows.size());
+        assertEquals("396300", rows.get(0).code());
+        assertEquals("HT로보틱스", rows.get(0).name());
+        assertEquals(0, new BigDecimal("8810").compareTo(rows.get(0).current()), "부호를 뗀다");
+        assertEquals(0, new BigDecimal("23.22").compareTo(rows.get(0).changeRate()));
+        assertEquals(20_301_237L, rows.get(0).volume());
+        assertEquals(0, new BigDecimal("8810").multiply(BigDecimal.valueOf(20_301_237L)).compareTo(rows.get(0).tradingValue()));
+    }
+
+    @Test
+    void 등락률_상위_배열이_없으면_빈_목록() {
+        when(client.call(eq(TrId.RANK_FLUCTUATION), eq("/api/dostk/rkinfo"), any())).thenReturn(Map.of("return_code", 0));
+        assertTrue(adapter.risingRanking("4", "8", "1000").isEmpty());
     }
 }

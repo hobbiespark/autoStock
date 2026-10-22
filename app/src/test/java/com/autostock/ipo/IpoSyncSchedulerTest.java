@@ -77,13 +77,56 @@ class IpoSyncSchedulerTest {
     }
 
     @Test
-    void 임계치_미충족이면_SKIP() {
+    void 기관경쟁률이_100대_1_미만이면_패스() {
+        IpoDealEntity entity = new IpoDealEntity("01158632", "진코스텍", "20260910000579", "DART", Instant.now());
+        entity.applyMetrics(new BigDecimal("63"), new BigDecimal("0.25"), Instant.now());
+
+        scheduler.evaluateFilter(entity);
+
+        assertEquals(IpoRecommendation.SKIP, entity.getRecommendation());
+        assertEquals("PASS", entity.getAdviceGrade());
+        assertTrue(entity.getRecommendReason().startsWith("패스(점수 -2)"), entity.getRecommendReason());
+    }
+
+    @Test
+    void 스팩은_기관경쟁률이_높아도_추천하지_않는다() {
+        // 2026-10-16 로그: 에스케이증권제14호기업인수목적(기관 1,228.38:1, 공모가 2,000원)이 "균등만(+2)"을 받았다
+        IpoDealEntity entity = new IpoDealEntity("01234567", "에스케이증권제14호기업인수목적", "20261014000196", "DART",
+                Instant.now());
+        entity.applyMetrics(new BigDecimal("1228.38"), null, Instant.now());
+
+        scheduler.evaluateFilter(entity);
+
+        assertEquals(IpoRecommendation.SKIP, entity.getRecommendation());
+        assertEquals("PASS", entity.getAdviceGrade());
+        assertTrue(entity.getRecommendReason().startsWith("패스 — 스팩"), entity.getRecommendReason());
+        assertTrue(IpoSyncScheduler.isSpac("엔에이치스팩33호"));
+        assertFalse(IpoSyncScheduler.isSpac("진코스텍"));
+    }
+
+    @Test
+    void 스팩은_유통가능물량을_찾지_않는다() {
+        // 2026-10-16 로그: 아이엠기업인수목적1호·에스케이증권제14호기업인수목적 "유통가능물량 문장을 찾지 못함 (내일 다시)" 매일 반복
+        IpoDealEntity spac = new IpoDealEntity("01234567", "에스케이증권제14호기업인수목적", "20261014000196", "DART",
+                Instant.now());
+        spac.classifyOffering(OfferingKind.IPO, Instant.now());
+        IpoDealEntity normal = new IpoDealEntity("01234568", "티앤이코리아", "20260923000255", "DART", Instant.now());
+        normal.classifyOffering(OfferingKind.IPO, Instant.now());
+
+        assertFalse(IpoDemandForecastCollector.wantsFloat(spac));
+        assertTrue(IpoDemandForecastCollector.wantsFloat(normal));
+    }
+
+    @Test
+    void 예전_임계_300대_1은_이제_균등만이다() {
+        // 2026-10-15 청약 추천으로 바뀜 — 300~500:1은 0점. 다른 감점이 없으면 균등 최소 청약을 권한다
         IpoDealEntity entity = new IpoDealEntity("01158632", "진코스텍", "20260910000579", "DART", Instant.now());
         entity.applyMetrics(new BigDecimal("300"), new BigDecimal("0.25"), Instant.now());
 
         scheduler.evaluateFilter(entity);
 
-        assertEquals(IpoRecommendation.SKIP, entity.getRecommendation());
+        assertEquals(IpoRecommendation.RECOMMEND, entity.getRecommendation());
+        assertEquals("EQUAL_ONLY", entity.getAdviceGrade());
     }
 
     @Test
@@ -335,18 +378,23 @@ class IpoSyncSchedulerTest {
         assertEquals(new BigDecimal("0.2175"), brils.getLockupCommitRate());
         assertEquals(IpoDealEntity.MetricsSource.DART, brils.getMetricsSource());
         assertEquals("20260916000234", brils.getMetricsRceptNo());
-        assertEquals(IpoRecommendation.RECOMMEND, brils.getRecommendation()); // 500:1·20% 둘 다 넘는다
+        assertEquals(IpoRecommendation.RECOMMEND, brils.getRecommendation()); // 청약 추천 균등만(기관 1,000:1 이상 +2)
+        assertEquals("EQUAL_ONLY", brils.getAdviceGrade());
+        assertEquals(2, brils.getAdviceScore());
         assertTrue(brils.getRecommendReason().contains("21.75%"), brils.getRecommendReason());
         assertTrue(brils.getRecommendReason().contains("DART 수요예측 결과 20260916000234"), brils.getRecommendReason());
         assertEquals(1, summary.metricsFilled());
         var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
         verify(publisher, times(2)).publishEvent(captor.capture());   // 수요예측 결과 + 청약 D-1
         IpoAlert metrics = captor.getAllValues().stream().filter(a -> a.phase().equals("METRICS")).findFirst().orElseThrow();
-        assertTrue(metrics.message().contains("기관경쟁률 1,187.74:1 · 의무보유확약 21.75% → 권고 RECOMMEND(청약 권고)"),
+        assertTrue(metrics.message().startsWith("[청약 추천] 브릴스 — 확정 공모가 미확인. 균등만(점수 +2) — 기관 1,187.74:1(+2) · 확약 21.75%"),
                 metrics.message());
+        assertTrue(metrics.message().contains("청약: 균등 최소 단위(보통 10주)만. 증권사 한 곳만. 상장일 시초가 매도."), metrics.message());
+        assertTrue(!metrics.message().contains("DART 수요예측 결과"), "알림에는 출처 꼬리표를 싣지 않는다: " + metrics.message());
         IpoAlert dMinus1 = captor.getAllValues().stream().filter(a -> a.phase().equals("D-1")).findFirst().orElseThrow();
-        assertTrue(dMinus1.message().contains("RECOMMEND"), dMinus1.message());
-        verify(dartClient, never()).fetchDocument("20260825000476"); // 확정 신고서만 읽는다
+        assertTrue(dMinus1.message().contains("추천: 균등만(점수 +2)"), dMinus1.message());
+        // 수요예측 결과는 확정 신고서에서, 유통가능물량은 원 증권신고서에서 읽는다(2026-10-15)
+        verify(dartClient, times(1)).fetchDocument("20260825000476");
     }
 
     @Test
@@ -403,7 +451,7 @@ class IpoSyncSchedulerTest {
         assertEquals(0, summary.skipped());
         assertEquals(1, summary.totalDeals());
         assertEquals("공모주 수집 완료 — 2026-09-17~2026-10-01 증권신고(지분증권) 3건(목록 1/1쪽, 신규 딜 1·유상증자 제외 0·저장 생략 0·실패 1), "
-                        + "옛 딜 공모 종류 판정 0건, 자동 입력 수요예측 지표 0·확정 공모가 0개 회사, 전체 딜 1건 상태 재계산, 알림 0건",
+                        + "옛 딜 공모 종류 판정 0건, 자동 입력 수요예측 지표 0·확정 공모가 0·유통가능물량 0개 회사, 전체 딜 1건 상태 재계산, 알림 0건",
                 summary.toLogLine());
     }
 
@@ -524,12 +572,52 @@ class IpoSyncSchedulerTest {
         assertEquals(new BigDecimal("19500"), deal.getOfferPriceConfirmed(), "주요정보 모집가액(희망가 하단)은 그대로 둔다");
         assertEquals(1, summary.pricesFilled());
         assertEquals(1, summary.metricsFilled());
-        assertEquals(IpoRecommendation.SKIP, deal.getRecommendation());   // 경쟁률 1,097:1은 넘지만 확약 5.29% < 20%
+        // 예전 규칙(확약 20%)은 SKIP이었다. 청약 추천(2026-10-15)은 기관 1,000:1 이상 +2 — 맥락(직전 딜)이 없으면 확약은 0점
+        assertEquals(IpoRecommendation.RECOMMEND, deal.getRecommendation());
         var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
         verify(publisher, times(1)).publishEvent(captor.capture());
         assertEquals("METRICS", captor.getValue().phase());
-        assertEquals("[수요예측 결과] 진코스텍 — 확정 공모가 23,500원 · 기관경쟁률 1,097.62:1 · 의무보유확약 5.29% → "
-                + "권고 SKIP(청약 비권고). 청약 10/2(금)~10/6(화), 하나증권.", captor.getValue().message());
+        assertEquals("[청약 추천] 진코스텍 — 확정 공모가 23,500원. 균등만(점수 +2) — 기관 1,097.62:1(+2) · "
+                + "확약 5.29%(직전 비교 표본 0건 — 점수 없음) · 밴드 위치 미확인 · 유통가능물량 미확인 · 분위기 판단 표본 부족(직전 상장 0곳). "
+                + "청약: 균등 최소 단위(보통 10주, 증거금 약 117,500원)만. 증권사 한 곳만. 상장일 시초가 매도. 청약 10/2(금)~10/6(화), 하나증권.",
+                captor.getValue().message());
+    }
+
+    @Test
+    void 확정가만_빈_회사는_청약이_먼_신규_공모에_밀리지_않고_먼저_읽는다() {
+        // 10/15 실측: "확정 공모가 0개 회사" — 청약이 3~4주 뒤인 신규 공모가 회사 상한(10)을 다 써서, 지표는 읽었지만
+        // 일정을 모르는 진코스텍 꼴 딜까지 차례가 오지 않았다
+        LocalDate today = LocalDate.of(2026, 10, 15);
+        IpoDealEntity jincostech = new IpoDealEntity("01158632", "진코스텍", "20261001000586", "DART", Instant.now());
+        jincostech.classifyOffering(OfferingKind.IPO, Instant.now());
+        jincostech.applyDemandForecast(new BigDecimal("1097.62"), new BigDecimal("0.0529"), "20260928000402", Instant.now());
+        List<IpoDealEntity> all = new ArrayList<>();
+        for (int i = 0; i < IpoDemandForecastCollector.CORPS_PER_RUN + 2; i++) {
+            IpoDealEntity far = dealStarting("0900000" + (char) ('A' + i), "신규" + i, "2026101400010" + i,
+                    LocalDate.of(2026, 11, 4), "10000");
+            far.classifyOffering(OfferingKind.IPO, Instant.now());
+            all.add(far);
+        }
+        all.add(jincostech);
+        when(repository.findAll()).thenReturn(all);
+        when(repository.findByCorpCode("01158632")).thenReturn(List.of(jincostech));
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(DartClient.RecentFilings.complete(List.of()));
+        when(dartClient.fetchCorpEquityFilings(eq("01158632"), any(), any())).thenReturn(List.of(
+                new DartClient.DealNotice("20260928000402", "01158632", "진코스텍", "[발행조건확정]증권신고서(지분증권)",
+                        LocalDate.of(2026, 9, 28))));
+        when(dartClient.fetchDocument("20260928000402")).thenReturn(Optional.of(DartFixtures.xml("20260928000402.zip")));
+
+        IpoSyncScheduler.SyncSummary summary = schedulerAt(today).sync();
+
+        assertEquals(new BigDecimal("23500"), jincostech.getOfferPriceFinal());
+        assertEquals(1, summary.pricesFilled());
+        // 청약이 10일보다 먼 회사는 확정 신고서를 찾지 않는다 — 진코스텍 한 곳만 조회
+        verify(dartClient, times(1)).fetchCorpEquityFilings(any(), any(), any());
+        // 확정 신고 9/28 → 10/15에는 청약이 끝났다: 수요예측 결과 알림은 없다
+        var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
+        verify(publisher, org.mockito.Mockito.atLeast(0)).publishEvent(captor.capture());
+        assertTrue(captor.getAllValues().stream().noneMatch(alert -> "METRICS".equals(alert.phase())),
+                captor.getAllValues().toString());
     }
 
     @Test
@@ -596,5 +684,110 @@ class IpoSyncSchedulerTest {
         var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
         verify(publisher, times(1)).publishEvent(captor.capture());
         assertEquals("END", captor.getValue().phase());
+    }
+
+    // ── 청약 추천(2026-10-15) — 시장 맥락은 판단 재료 표(V19)에서, 상장일 시세도 그 표에 ────────────────────
+
+    /** 판단 재료 표 대역 — corp_code로 저장·조회. */
+    private static IpoListingHistoryRepository historyBackedBy(java.util.Map<String, IpoListingHistoryEntity> rows) {
+        IpoListingHistoryRepository repo = mock(IpoListingHistoryRepository.class);
+        when(repo.findAll()).thenAnswer(inv -> List.copyOf(rows.values()));
+        when(repo.findById(any())).thenAnswer(inv -> Optional.ofNullable(rows.get((String) inv.getArgument(0))));
+        when(repo.save(any(IpoListingHistoryEntity.class))).thenAnswer(inv -> {
+            IpoListingHistoryEntity row = inv.getArgument(0);
+            rows.put(row.getCorpCode(), row);
+            return row;
+        });
+        return repo;
+    }
+
+    /** 지난 공모주 한 곳 — 확정일·확약·상장일·종가 수익률. */
+    private static IpoListingHistoryEntity past(String code, LocalDate confirmedOn, String lockup, LocalDate listedOn,
+                                                String closeReturn) {
+        IpoListingHistoryEntity row = new IpoListingHistoryEntity(code, "회사" + code, Instant.EPOCH);
+        row.applyInputs("회사" + code, confirmedOn, new BigDecimal("800"), lockup == null ? null : new BigDecimal(lockup),
+                new BigDecimal("10000"), null, null, null, Instant.EPOCH);
+        if (listedOn != null) {
+            BigDecimal close = new BigDecimal("10000").multiply(BigDecimal.ONE.add(new BigDecimal(closeReturn)));
+            row.applyListing("9" + code.substring(1), listedOn, close, close, null, Instant.EPOCH);
+        }
+        return row;
+    }
+
+    @Test
+    void 판단_시점_앞의_딜만으로_맥락을_세고_분위기가_나쁘면_패스한다() {
+        // 니어스랩 꼴(10/15 실측 자료): 확정 2026-08-11, 743:1, 확약 1.26%, 상단, 유통 37.15% — 직전 상장 5곳이 줄줄이 공모가 하회
+        java.util.Map<String, IpoListingHistoryEntity> rows = new java.util.LinkedHashMap<>();
+        for (int i = 0; i < 6; i++) {
+            LocalDate confirmed = LocalDate.of(2026, 7, 1).plusDays(i * 5L);
+            rows.put("0000000" + i, past("0000000" + i, confirmed, "0.10", confirmed.plusDays(10), "-0.20"));
+        }
+        // 판단 뒤에 상장한 곳(+300%)은 맥락에 들어가면 안 된다
+        rows.put("00000099", past("00000099", LocalDate.of(2026, 8, 20), "0.90", LocalDate.of(2026, 8, 30), "3.0"));
+        IpoListingHistoryRepository history = historyBackedBy(rows);
+        IpoSyncScheduler scheduler = new IpoSyncScheduler(enabledProps, filterProps, dartClient, repository, alertLog, history,
+                publisher, Clock.fixed(Instant.parse("2026-08-12T03:00:00Z"), ZoneOffset.UTC));
+        IpoDealEntity deal = new IpoDealEntity("01234567", "니어스랩", "20260720000001", "DART", Instant.now());
+        deal.classifyOffering(OfferingKind.IPO, Instant.now());
+        deal.applyDemandForecast(new BigDecimal("743.49"), new BigDecimal("0.0126"), "20260811000001", Instant.now());
+        deal.applyFinalPrice(new BigDecimal("41200"), new BigDecimal("35000"), new BigDecimal("41200"), Instant.now());
+        deal.applyFloat(new BigDecimal("0.3715"), 5_771_485L, "20260810000140", Instant.now());
+
+        scheduler.evaluateFilter(deal);
+
+        assertEquals("PASS", deal.getAdviceGrade());
+        assertEquals(IpoRecommendation.SKIP, deal.getRecommendation());
+        assertEquals(-3, deal.getAdviceScore());   // +1 −1 0 −1 −2
+        assertTrue(deal.getRecommendReason().contains("직전 상장 5곳 상장일 종가 평균 -20.0%"), deal.getRecommendReason());
+        assertTrue(deal.getRecommendReason().contains("직전 6건 중앙값 10.00%의 절반 미만"), deal.getRecommendReason());
+    }
+
+    @Test
+    void 수요예측_결과가_있는_공모주는_판단_재료를_표에_남긴다() {
+        LocalDate today = LocalDate.of(2026, 10, 15);
+        java.util.Map<String, IpoListingHistoryEntity> rows = new java.util.LinkedHashMap<>();
+        IpoListingHistoryRepository history = historyBackedBy(rows);
+        IpoDealEntity deal = jincostech();
+        deal.applyDemandForecast(new BigDecimal("1097.62"), new BigDecimal("0.0529"), "20260928000402", Instant.now());
+        deal.applyFinalPrice(new BigDecimal("23500"), null, null, Instant.now());
+        IpoDealEntity rights = new IpoDealEntity("09999999", "상장사", "20261001000009", "DART", Instant.now());
+        rights.classifyOffering(OfferingKind.RIGHTS, Instant.now());
+        when(repository.findAll()).thenReturn(List.of(deal, rights));
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(DartClient.RecentFilings.complete(List.of()));
+        Clock fixed = Clock.fixed(today.atTime(12, 0).toInstant(ZoneOffset.of("+09:00")), ZoneOffset.UTC);
+
+        new IpoSyncScheduler(enabledProps, filterProps, dartClient, repository, alertLog, history, publisher, fixed).sync();
+
+        assertEquals(List.of("01158632"), List.copyOf(rows.keySet()), "유상증자는 남기지 않는다");
+        IpoListingHistoryEntity row = rows.get("01158632");
+        assertEquals(LocalDate.of(2026, 9, 28), row.getConfirmedOn(), "판단 시점 = [발행조건확정] 접수일");
+        assertEquals(new BigDecimal("1097.62"), row.getCompetitionRate());
+        assertEquals(new BigDecimal("23500"), row.getOfferPrice());
+        assertEquals("APP", row.getSource());
+    }
+
+    @Test
+    void 상장일_시세를_받으면_종목코드로_맞춘_딜과_판단_재료_표에_남긴다() {
+        java.util.Map<String, IpoListingHistoryEntity> rows = new java.util.LinkedHashMap<>();
+        IpoListingHistoryRepository history = historyBackedBy(rows);
+        IpoDealEntity deal = jincostech();
+        deal.applyFinalPrice(new BigDecimal("12300"), null, null, Instant.now());
+        deal.applyListing("179880", LocalDate.of(2026, 10, 15), Instant.now());
+        when(repository.findAll()).thenReturn(List.of(deal));
+        IpoSyncScheduler scheduler = new IpoSyncScheduler(enabledProps, filterProps, dartClient, repository, alertLog, history,
+                publisher, Clock.systemUTC());
+
+        scheduler.onListingDayPrices(new com.autostock.common.event.ListingDayPrices(LocalDate.of(2026, 10, 15), List.of(
+                new com.autostock.common.event.ListingDayPrices.Entry("179880", "멜콘", LocalDate.of(2026, 10, 15),
+                        new BigDecimal("27400"), new BigDecimal("28800"), new BigDecimal("15780"), new BigDecimal("16700")),
+                new com.autostock.common.event.ListingDayPrices.Entry("000001", "모르는회사", LocalDate.of(2026, 10, 15),
+                        BigDecimal.TEN, BigDecimal.TEN, BigDecimal.TEN, BigDecimal.TEN))));
+
+        assertEquals(new BigDecimal("27400"), deal.getListingOpen());
+        assertEquals(new BigDecimal("16700"), deal.getListingClose());
+        IpoListingHistoryEntity row = rows.get("01158632");
+        assertEquals(LocalDate.of(2026, 10, 15), row.getListingDate());
+        assertEquals(0, new BigDecimal("0.357724").compareTo(row.closeReturn()), "종가 16,700 ÷ 공모가 12,300 − 1");
+        assertEquals(1, rows.size(), "맞추지 못한 종목은 남기지 않는다");
     }
 }

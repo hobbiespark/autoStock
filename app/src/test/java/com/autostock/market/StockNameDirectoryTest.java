@@ -103,6 +103,30 @@ class StockNameDirectoryTest {
     }
 
     @Test
+    void 실패한_갱신_대상은_30분_뒤_스스로_다시_조회하고_세_번_실패하면_다음_요청까지_둔다() {
+        // 10/15 07:53 기동: 7일 지난 이름 14건이 키움 1631로 실패 — "30분 뒤 다시 조회"라 했지만 대기열에서 빠져 다시 하지 않았다
+        when(repository.findAll()).thenReturn(List.of(row("069540", "빛과전자", "DART", NOW.minus(Duration.ofDays(8)))));
+        when(marketData.stockQuote("069540")).thenThrow(new RuntimeException("[ka10001] 서비스를 처리하는 중에 오류가 발생했습니다[1631]"));
+        StockNameDirectory directory = directory();
+        directory.start();
+
+        directory.lookupPending();                         // 1번째 실패
+        directory.lookupPending();                         // 30분 안 — 조회하지 않는다
+        verify(marketData, times(1)).stockQuote("069540");
+        for (int i = 0; i < 4; i++) {                      // 31분씩 네 번 — 2·3번째 실패 뒤 그만둔다
+            clock.advance(Duration.ofMinutes(31));
+            directory.lookupPending();
+        }
+        verify(marketData, times(StockNameDirectory.MAX_ATTEMPTS)).stockQuote("069540");
+        assertEquals("빛과전자(069540)", StockNames.label("069540"), "갱신 실패여도 저장된 이름은 그대로 보인다");
+
+        when(repository.findByUpdatedAtBefore(any())).thenReturn(List.of(row("069540", "빛과전자", "DART", NOW.minus(Duration.ofDays(8)))));
+        directory.refreshStale();                          // 다음 평일 08:10 — 다시 해 본다
+        directory.lookupPending();
+        verify(marketData, times(StockNameDirectory.MAX_ATTEMPTS + 1)).stockQuote("069540");
+    }
+
+    @Test
     void 응답에_종목명이_없으면_실패로_보고_저장하지_않는다() {
         when(marketData.stockQuote("035420")).thenReturn(MarketDataPort.StockQuote.EMPTY);
         StockNameDirectory directory = directory();

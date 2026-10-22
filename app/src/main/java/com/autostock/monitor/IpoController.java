@@ -95,6 +95,7 @@ public class IpoController {
                 e.getMetricsSource() == null ? null : e.getMetricsSource().name(), e.getMetricsRceptNo(),
                 e.getStatus().name(), e.getRecommendation().name(), e.getRecommendReason(),
                 e.getAppliedQty(), e.getDeposit(), e.getAllocatedQty(), e.getSellPrice(), e.getSellDate(),
-                e.getMemo());
+                e.getMemo(), e.getAdviceGrade(), e.getAdviceScore(), e.getFloatRatio(), e.getListedShares(),
+                e.getListingOpen(), e.getListingClose());
     }
 }

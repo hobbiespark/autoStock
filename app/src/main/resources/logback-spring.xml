@@ -53,6 +53,11 @@
         </rollingPolicy>
     </appender>
 
+    <!-- reactor-netty가 연결 오류마다 남기는 WARN("The connection observed an error" + 예외 이름)을 끈다 — 텔레그램·키움·DART
+         클라이언트가 같은 실패를 자기 문맥(재시도·요약)으로 이미 남긴다. 2026-10-15 로그 점검: 08:24 텔레그램 읽기 시간 초과가
+         netty WARN과 폴링 WARN 두 줄로 남았다. ERROR는 그대로 보인다. -->
+    <logger name="reactor.netty.http.client.HttpClientConnect" level="ERROR" />
+
     <root level="INFO">
         <appender-ref ref="CONSOLE" />
         <appender-ref ref="FILE" />

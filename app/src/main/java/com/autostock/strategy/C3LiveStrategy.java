@@ -15,8 +15,10 @@ import com.autostock.market.MarketDataPort;
 import com.autostock.monitor.TradingSystemManager;
 import com.autostock.monitor.TradingSystemStatus;
 import com.autostock.portfolio.PositionBook;
+import com.autostock.portfolio.StrategyBook;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -119,6 +121,11 @@ public class C3LiveStrategy {
 
     /** 저장된 마지막 판단일을 읽었는지 — 재기동 뒤 첫 실행에서 한 번 읽는다(실패하면 다음 실행에서 다시). */
     private volatile boolean stateLoaded;
+    /**
+     * 전략별 장부(2026-10-16 다전략) — 있으면 "C3가 들고 있나"를 이 장부로 본다. 같은 종목을 다른 전략(차트 기법 등)이
+     * 들고 있어도 C3 판단이 흔들리지 않게. null이면 계좌 장부(예전 동작, 시험용 생성자).
+     */
+    private final StrategyBook strategyBook;
 
     public C3LiveStrategy(C3StrategyProperties properties,
                           KiwoomDailyChartService chartService,
@@ -128,6 +135,20 @@ public class C3LiveStrategy {
                           MarketCalendarService marketCalendarService,
                           TradingSystemManager tradingSystemManager, Clock clock,
                           StrategyStateStore stateStore) {
+        this(properties, chartService, marketData, positionBook, publisher, marketCalendarService, tradingSystemManager,
+                clock, stateStore, null);
+    }
+
+    @Autowired
+    public C3LiveStrategy(C3StrategyProperties properties,
+                          KiwoomDailyChartService chartService,
+                          MarketDataPort marketData,
+                          PositionBook positionBook,
+                          ApplicationEventPublisher publisher,
+                          MarketCalendarService marketCalendarService,
+                          TradingSystemManager tradingSystemManager, Clock clock,
+                          StrategyStateStore stateStore, StrategyBook strategyBook) {
+        this.strategyBook = strategyBook;
         this.clock = clock;
         this.stateStore = stateStore;
         this.properties = properties;
@@ -230,12 +251,13 @@ public class C3LiveStrategy {
 
     /**
      * 국면 판정 — 지수의 최근 (regimeSmaDays+1)봉 이상을 조회해 {@link RegimeMath#isOn}에
-     * 그대로 넘긴다. 09:05(개장 직후) 호출이므로 조회 결과의 마지막 봉은 항상 "어제 종가"다
-     * (오늘 일봉은 장중에야 만들어지므로 아직 존재하지 않는다) — RegimeMath가 기대하는
+     * 그대로 넘긴다. 마지막 봉은 "어제 종가"다 — ka10081은 장중에도 오늘 진행 중인 봉을 주므로(2026-10-16 실측)
+     * {@code fetchCompletedDaily}로 오늘 봉을 뺀다(예전엔 오늘 봉이 섞여 09:05 가격을 어제 종가로 썼다) — RegimeMath가 기대하는
      * "전일까지" 계약과 자연스럽게 맞아떨어진다.
      */
     private RegimeSnapshot judgeRegime() {
-        List<Candle> candles = chartService.fetchDaily(
+        // 완료된 봉만(오늘 진행 중 봉 제외) — ka10081은 장중에도 오늘 봉을 준다(2026-10-16 실측, 문서 1-4절)
+        List<Candle> candles = chartService.fetchCompletedDaily(
                 properties.regimeIndexSymbol(), LocalDate.now(clock.withZone(MarketConstants.KST)), properties.regimeSmaDays() + 1);
         List<BigDecimal> closes = candles.stream().map(Candle::close).toList();
         boolean on = RegimeMath.isOn(closes);
@@ -341,7 +363,7 @@ public class C3LiveStrategy {
         int signals = 0;
         int errors = 0;
         for (String symbol : properties.symbols()) {
-            if (positionBook.get(new StockCode(symbol)) == null) {
+            if (!holds(symbol)) {
                 continue;
             }
             try {
@@ -407,7 +429,7 @@ public class C3LiveStrategy {
 
         // MomentumMath는 최소 (lookbackN+1)개, VolTargetMath는 최소 (VOL_WINDOW+1)개가 필요하다.
         int minCount = Math.max(properties.lookbackN(), VolTargetMath.VOL_WINDOW) + 1;
-        List<Candle> candles = chartService.fetchDaily(symbol, today, minCount);
+        List<Candle> candles = chartService.fetchCompletedDaily(symbol, today, minCount);
         if (candles.size() < properties.lookbackN() + 1) {
             // 데이터가 부족하면 이번엔 판단을 건너뛴다 — lastDecisionDate를 갱신하지 않으므로
             // 다음 스케줄에서 즉시 재시도한다(21일을 더 기다리지 않는다).
@@ -425,7 +447,7 @@ public class C3LiveStrategy {
         saveDecisionDate(symbol, today);
 
         boolean uptrend = MomentumMath.shouldHold(closes, properties.lookbackN());
-        boolean holding = positionBook.holds(new StockCode(symbol));
+        boolean holding = holds(symbol);
         BigDecimal latestClose = candles.get(candles.size() - 1).close();
 
         // FE-6 판단 근거 지표 — MomentumMath와 같은 입력(closes, lookbackN)으로 "N일 수익률"을
@@ -477,6 +499,12 @@ public class C3LiveStrategy {
                 .divide(nBarsAgo, 6, RoundingMode.HALF_UP)
                 .multiply(BigDecimal.valueOf(100));
         return pct.setScale(2, RoundingMode.HALF_UP).toPlainString();
+    }
+
+    /** C3가 이 종목을 들고 있나 — 전략별 장부가 있으면 그것으로, 없으면 계좌 장부로(클래스 필드 설명). */
+    private boolean holds(String symbol) {
+        StockCode code = new StockCode(symbol);
+        return strategyBook != null ? strategyBook.holds(STRATEGY_ID, code) : positionBook.holds(code);
     }
 
     /** SignalDecision 발행 — RegimeSnapshot이 없는(=국면 판단과 무관한) 호출 편의 오버로드는 두지 않는다: 항상 국면 지표를 함께 남긴다(FE-6, "왜"를 재구성하려면 국면도 필요). */

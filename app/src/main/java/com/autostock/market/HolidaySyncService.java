@@ -281,20 +281,29 @@ public class HolidaySyncService {
 
     /**
      * 공공데이터포털 표준 응답 포맷({@code response.body.items.item[]})을 파싱한다.
-     * 예상과 다른 구조가 오면(실측 2026-09-18 확정 구조 외) 예외를 던지지 않고 error 로그만
-     * 남긴 뒤 빈 목록을 반환한다 — {@link #syncYear}의 부분 실패 정책과 같은 이유로,
-     * 파싱 실패 하나가 이미 받은 다른 달의 성공 데이터를 지우면 안 되기 때문이다.
+     *
+     * <p><b>특일이 없는 달</b>(실측 2026-10-15, 2026년 11월): {@code items}가 객체가 아니라 빈 문자열로 온다 —
+     * {@code {"body":{"items":"","numOfRows":50,"pageNo":1,"totalCount":0}}}. 정상 응답이라 빈 목록을 돌려준다
+     * (예전에는 Map으로 캐스팅하다 ClassCastException을 ERROR로 남겼다).
+     *
+     * <p>그 밖에 예상과 다른 구조(실측 2026-09-18 확정 구조 외)는 예외를 던진다 — 호출부({@link #syncMonths}·{@link #syncYear})가
+     * 그 달만 실패로 세고 건너뛴다. 저장은 upsert뿐이라 실패한 달이 이미 받은 다른 달 데이터를 지우지 않는다. 예전에는 여기서
+     * 빈 목록을 돌려줘 실패가 "실패=0개월"로 집계됐다.
      */
     @SuppressWarnings("unchecked")
-    private List<RestDeItem> parseItems(Map<String, Object> response) {
+    static List<RestDeItem> parseItems(Map<String, Object> response) {
         if (response == null) {
             return List.of();
         }
         try {
             Map<String, Object> responseWrapper = (Map<String, Object>) response.get("response");
             Map<String, Object> body = (Map<String, Object>) responseWrapper.get("body");
-            Map<String, Object> itemsWrapper = (Map<String, Object>) body.get("items");
-            Object itemObj = (itemsWrapper == null) ? null : itemsWrapper.get("item");
+            Object items = body.get("items");
+            if (items == null || (items instanceof String text && text.isBlank())) {
+                return List.of(); // 특일 없는 달 — totalCount=0, items="" (실측 2026-10-15)
+            }
+            Map<String, Object> itemsWrapper = (Map<String, Object>) items;
+            Object itemObj = itemsWrapper.get("item");
 
             List<Map<String, Object>> rawItems;
             if (itemObj instanceof List<?> list) {
@@ -314,12 +323,11 @@ public class HolidaySyncService {
             }
             return result;
         } catch (RuntimeException e) {
-            log.error("특일 API 응답 파싱 실패 — 예상 포맷과 다름(TODO 실측 필요): {}", response, e);
-            return List.of();
+            throw new IllegalStateException("특일 API 응답 형식이 예상과 다름: " + response, e);
         }
     }
 
-    private RestDeItem toItem(Map<String, Object> raw) {
+    private static RestDeItem toItem(Map<String, Object> raw) {
         LocalDate date = LocalDate.parse(String.valueOf(raw.get("locdate")), LOCDATE_FORMAT);
         String dateName = String.valueOf(raw.get("dateName"));
         boolean isHoliday = "Y".equals(raw.get("isHoliday"));
@@ -343,6 +351,6 @@ public class HolidaySyncService {
     }
 
     /** getRestDeInfo 응답 item 한 건을 파싱한 결과 — locdate/dateName/isHoliday만 이 배치에 필요하다(dateKind는 사용하지 않음). */
-    private record RestDeItem(LocalDate date, String dateName, boolean isHoliday) {
+    record RestDeItem(LocalDate date, String dateName, boolean isHoliday) {
     }
 }

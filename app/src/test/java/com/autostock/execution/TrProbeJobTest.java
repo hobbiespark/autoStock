@@ -1,5 +1,6 @@
 package com.autostock.execution;
 
+import com.autostock.common.event.ProbeOrderPlaced;
 import com.autostock.common.event.TrProbeCompleted;
 import com.autostock.kiwoom.KiwoomApiException;
 import com.autostock.kiwoom.KiwoomProperties;
@@ -67,6 +68,8 @@ class TrProbeJobTest {
     private final KillSwitch killSwitch = mock(KillSwitch.class);
     private final MarketCalendarService calendar = mock(MarketCalendarService.class);
     private final List<Object> published = new ArrayList<>();
+    /** 실측이 체결통보 처리에 알린 주문번호({@link ProbeOrderPlaced}) — 알림 이벤트와 따로 모은다. */
+    private final List<String> probeOrders = new ArrayList<>();
     private final List<Duration> waits = new ArrayList<>();
     private final FakeBroker broker = new FakeBroker();
 
@@ -84,8 +87,13 @@ class TrProbeJobTest {
     private TrProbeJob job(TrProbeProperties properties, String baseUrl, Clock clock) {
         KiwoomProperties kiwoom = new KiwoomProperties(baseUrl, "wss://mockapi.kiwoom.com:10000/api/dostk/websocket",
                 "test-key", "test-secret");
-        return new TrProbeJob(properties, client, kiwoom, killSwitch, calendar, new ObjectMapper(), published::add, clock,
-                waits::add);
+        return new TrProbeJob(properties, client, kiwoom, killSwitch, calendar, new ObjectMapper(), event -> {
+            if (event instanceof ProbeOrderPlaced placed) {
+                probeOrders.add(placed.brokerOrderId());
+            } else {
+                published.add(event);
+            }
+        }, clock, waits::add);
     }
 
     /** 체결 왕복을 하는 날(목요일)·성공도 알림 — 단언하기 쉽게. */
@@ -217,6 +225,60 @@ class TrProbeJobTest {
         job(properties(true, Set.of(), false), "https://mockapi.kiwoom.com", AT_10).tick();
 
         assertTrue(done().summary().contains("점검 실패: 주문내역 행 필드 — 없는 필드 [ord_remnq]"), done().summary());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 보유가_없으면_지정가_매도를_건너뛰고_실측_실패로_세지_않는다() throws Exception {
+        // 10/15 09:30 실측: 10/13 국면 OFF 청산 뒤 보유 0 — kt10001이 800033으로 거부돼 "일부 실패" 알림이 나갔다
+        broker.noHolding = true;
+
+        job(properties(true, Set.of(DayOfWeek.FRIDAY), false), "https://mockapi.kiwoom.com", AT_10).tick();
+
+        verify(client, times(1)).call(eq(TrId.ORDER_SELL), anyString(), anyMap());
+        verify(client, times(1)).call(eq(TrId.ORDER_CANCEL), anyString(), anyMap());   // 지정가 매수 취소만
+        Map<String, Object> summary = summary();
+        assertEquals(0, summary.get("failures"));
+        assertEquals(List.of(), summary.get("problems"));
+        Map<String, Object> sell = (Map<String, Object>) ((Map<String, Object>) summary.get("scenarios")).get("limit-sell");
+        assertEquals(TrProbeJob.NO_HOLDING_RESULT, sell.get("result"));
+        assertTrue(published.isEmpty(), "보유가 없는 것은 계좌 상태다 — 실패 알림을 보내지 않는다");
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 보유가_없어도_체결_왕복_날에는_산_1주로_지정가_매도와_취소를_잰다() throws Exception {
+        broker.noHolding = true;
+
+        mockServerJob().tick();
+
+        // 매도: 지정가(거부) → 시장가 매수 체결 뒤 지정가 → 시장가
+        List<Map<String, Object>> sells = orderBodies(TrId.ORDER_SELL, 3);
+        assertEquals("0", sells.get(0).get("trde_tp"));
+        assertEquals("0", sells.get(1).get("trde_tp"));
+        assertEquals("128600", sells.get(1).get("ord_uv"));
+        assertEquals("3", sells.get(2).get("trde_tp"));
+        verify(client, times(2)).call(eq(TrId.ORDER_CANCEL), anyString(), anyMap());   // 지정가 매수·매도 취소
+        Map<String, Object> summary = summary();
+        assertEquals(0, summary.get("failures"));
+        Map<String, Object> scenarios = (Map<String, Object>) summary.get("scenarios");
+        Map<String, Object> sell = (Map<String, Object>) scenarios.get("limit-sell");
+        assertEquals("취소", sell.get("result"));
+        assertTrue(String.valueOf(sell.get("note")).contains("체결 왕복에서 산 1주"), sell.toString());
+        assertEquals("매수 1주 체결 → 매도 1주 체결", ((Map<String, Object>) scenarios.get("fill-round-trip")).get("result"));
+        assertTrue(done().success(), done().summary());
+        // 알림 한 줄의 순서는 그대로 — 지정가 매수 · 지정가 매도 · 체결 왕복
+        assertTrue(done().summary().contains("지정가 매수 95,100원 0123456 취소 · 지정가 매도 128,600원 0123459 취소 · 체결 왕복"),
+                done().summary());
+    }
+
+    @Test
+    void 낸_주문번호를_모두_체결통보_처리에_알린다() throws Exception {
+        mockServerJob().tick();
+
+        // 지정가 매수·취소, 지정가 매도·취소, 시장가 매수·매도 — 요약의 주문번호와 같은 순서
+        assertEquals(summary().get("orderNos"), probeOrders);
+        assertEquals(6, probeOrders.size());
     }
 
     @Test
@@ -484,6 +546,9 @@ class TrProbeJobTest {
         boolean failDetail;
         boolean rejectBuy;
         boolean noQuote;
+        /** 보유 0주로 시작 — 시장가로 사기 전에는 매도가 800033으로 거부된다(10/15 실측, 10/13 청산 뒤). */
+        boolean noHolding;
+        private int held;
         private int next = 123456;
         private final Map<String, Order> orders = new LinkedHashMap<>();
 
@@ -511,10 +576,16 @@ class TrProbeJobTest {
                 throw new KiwoomApiException("키움 API 오류 [kt10000] 응답코드 20 — 모의투자 장종료");
             }
             boolean market = "3".equals(tradeType);
+            if (!buy && noHolding && held < 1) {
+                throw new KiwoomApiException("키움 API 논리 오류 [kt10001] [2000](800033:모의투자 매도가능수량이 부족합니다.)");
+            }
             if (!buy && market && failMarketSell) {
                 throw new KiwoomApiException("키움 API 오류 [kt10001] 일시 오류");
             }
             boolean filled = market && fillMarket;
+            if (filled) {
+                held += buy ? 1 : -1;
+            }
             String no = nextNo();
             orders.put(no, new Order(no, "0000000", buy, false, new int[]{filled ? 0 : 1}, new int[]{filled ? 1 : 0}));
             return Map.of("ord_no", no, "dmst_stex_tp", "KRX", "return_code", 0, "return_msg", "모의투자 주문완료");

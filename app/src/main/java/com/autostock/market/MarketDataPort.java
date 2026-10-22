@@ -37,6 +37,19 @@ public interface MarketDataPort {
      */
     List<ListedStock> listedStocks(ListingMarket market);
 
+    /**
+     * 전일대비 등락률 상위 — 상승률순, KRX, 상하한가 미포함(2026-10-16, 종가→익일 전략 후보 — aiDoc/multi-strategy-paper-2026-10-16.md 3-2).
+     * 키움 ka10027. 한 번 호출의 첫 페이지만 준다(실측 10/16: 조건을 걸면 160행 안팎, 연속조회 없음).
+     *
+     * @param stockCondition        종목조건 코드(키움): 16 ETF+ETN 제외, 4 우선주+관리주 제외, 5 증거금100% 제외, 11 정리매매 제외
+     * @param priceCondition        가격조건 코드: 8 = 1천 원 이상
+     * @param tradingValueCondition 거래대금조건 코드: 1000 = 100억 원 이상
+     * @return 상승률 내림차순. 구현이 없으면 빈 목록
+     */
+    default List<RankedStock> risingRanking(String stockCondition, String priceCondition, String tradingValueCondition) {
+        return List.of();
+    }
+
     /** 상장 종목 목록을 받는 시장 — 공모주가 상장하는 두 곳. */
     enum ListingMarket {
         KOSPI("코스피"),
@@ -59,6 +72,21 @@ public interface MarketDataPort {
      * @param marketName 브로커가 주는 시장명(예: "거래소", "코스닥")
      */
     record ListedStock(String code, String name, LocalDate listedOn, String marketName) {
+    }
+
+    /**
+     * 등락률 순위 한 행(ka10027).
+     *
+     * @param current    현재가(원, 부호 뗀 값)
+     * @param changeRate 등락률(%, 예: 12.34)
+     * @param volume     당일 거래량(주)
+     */
+    record RankedStock(String code, String name, BigDecimal current, BigDecimal changeRate, long volume) {
+
+        /** 거래대금 근사(현재가 × 거래량, 원). */
+        public BigDecimal tradingValue() {
+            return current == null ? BigDecimal.ZERO : current.multiply(BigDecimal.valueOf(volume));
+        }
     }
 
     /** 값이 없으면 필드는 null. */

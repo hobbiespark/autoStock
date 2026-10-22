@@ -85,4 +85,16 @@ class TelegramCommandPollerTest {
     void 타_chatId의_확인_코드도_차단된다() {
         assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand("999999", "/resume 0427", ALLOWED));
     }
+
+    @Test
+    void 실패_사유는_메시지가_없으면_근본_원인_이름을_쓴다() {
+        // 10/15 08:24 — "WebClientRequestException: null"(원인 netty ReadTimeoutException, 메시지 없음)
+        class ReadTimeoutException extends RuntimeException {
+        }
+        RuntimeException wrapped = new RuntimeException((String) null, new IllegalStateException(null, new ReadTimeoutException()));
+        assertEquals("RuntimeException: ReadTimeoutException", TelegramCommandPoller.describe(wrapped));
+        assertEquals("IllegalStateException: connection timed out after 5000 ms",
+                TelegramCommandPoller.describe(new IllegalStateException("connection timed out after 5000 ms")));
+        assertEquals("IllegalStateException", TelegramCommandPoller.describe(new IllegalStateException()));
+    }
 }

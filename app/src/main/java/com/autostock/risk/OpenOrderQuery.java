@@ -1,5 +1,6 @@
 package com.autostock.risk;
 
+import com.autostock.common.event.Side;
 import com.autostock.common.util.StockCode;
 
 import java.util.Set;
@@ -25,4 +26,15 @@ public interface OpenOrderQuery {
      * 날짜와 무관하다(어제의 UNKNOWN도 아직 포지션이 될 수 있다). 없으면 빈 집합.
      */
     Set<StockCode> symbolsWithOpenBuy();
+
+    /**
+     * 이 전략의 결과가 확정되지 않은 주문이 걸린 종목(2026-10-16, 다전략 슬리브 — aiDoc/multi-strategy-paper-2026-10-16.md).
+     * 슬리브가 있는 전략의 매수 중복·동시 보유와 매도 중복을 그 전략 기준으로 본다.
+     *
+     * <p>기본 구현은 보수적이다 — 매수는 계좌 전체 미체결 매수, 매도는 없음(시험의 람다 구현 호환). 실제 구현
+     * ({@code trading.OpenOrderQueryAdapter})은 전략 ID(대소문자 무시)로 거른다.
+     */
+    default Set<StockCode> symbolsWithOpenOrder(String strategyId, Side side) {
+        return side == Side.BUY ? symbolsWithOpenBuy() : Set.of();
+    }
 }

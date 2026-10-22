@@ -47,10 +47,32 @@ class OpenOrderQueryAdapterDbTest extends PostgresDataJpaTest {
         }
     }
 
+    @Test
+    void 전략별로_미체결_주문을_거른다_대소문자_무시() {
+        // 다전략 슬리브(2026-10-16): 주문 표에는 신호의 전략 ID가 그대로 남는다
+        save("T20001", Side.SELL, OrderStatus.SUBMITTED, "VB-DAY");
+        save("T20002", Side.SELL, OrderStatus.SUBMITTED, "TA-H1");
+        save("T20003", Side.BUY, OrderStatus.SUBMITTED, "vb-day");
+        save("T20004", Side.SELL, OrderStatus.FILLED, "VB-DAY");
+
+        OpenOrderQueryAdapter adapter = new OpenOrderQueryAdapter(orders);
+        Set<StockCode> sells = adapter.symbolsWithOpenOrder("VB-DAY", Side.SELL);
+        Set<StockCode> buys = adapter.symbolsWithOpenOrder("VB-DAY", Side.BUY);
+
+        assertTrue(sells.contains(new StockCode("T20001")));
+        assertFalse(sells.contains(new StockCode("T20002")), "다른 전략");
+        assertFalse(sells.contains(new StockCode("T20004")), "체결 끝난 주문");
+        assertTrue(buys.contains(new StockCode("T20003")), "대소문자 무시");
+    }
+
     private void save(String symbol, Side side, OrderStatus target) {
+        save(symbol, side, target, "TEST");
+    }
+
+    private void save(String symbol, Side side, OrderStatus target, String strategyId) {
         Instant now = Instant.now();
         OrderEntity order = new OrderEntity("20261002-TEST-" + symbol + "-" + side + "-001", new StockCode(symbol), side,
-                new Quantity(10), new Price(new BigDecimal("1000")), "TEST", now);
+                new Quantity(10), new Price(new BigDecimal("1000")), strategyId, now);
         order.transitionTo(OrderStatus.VALIDATED, now);
         if (target != OrderStatus.VALIDATED) {
             order.transitionTo(OrderStatus.SUBMITTING, now);

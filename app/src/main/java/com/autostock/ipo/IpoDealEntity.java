@@ -126,6 +126,33 @@ public class IpoDealEntity {
 
     // V16 last_alert_phase·last_alert_date 컬럼은 더 쓰지 않는다 — 알림 기록은 단계마다 남는 ipo_alert_log(V18)로 옮겼다.
 
+    /** 상장 직후 유통가능물량 비율(0~1) — 증권신고서 본문에서 읽음(V19, {@link FloatSharesParser}). */
+    @Column(name = "float_ratio")
+    private BigDecimal floatRatio;
+
+    /** 상장예정주식수 — 같은 문단에서 읽음(V19). 상장 시가총액 = 이 값 × 확정 공모가. */
+    @Column(name = "listed_shares")
+    private Long listedShares;
+
+    /** 유통가능물량을 읽은 신고서 접수번호(V19) — 다시 읽지 않는 표시이기도 하다. */
+    @Column(name = "float_rcept_no", length = 20)
+    private String floatRceptNo;
+
+    /** 청약 추천 등급(V19, {@link IpoSubscriptionAdvisor.Grade} 이름) — 권고 칸(recommendation)보다 자세하다. */
+    @Column(name = "advice_grade", length = 16)
+    private String adviceGrade;
+
+    /** 청약 추천 점수 합(V19). */
+    @Column(name = "advice_score")
+    private Integer adviceScore;
+
+    /** 상장일 시가·종가(V19) — 키움 일봉, 15:40 확인. 공모주 시장 분위기(직전 상장 성과)의 재료. */
+    @Column(name = "listing_open")
+    private BigDecimal listingOpen;
+
+    @Column(name = "listing_close")
+    private BigDecimal listingClose;
+
     @Column(name = "source", nullable = false, length = 16)
     private String source;
 
@@ -278,6 +305,49 @@ public class IpoDealEntity {
         return result;
     }
 
+    /**
+     * 상장 직후 유통가능물량(V19). 같은 신고서에서 이미 읽었으면 바꾸지 않는다.
+     *
+     * @return 값이 바뀌었으면 true
+     */
+    public boolean applyFloat(BigDecimal ratio, Long listedShares, String rceptNo, Instant now) {
+        if (ratio == null || (rceptNo != null && rceptNo.equals(this.floatRceptNo) && ratio.compareTo(nz(floatRatio)) == 0)) {
+            return false;
+        }
+        this.floatRatio = ratio;
+        if (listedShares != null) {
+            this.listedShares = listedShares;
+        }
+        this.floatRceptNo = rceptNo;
+        touch(now);
+        return true;
+    }
+
+    /** 청약 추천 등급·점수(V19) — 권고 칸과 사유는 {@link #applyRecommendation}이 함께 남긴다. */
+    public void applyAdvice(String grade, Integer score, Instant now) {
+        if (!java.util.Objects.equals(grade, this.adviceGrade) || !java.util.Objects.equals(score, this.adviceScore)) {
+            this.adviceGrade = grade;
+            this.adviceScore = score;
+            touch(now);
+        }
+    }
+
+    /** 상장일 시가·종가(V19). */
+    public boolean applyListingPrices(BigDecimal open, BigDecimal close, Instant now) {
+        if (open == null || close == null
+                || (open.compareTo(nz(listingOpen)) == 0 && close.compareTo(nz(listingClose)) == 0)) {
+            return false;
+        }
+        this.listingOpen = open;
+        this.listingClose = close;
+        touch(now);
+        return true;
+    }
+
+    private static BigDecimal nz(BigDecimal v) {
+        return v == null ? BigDecimal.valueOf(-1) : v;
+    }
+
     /** 알림·화면에 쓰는 공모가 — 확정가가 있으면 확정가, 없으면 주요정보 모집가액(수요예측 전에는 희망가 하단). */
     public BigDecimal bestKnownOfferPrice() {
         return offerPriceFinal != null ? offerPriceFinal : offerPriceConfirmed;
@@ -345,6 +415,13 @@ public class IpoDealEntity {
     public BigDecimal getSellPrice() { return sellPrice; }
     public LocalDate getSellDate() { return sellDate; }
     public String getMemo() { return memo; }
+    public BigDecimal getFloatRatio() { return floatRatio; }
+    public Long getListedShares() { return listedShares; }
+    public String getFloatRceptNo() { return floatRceptNo; }
+    public String getAdviceGrade() { return adviceGrade; }
+    public Integer getAdviceScore() { return adviceScore; }
+    public BigDecimal getListingOpen() { return listingOpen; }
+    public BigDecimal getListingClose() { return listingClose; }
     public String getSource() { return source; }
     public Instant getCreatedAt() { return createdAt; }
     public Instant getUpdatedAt() { return updatedAt; }

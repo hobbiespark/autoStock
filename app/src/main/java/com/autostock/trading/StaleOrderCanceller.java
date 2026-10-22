@@ -1,5 +1,6 @@
 package com.autostock.trading;
 
+import com.autostock.common.util.MarketConstants;
 import com.autostock.market.MarketSessionService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -8,6 +9,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.time.LocalTime;
 import java.util.List;
 
 /**
@@ -75,6 +77,12 @@ public class StaleOrderCanceller {
             return;
         }
         if (properties.mode() != TradingProperties.Mode.LIVE) {
+            return;
+        }
+        // 15:20부터는 취소하지 않는다(2026-10-16) — 종가 단일가(15:20~15:30) 주문은 15:30에 체결되거나 소멸한다. 10/16 15:26
+        // ON-CLOSE 매수가 15:31에 타임아웃 취소를 맞아 "RC4058 모의투자 장종료"로 실패하고 UNKNOWN이 됐다. 15:20 전에 낸
+        // 주문도 단일가에서 체결될 기회를 준다(VB-DAY 15:15 시간 청산 매도 등). 남은 주문은 MissedFillRecovery(15:45)가 정리한다.
+        if (!LocalTime.now(clock.withZone(MarketConstants.KST)).isBefore(MarketConstants.MARKET_WIND_DOWN)) {
             return;
         }
         Instant threshold = Instant.now(clock).minus(properties.staleOrderTimeout());

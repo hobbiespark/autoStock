@@ -24,7 +24,8 @@ import java.util.stream.Collectors;
  * <p>단계(회사마다, 기준값마다 한 번 — {@code ipo_alert_log} V18). 형식: 단계 — 언제 / 대상 / 기준값.
  * <ul>
  *   <li>NEW — 회사의 첫 딜이 생긴 지 {@value #NEW_WINDOW_DAYS}일 안이고 공모주로 판정됨 / 청약이 끝나지 않은 공모주 / -</li>
- *   <li>METRICS — 수요예측 결과를 DART에서 자동으로 읽어 권고가 정해짐 / 청약이 끝나지 않은 공모주 / [발행조건확정] 접수번호</li>
+ *   <li>METRICS — 수요예측 결과를 DART에서 자동으로 읽어 <b>청약 추천</b>(비례까지·균등만·패스, 2026-10-15)이 정해짐 / 청약이 끝나지 않은
+ *       공모주 / [발행조건확정] 접수번호. 문구는 "[청약 추천] …" — 등급·점수·근거·청약 방법을 싣는다</li>
  *   <li>D-1·START — 청약 시작 전날·당일(예전과 같음) / 모든 공모주 / 청약 시작일</li>
  *   <li>END — 청약 마지막 날(시작일과 다를 때) / 관심 딜 / 청약 마감일</li>
  *   <li>REFUND — 환불·납입일 / 관심 딜 / 환불일</li>
@@ -32,6 +33,11 @@ import java.util.stream.Collectors;
  * </ul>
  * 관심 딜 = 권고가 RECOMMEND이거나, 청약·배정 수량을 기록한 딜. 상장사 유상증자는 어떤 알림도 없다. NEW는 한 번에 모아 한 통으로 보낸다
  * (공시 목록을 모든 쪽 읽게 된 첫날 놓쳤던 딜이 한꺼번에 들어와도 알림이 쏟아지지 않게).
+ *
+ * <p><b>"청약이 끝나지 않았다"</b>({@link #subscriptionOpen}): 청약 마감일을 알면 그것으로 본다. 모르면 예전에는 열린 것으로 봤는데,
+ * 2026-10-15 기동 때 오늘 상장하는 멜콘·진코스텍(주요정보가 없어 일정이 빈 딜)에 수요예측 결과 알림이 나갔다. 이제 일정을 모르면
+ * [발행조건확정] 신고서 접수일로 판단한다 — 확정 신고서는 청약 며칠 전에 나오므로 {@value #CONFIRMED_FILING_OPEN_DAYS}일이 지났으면
+ * 청약은 끝났다. 상장일을 알고 그날이 지났거나 오늘이어도 끝난 것이다.
  */
 final class IpoAlertPlanner {
 
@@ -48,6 +54,11 @@ final class IpoAlertPlanner {
     static final int NEW_WINDOW_DAYS = 7;
     /** NEW는 회사마다 한 번 — 기준값 자리를 채우는 고정값. */
     static final String NEW_KEY = "-";
+    /**
+     * 청약 일정을 모를 때 — [발행조건확정] 접수 뒤 이 일수가 지났으면 청약이 끝난 것으로 본다. 확정 신고서는 보통 청약 2~4 영업일 전에
+     * 나오고 청약은 이틀이다(10/15 실측: 엘리스그룹 10/6·엠에스바이오 10/7 확정 → 10/15에는 둘 다 청약 끝).
+     */
+    static final int CONFIRMED_FILING_OPEN_DAYS = 7;
 
     /**
      * 보낼 알림 한 건.
@@ -94,9 +105,22 @@ final class IpoAlertPlanner {
         return new Plan(List.copyOf(newDeals), List.copyOf(alerts));
     }
 
+    /** 청약이 끝나지 않았는가 — 클래스 설명 "청약이 끝나지 않았다". */
+    static boolean subscriptionOpen(LocalDate end, LocalDate listing, String confirmedRceptNo, LocalDate today) {
+        if (listing != null && !listing.isAfter(today)) {
+            return false;   // 상장일이 오늘이거나 지났다
+        }
+        if (end != null) {
+            return !end.isBefore(today);
+        }
+        return IpoOfferingClassifier.rceptDate(confirmedRceptNo)
+                .map(filed -> !filed.isBefore(today.minusDays(CONFIRMED_FILING_OPEN_DAYS)))
+                .orElse(true);   // 확정 신고서도 아직 없으면 수요예측 전 — 열린 것으로 본다
+    }
+
     private static void planCorp(Corp corp, LocalDate today, Set<String> sent, List<PlannedAlert> newDeals,
                                  List<PlannedAlert> alerts) {
-        boolean open = corp.end == null || !corp.end.isBefore(today);   // 청약이 끝나지 않았다(일정을 모르면 열린 것으로 본다)
+        boolean open = subscriptionOpen(corp.end, corp.listing, corp.rep.getMetricsRceptNo(), today);
         if (corp.kind == OfferingKind.IPO && open && !corp.firstCreated.isBefore(today.minusDays(NEW_WINDOW_DAYS))
                 && !corp.firstCreated.isAfter(today)) {
             add(newDeals, sent, corp, PHASE_NEW, NEW_KEY, newDealLine(corp));
@@ -160,23 +184,27 @@ final class IpoAlertPlanner {
         String schedule = corp.start != null && corp.end != null
                 ? " 청약 %s~%s%s.".formatted(day(corp.start), day(corp.end),
                 rep.getLeadManager() == null ? "" : ", " + rep.getLeadManager()) : "";
-        return "[수요예측 결과] %s — %s · 기관경쟁률 %s · 의무보유확약 %s → 권고 %s.%s".formatted(corp.name, finalPriceText(rep),
-                IpoDemandForecastCollector.rateText(rep.getInstitutionalCompetitionRate()),
-                IpoDemandForecastCollector.percentText(rep.getLockupCommitRate()), recommendationText(rep), schedule);
+        return "[청약 추천] %s — %s. %s%s".formatted(corp.name, finalPriceText(rep), reasonText(rep), schedule);
     }
 
     private static String dMinus1Message(Corp corp) {
         IpoDealEntity rep = corp.rep;
-        return "[청약 D-1] %s — 내일 %s부터 청약, 공모가 %s, 주관사 %s, 권고: %s (%s)".formatted(corp.name, day(corp.start),
-                priceText(rep), rep.getLeadManager() == null ? "-" : rep.getLeadManager(), rep.getRecommendation(),
-                rep.getRecommendReason());
+        return "[청약 D-1] %s — 내일 %s부터 청약, 공모가 %s, 주관사 %s. 추천: %s".formatted(corp.name, day(corp.start),
+                priceText(rep), rep.getLeadManager() == null ? "-" : rep.getLeadManager(), reasonText(rep));
     }
 
     private static String startMessage(Corp corp) {
         IpoDealEntity rep = corp.rep;
-        return "[청약 시작] %s — 청약기간 %s~%s, 공모가 %s, 권고: %s (%s). 청약 실행은 영웅문S#에서 수동.".formatted(corp.name,
-                day(corp.start), corp.end == null ? "?" : day(corp.end), priceText(rep), rep.getRecommendation(),
-                rep.getRecommendReason());
+        return "[청약 시작] %s — 청약기간 %s~%s, 공모가 %s. 추천: %s 청약 실행은 영웅문S#에서 수동.".formatted(corp.name,
+                day(corp.start), corp.end == null ? "?" : day(corp.end), priceText(rep), reasonText(rep));
+    }
+
+    /** 권고 사유에서 출처 꼬리표(" (DART 수요예측 결과 …)"·" (수동 입력)")를 뗀 글 — 알림에는 등급·근거·방법만 싣는다. */
+    static String reasonText(IpoDealEntity deal) {
+        String reason = deal.getRecommendReason() == null ? recommendationText(deal) : deal.getRecommendReason();
+        int source = Math.max(reason.lastIndexOf(" (DART 수요예측 결과"), reason.lastIndexOf(" (수동 입력)"));
+        String text = source > 0 ? reason.substring(0, source) : reason;
+        return text.endsWith(".") ? text : text + ".";
     }
 
     /** 확정가가 있으면 "23,500원(확정)", 없으면 "19,500원(신고서 모집가액·확정 전)", 둘 다 없으면 "미확정". */
@@ -199,6 +227,10 @@ final class IpoAlertPlanner {
     }
 
     private static String recommendationText(IpoDealEntity deal) {
+        if (deal.getAdviceGrade() != null && !IpoSubscriptionAdvisor.Grade.PENDING.name().equals(deal.getAdviceGrade())) {
+            IpoSubscriptionAdvisor.Grade grade = IpoSubscriptionAdvisor.Grade.valueOf(deal.getAdviceGrade());
+            return deal.getAdviceScore() == null ? grade.label : "%s(점수 %+d)".formatted(grade.label, deal.getAdviceScore());
+        }
         return switch (deal.getRecommendation()) {
             case RECOMMEND -> "RECOMMEND(청약 권고)";
             case SKIP -> "SKIP(청약 비권고)";

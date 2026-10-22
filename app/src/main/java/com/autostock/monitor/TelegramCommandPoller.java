@@ -130,7 +130,7 @@ public class TelegramCommandPoller {
             // 수 있어(WebClientResponseException 등) 마스킹 후 로그로 남긴다 — SecretMasking 참고.
             // 실패마다 ERROR와 스택을 남기면 망이 끊긴 동안 로그가 묻힌다(10/13 13:50~16:00 81건, L-6) — 처음 한 번과
             // 10분마다 요약 한 줄, 복구 때 한 줄만 남긴다(FailureStreak).
-            String line = failures.fail(now, SecretMasking.mask(e.getClass().getSimpleName() + ": " + e.getMessage()));
+            String line = failures.fail(now, SecretMasking.mask(describe(e)));
             if (line != null) {
                 log.warn(line);
             }
@@ -206,6 +206,28 @@ public class TelegramCommandPoller {
             return java.time.LocalTime.ofInstant(instant, com.autostock.common.util.MarketConstants.KST)
                     .truncatedTo(java.time.temporal.ChronoUnit.SECONDS).toString();
         }
+    }
+
+    /**
+     * 실패 사유 한 줄 — 메시지가 없으면 근본 원인 이름을 쓴다. 10/15 08:24 읽기 시간 초과가
+     * "WebClientRequestException: null"로만 남아 무슨 실패인지 알 수 없었다(원인은 netty ReadTimeoutException).
+     */
+    static String describe(Throwable e) {
+        String head = e.getClass().getSimpleName();
+        String message = e.getMessage();
+        if (message != null && !message.isBlank() && !"null".equals(message)) {
+            return head + ": " + message;
+        }
+        Throwable root = e;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        if (root == e) {
+            return head;
+        }
+        String rootMessage = root.getMessage();
+        return head + ": " + root.getClass().getSimpleName()
+                + (rootMessage == null || rootMessage.isBlank() ? "" : " " + rootMessage);
     }
 
     @SuppressWarnings("unchecked")

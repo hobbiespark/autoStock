@@ -85,6 +85,12 @@ public class DailyPnlTracker {
     private static final Logger log = LoggerFactory.getLogger(DailyPnlTracker.class);
 
     /**
+     * 일 손실 한도 킬스위치 사유의 머리말 — {@link RiskGate}가 "손실 한도로 켜진 킬스위치인가"를 이 문구로 알아본다
+     * (D-20 b, 보유 이내 매도 허용). 재기동 복원 사유("재기동 복원: …")에도 그대로 들어 있다.
+     */
+    static final String LOSS_LIMIT_REASON_PREFIX = "일 손실 한도 도달";
+
+    /**
      * 자체 미니 장부의 한 종목 상태 — 수량·매입 평단(실현손익용)·오늘 기준가(한도용). PositionBook.Position과 별개다.
      */
     private record Lot(long quantity, BigDecimal avgPrice, BigDecimal mark) {
@@ -318,7 +324,7 @@ public class DailyPnlTracker {
         // dailyMaxLossPct는 음수(예: -0.02)이므로 threshold도 음수 — "이 값보다 더 밑으로 내려가면 위험".
         BigDecimal threshold = equity.multiply(BigDecimal.valueOf(properties.dailyMaxLossPct()));
         if (limitPnlToday.compareTo(threshold) <= 0) {
-            killSwitch.engage(("일 손실 한도 도달: 오늘 손익 %s원(밤사이 보유분은 전일 종가 기준, 한도 %s원, equity=%s원 · "
+            killSwitch.engage((LOSS_LIMIT_REASON_PREFIX + ": 오늘 손익 %s원(밤사이 보유분은 전일 종가 기준, 한도 %s원, equity=%s원 · "
                     + "매입가 기준 실현손익 %s원) — 장중 평가손익 미포함(TODO: 시세 연동 필요)")
                     .formatted(limitPnlToday.setScale(0, RoundingMode.HALF_UP), threshold.setScale(0, RoundingMode.HALF_UP),
                             equity.setScale(0, RoundingMode.HALF_UP), realizedPnlToday.setScale(0, RoundingMode.HALF_UP)));

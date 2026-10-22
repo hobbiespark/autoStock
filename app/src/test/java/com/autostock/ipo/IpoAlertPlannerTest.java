@@ -27,9 +27,12 @@ class IpoAlertPlannerTest {
         return deal;
     }
 
+    /** 청약 추천 비례까지(점수 +3)로 매긴 딜 — 사유 글은 {@link IpoSubscriptionAdvisor}가 만드는 모양 그대로. */
     private static void recommend(IpoDealEntity deal) {
         deal.applyDemandForecast(new BigDecimal("1187.74"), new BigDecimal("0.2175"), "20261016000234", OLD);
-        deal.applyRecommendation(IpoRecommendation.RECOMMEND, "둘 다 충족", OLD);
+        deal.applyRecommendation(IpoRecommendation.RECOMMEND, "비례까지(점수 +3) — 기관 1,187.74:1(+2) · 확약 21.75%(직전 20건 중앙값 "
+                + "4.10% 이상, +1). 청약: 균등 최소 단위 + 비례 추가 (DART 수요예측 결과 20261016000234)", OLD);
+        deal.applyAdvice("PROPORTIONAL", 3, OLD);
     }
 
     private static List<String> phases(IpoAlertPlanner.Plan plan) {
@@ -45,12 +48,41 @@ class IpoAlertPlannerTest {
         IpoAlertPlanner.Plan plan = IpoAlertPlanner.plan(List.of(deal), LocalDate.of(2026, 10, 17), Set.of());
 
         assertEquals(List.of("METRICS"), phases(plan));
-        assertEquals("[수요예측 결과] 브릴스 — 확정 공모가 19,500원(희망 16,500~19,500원 상단) · 기관경쟁률 1,187.74:1 · "
-                + "의무보유확약 21.75% → 권고 RECOMMEND(청약 권고). 청약 10/20(화)~10/21(수), 한국투자증권.",
+        assertEquals("[청약 추천] 브릴스 — 확정 공모가 19,500원(희망 16,500~19,500원 상단). 비례까지(점수 +3) — 기관 1,187.74:1(+2) · "
+                + "확약 21.75%(직전 20건 중앙값 4.10% 이상, +1). 청약: 균등 최소 단위 + 비례 추가. 청약 10/20(화)~10/21(수), 한국투자증권.",
                 plan.alerts().get(0).message());
         assertEquals("20261016000234", plan.alerts().get(0).key());
         assertTrue(IpoAlertPlanner.plan(List.of(deal), LocalDate.of(2026, 10, 22), Set.of()).alerts().isEmpty(),
                 "청약이 끝난 뒤에는 수요예측 결과를 알리지 않는다");
+    }
+
+    @Test
+    void 청약_일정을_모르면_확정_신고서가_7일_넘게_지났거나_상장했으면_수요예측_결과를_알리지_않는다() {
+        // 10/15 07:53 실측: 주요정보가 없어 일정이 빈 멜콘(확정 신고 9/29, 오늘 상장)에 "[수요예측 결과]"가 나갔다
+        IpoDealEntity melcon = new IpoDealEntity("01234567", "멜콘", "20260929000191", "DART", OLD);
+        melcon.classifyOffering(OfferingKind.IPO, OLD);
+        melcon.applyDemandForecast(new BigDecimal("1136.84"), new BigDecimal("0.3607"), "20260929000191", OLD);
+        melcon.applyRecommendation(IpoRecommendation.RECOMMEND, "둘 다 충족", OLD);
+
+        assertEquals(List.of("METRICS"), phases(IpoAlertPlanner.plan(List.of(melcon), LocalDate.of(2026, 10, 2), Set.of())),
+                "확정 신고 사흘 뒤 — 아직 청약 전일 수 있다");
+        assertTrue(IpoAlertPlanner.plan(List.of(melcon), LocalDate.of(2026, 10, 15), Set.of()).alerts().isEmpty(),
+                "확정 신고 16일 뒤 — 청약은 끝났다");
+
+        melcon.applyMetrics(null, null, LocalDate.of(2026, 10, 3), OLD);   // 상장일을 안다(가정) — 그날부터는 끝난 것
+        assertTrue(IpoAlertPlanner.plan(List.of(melcon), LocalDate.of(2026, 10, 3), Set.of()).alerts().stream()
+                .noneMatch(alert -> "METRICS".equals(alert.phase())));
+    }
+
+    @Test
+    void 청약이_끝났는지는_마감일_상장일_확정_신고일_순으로_본다() {
+        LocalDate today = LocalDate.of(2026, 10, 15);
+        assertTrue(IpoAlertPlanner.subscriptionOpen(LocalDate.of(2026, 10, 15), null, "20260901000001", today), "마감일이 우선");
+        assertTrue(!IpoAlertPlanner.subscriptionOpen(LocalDate.of(2026, 10, 14), null, null, today));
+        assertTrue(!IpoAlertPlanner.subscriptionOpen(LocalDate.of(2026, 10, 20), today, null, today), "상장일이 오늘이면 끝");
+        assertTrue(IpoAlertPlanner.subscriptionOpen(null, null, "20261008000300", today), "확정 신고 7일 전 — 열림");
+        assertTrue(!IpoAlertPlanner.subscriptionOpen(null, null, "20261007000327", today), "확정 신고 8일 전 — 끝");
+        assertTrue(IpoAlertPlanner.subscriptionOpen(null, null, null, today), "확정 신고도 없으면 수요예측 전");
     }
 
     @Test

@@ -21,15 +21,26 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.client.standard.StandardWebSocketClient;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
+import jakarta.websocket.ContainerProvider;
+import jakarta.websocket.WebSocketContainer;
+
 import java.net.URI;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -88,6 +99,19 @@ import java.util.concurrent.atomic.AtomicReference;
  *   <li>LOGIN 응답 포맷: {@code {"trnm":"LOGIN","return_code":0,"return_msg":"","sor_yn":"Y"}}</li>
  *   <li>서버가 약 10초 간격으로 {@code {"trnm":"PING"}} 전송 — 동일 전문 에코 필요.</li>
  * </ul>
+ *
+ * <p><b>REG 묶음 전송·수신 버퍼 (2026-10-16 운영 로그)</b>: 다전략 모의(v7)로 시세 구독이 0종목에서 23종목이 되자
+ * <ul>
+ *   <li>종목마다 REG를 1건씩 연달아 보낸 24건 중 19건이 {@code return_code=105110 "해당 TRNM으로 허용된 요청 건수를
+ *       초과하였습니다 (TRNM=REG)"}로 거절됐다(거절 응답은 어느 REG인지 알려 주지 않는다 — 맨 뒤에 보낸 체결통보 REG도
+ *       거절됐을 가능성이 높다). 그래서 ① 체결통보(00) REG를 <b>먼저</b> 보내고 ② 시세 종목은 REG 한 건의 item 배열에
+ *       묶어({@link #REG_CHUNK}개씩) 보낸다. 거절 응답이 오면 {@link #REG_RETRY_DELAY} 뒤 전체를 다시 등록한다(refresh=1이라
+ *       같은 종목을 다시 등록해도 무해) — 연결당 {@link #REG_MAX_RETRIES}회까지. LOGIN 뒤 subscribe 호출도 바로 보내지 않고
+ *       {@link #REG_BATCH_DELAY} 모아 한 건으로 보낸다(전략이 여러 종목을 연달아 구독하므로).</li>
+ *   <li>15:00:02 {@code 코드 1009 "The decoded text message was too big for the output buffer"}로 연결이 끊겼다 — 키움은
+ *       여러 체결을 REAL 한 건의 data 배열에 묶어 보내는데, Tomcat 클라이언트 기본 수신 버퍼(8KB)를 넘었다.
+ *       {@link #MAX_TEXT_MESSAGE_BYTES}로 늘린다.</li>
+ * </ul>
  * TODO 실측(잔여): REAL 시세의 FID 매핑(장중 재실행 필요), 체결통보(type 00) item 빈 배열 동작.
  */
 @Component
@@ -144,6 +168,39 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     static final Map<String, Object> CONNECT_PROPERTIES =
             Map.of("org.apache.tomcat.websocket.IO_TIMEOUT_MS", String.valueOf(Duration.ofSeconds(5).toMillis()));
 
+    /** 수신 텍스트 메시지 상한 — 기본 8KB면 묶음 REAL에 1009로 끊긴다(클래스 설명, 2026-10-16). */
+    static final int MAX_TEXT_MESSAGE_BYTES = 2 * 1024 * 1024;
+
+    /** REG 한 건에 싣는 종목 수 상한(묶음 전송). */
+    static final int REG_CHUNK = 50;
+
+    /** REG 거절(105110 등) 뒤 전체 재등록까지 기다리는 시간과 연결당 재시도 횟수. */
+    static final Duration REG_RETRY_DELAY = Duration.ofSeconds(3);
+    static final int REG_MAX_RETRIES = 3;
+
+    /** LOGIN 뒤 subscribe 호출을 모아 보내는 시간. */
+    static final Duration REG_BATCH_DELAY = Duration.ofSeconds(1);
+
+    /** 지연 작업 실행기 — 테스트는 즉시 실행기로 바꾼다. */
+    private volatile Executor retryExecutor =
+            CompletableFuture.delayedExecutor(REG_RETRY_DELAY.toMillis(), TimeUnit.MILLISECONDS);
+    private volatile Executor batchExecutor =
+            CompletableFuture.delayedExecutor(REG_BATCH_DELAY.toMillis(), TimeUnit.MILLISECONDS);
+
+    /** 이번 연결에서 남은 재등록 횟수 / 재등록 예약 여부. */
+    private final AtomicInteger regRetriesLeft = new AtomicInteger(REG_MAX_RETRIES);
+    private final AtomicBoolean regRetryScheduled = new AtomicBoolean(false);
+
+    /** LOGIN 뒤 들어와 아직 보내지 않은 구독 종목. */
+    private final Set<String> pendingSymbols = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean batchScheduled = new AtomicBoolean(false);
+
+    /** 테스트용 — 지연 실행기를 바꾼다(즉시 실행 등). */
+    void setDelayExecutors(Executor retry, Executor batch) {
+        this.retryExecutor = retry;
+        this.batchExecutor = batch;
+    }
+
     /** 주문체결통보(type 00) 원문 기록기(실측, aiDoc/auto-measurement.md) — 테스트에서 직접 만들면 없다. */
     private volatile OrderNoticeRecorder orderNoticeRecorder;
 
@@ -187,13 +244,44 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     }
 
     public void subscribe(String symbol) {
-        subscribedSymbols.add(symbol);
-        WebSocketSession current = session.get();
-        // loggedIn 전에는 보내지 않는다 — 실측: 인증 전 REG는 100013으로 무시됨.
-        // 이 시점에 못 보낸 구독은 LOGIN 응답 처리(handleTextMessage)가 일괄 재구독한다.
-        if (current != null && current.isOpen() && loggedIn.get()) {
-            sendRegister(current, symbol);
+        subscribeAll(List.of(symbol));
+    }
+
+    /**
+     * 여러 종목을 구독한다. loggedIn 전에는 보내지 않는다 — 실측: 인증 전 REG는 100013으로 무시됨. 이 시점에 못 보낸
+     * 구독은 LOGIN 응답 처리(handleTextMessage)가 일괄 등록한다. 로그인 뒤 호출은 {@link #REG_BATCH_DELAY} 모아 REG 한 건으로
+     * 보낸다 — 종목마다 REG를 보내면 105110(요청 건수 초과)으로 거절된다(2026-10-16).
+     */
+    public void subscribeAll(Collection<String> symbols) {
+        List<String> added = new ArrayList<>();
+        for (String symbol : symbols) {
+            if (subscribedSymbols.add(symbol)) {
+                added.add(symbol);
+            }
         }
+        if (added.isEmpty()) {
+            return;
+        }
+        WebSocketSession current = session.get();
+        if (current != null && current.isOpen() && loggedIn.get()) {
+            pendingSymbols.addAll(added);
+            if (batchScheduled.compareAndSet(false, true)) {
+                batchExecutor.execute(this::flushPending);
+            }
+        }
+    }
+
+    /** 모아 둔 구독 종목을 REG 묶음으로 보낸다. */
+    void flushPending() {
+        batchScheduled.set(false);
+        List<String> batch = new ArrayList<>(pendingSymbols);
+        pendingSymbols.removeAll(batch);
+        WebSocketSession current = session.get();
+        if (batch.isEmpty() || current == null || !current.isOpen() || !loggedIn.get()) {
+            return; // 로그인 전·단절이면 다음 LOGIN 응답이 subscribedSymbols 전체를 등록한다
+        }
+        sendRegisterChunks(current, batch);
+        log.info("WS 구독 추가 등록 {}종목 (REG {}건)", batch.size(), chunkCount(batch.size()));
     }
 
     /**
@@ -311,7 +399,9 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
             return;
         }
         try {
-            StandardWebSocketClient client = new StandardWebSocketClient();
+            WebSocketContainer container = ContainerProvider.getWebSocketContainer();
+            container.setDefaultMaxTextMessageBufferSize(MAX_TEXT_MESSAGE_BYTES);
+            StandardWebSocketClient client = new StandardWebSocketClient(container);
             client.setUserProperties(CONNECT_PROPERTIES);
             client.execute(this, null, URI.create(kiwoomProperties.wsUrl()))
                     .whenComplete((s, ex) -> {
@@ -357,19 +447,53 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         log.info("WS 연결 — LOGIN 전송, 응답 대기 (구독 {}종목은 로그인 후 등록)", subscribedSymbols.size());
     }
 
-    private void sendRegister(WebSocketSession target, String symbol) {
-        try {
-            target.sendMessage(new TextMessage(objectMapper.writeValueAsString(Map.of(
-                    "trnm", "REG",
-                    "grp_no", "1",
-                    "refresh", "1",
-                    "data", new Object[]{Map.of(
-                            "item", new String[]{symbol},
-                            "type", new String[]{"0B"}   // 주식체결
-                    )}))));
-        } catch (Exception e) {
-            log.error("구독 등록 실패: {}", StockNames.label(symbol), e);
+    /** 종목을 {@link #REG_CHUNK}개씩 묶어 REG를 보낸다(grp_no 1, refresh 1 = 기존 등록 유지). */
+    private void sendRegisterChunks(WebSocketSession target, Collection<String> symbols) {
+        List<String> sorted = new ArrayList<>(new TreeSet<>(symbols));
+        for (int from = 0; from < sorted.size(); from += REG_CHUNK) {
+            List<String> chunk = sorted.subList(from, Math.min(sorted.size(), from + REG_CHUNK));
+            try {
+                target.sendMessage(new TextMessage(objectMapper.writeValueAsString(Map.of(
+                        "trnm", "REG",
+                        "grp_no", "1",
+                        "refresh", "1",
+                        "data", new Object[]{Map.of(
+                                "item", chunk.toArray(new String[0]),
+                                "type", new String[]{"0B"}   // 주식체결
+                        )}))));
+            } catch (Exception e) {
+                log.error("구독 등록 실패: {}종목 ({} 등)", chunk.size(), StockNames.label(chunk.get(0)), e);
+            }
         }
+    }
+
+    static int chunkCount(int symbols) {
+        return (symbols + REG_CHUNK - 1) / REG_CHUNK;
+    }
+
+    /** 체결통보 → 시세 묶음 순으로 전체 등록한다(LOGIN 성공·REG 거절 뒤 재등록이 같은 경로). */
+    private void registerAll(WebSocketSession target) {
+        registerOrderNotice(target);   // 체결이 장부에 들어오는 유일한 통로라 먼저 보낸다
+        if (!subscribedSymbols.isEmpty()) {
+            sendRegisterChunks(target, subscribedSymbols);
+        }
+    }
+
+    /** REG 거절 뒤 한 번만 예약하는 전체 재등록. */
+    private void scheduleReRegister(WebSocketSession target) {
+        if (regRetriesLeft.get() <= 0 || !regRetryScheduled.compareAndSet(false, true)) {
+            return;
+        }
+        int left = regRetriesLeft.decrementAndGet();
+        retryExecutor.execute(() -> {
+            regRetryScheduled.set(false);
+            if (session.get() != target || !target.isOpen() || !loggedIn.get()) {
+                return;
+            }
+            registerAll(target);
+            log.info("WS REG 거절 뒤 전체 재등록 — 체결통보 + 시세 {}종목 (남은 재시도 {}회)",
+                    subscribedSymbols.size(), left);
+        });
     }
 
     /**
@@ -425,12 +549,15 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
             int returnCode = root.path("return_code").asInt(-1);
             if (returnCode == 0) {
                 loggedIn.set(true);
-                // 인증 완료 — 이제부터 REG가 유효하다. 구독 종목 전체 + 체결통보를 일괄 등록
+                regRetriesLeft.set(REG_MAX_RETRIES);
+                regRetryScheduled.set(false);
+                pendingSymbols.clear();   // 아래 전체 등록에 들어간다
+                // 인증 완료 — 이제부터 REG가 유효하다. 체결통보 먼저, 그다음 구독 종목 전체를 묶어서 등록
                 // (신규 연결·재연결 모두 이 경로 하나로 처리 = 등록 누락 방지).
-                subscribedSymbols.forEach(symbol -> sendRegister(current, symbol));
-                registerOrderNotice(current);
-                log.info("WS 로그인 성공(sor_yn={}) — 재구독 {}종목 + 체결통보 등록",
-                        root.path("sor_yn").asText(), subscribedSymbols.size());
+                registerAll(current);
+                log.info("WS 로그인 성공(sor_yn={}) — 체결통보 + 재구독 {}종목 등록 (REG {}건)",
+                        root.path("sor_yn").asText(), subscribedSymbols.size(),
+                        1 + chunkCount(subscribedSymbols.size()));
             } else {
                 // 인증 실패 — 이 연결로는 어떤 REG도 유효하지 않다. 토큰을 폐기하고 닫아서 watchdog이
                 // 새 토큰으로 재연결하게 한다. 폐기하지 않으면 캐시상 유효한 같은 토큰으로 계속 재로그인해
@@ -445,8 +572,15 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         if ("REG".equals(trnm)) {
             int returnCode = root.path("return_code").asInt(-1);
             if (returnCode != 0) {
-                // 실측 예: 100013 = 인증 전 REG(무시됨). 0이 아니면 그 구독은 살아있지 않다.
-                log.warn("WS REG 거절 return_code={} msg={}", returnCode, root.path("return_msg").asText());
+                // 실측 예: 100013 = 인증 전 REG(무시됨), 105110 = REG 요청 건수 초과(2026-10-16). 0이 아니면 그 구독은
+                // 살아있지 않다 — 어느 REG인지 응답이 알려 주지 않으므로 잠시 뒤 전체를 다시 등록한다.
+                boolean willRetry = regRetriesLeft.get() > 0;
+                log.warn("WS REG 거절 return_code={} msg={} — {}", returnCode, root.path("return_msg").asText(),
+                        willRetry ? REG_RETRY_DELAY.toSeconds() + "초 뒤 체결통보·시세 전체 재등록"
+                                : "재등록 횟수 소진(이 연결) — 체결통보가 안 올 수 있다, 다음 재연결에서 다시 등록");
+                scheduleReRegister(current);
+            } else {
+                log.debug("WS REG 확인");
             }
             return;
         }

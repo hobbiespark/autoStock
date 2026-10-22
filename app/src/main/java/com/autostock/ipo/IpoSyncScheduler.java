@@ -1,10 +1,12 @@
 package com.autostock.ipo;
 
 import com.autostock.common.event.IpoAlert;
+import com.autostock.common.event.ListingDayPrices;
 import com.autostock.common.event.RecentListings;
 import com.autostock.common.util.MarketConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
@@ -18,8 +20,11 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.time.ZonedDateTime;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -46,6 +51,15 @@ import java.util.stream.Collectors;
  *   <li>밤({@value #ALERT_QUIET_FROM_TEXT}~{@value #ALERT_QUIET_UNTIL_TEXT})에는 알림을 보내지 않는다 — 계산만 하고 미뤄 두었다가
  *       07시 이후 매시 점검에서 보낸다(매시 점검은 밤 00:05에도 수집한다).</li>
  *   <li>키움 종목정보 리스트에서 찾은 최근 상장 종목({@link RecentListings}, market 모듈)으로 상장일·종목코드를 채운다.</li>
+ * </ul>
+ *
+ * <p>2026-10-15(사용자 "공모주는 청약 기준 추천 전략이 필요", aiDoc/ipo-subscription-strategy.md):
+ * <ul>
+ *   <li>권고를 고정 임계(기관경쟁률 500:1·확약 20%)에서 <b>청약 추천</b>({@link IpoSubscriptionAdvisor} — 비례까지·균등만·패스)으로
+ *       바꿨다. 권고 칸은 RECOMMEND(비례까지·균등만)/SKIP(패스)/PENDING 그대로 두고, 등급·점수·근거를 따로 남긴다.</li>
+ *   <li>시장 맥락(직전 20건 확약 중앙값, 직전 상장 5곳 상장일 종가 평균)은 {@code ipo_listing_history}(V19)에서 센다. 수요예측 결과가
+ *       나온 딜의 재료를 그 표에 남기고, 상장일 시세({@link ListingDayPrices}, market 모듈 15:40)도 남긴다.</li>
+ *   <li>평일 18:30에 한 번 더 수집한다 — [발행조건확정]은 보통 오후에 나오고 청약은 다음 날 시작해, 추천을 전날 저녁에 받게 한다.</li>
  * </ul>
  *
  * <p><b>소스별/딜별 실패 격리</b>({@code market.HolidaySyncService}·{@code
@@ -78,13 +92,33 @@ public class IpoSyncScheduler {
     private final IpoOfferingClassifier classifier;
     private final IpoDemandForecastCollector forecastCollector;
     private final IpoListingMatcher listingMatcher;
+    /** 판단 재료·상장일 성과(V19) — 시험용 7인자 생성자로 만들면 null(맥락 없이 판단, 기록 안 함). */
+    private final IpoListingHistoryRepository history;
 
     /** 수집·알림·상장 확인이 같은 딜을 동시에 고치지 않게 — 정기 배치·매시 점검·상장 확인 이벤트가 겹칠 수 있다. */
     private final Object batchLock = new Object();
 
+    /**
+     * 이미 "유상증자 — 딜로 만들지 않음"을 INFO로 남긴 접수번호. 유상증자는 딜을 만들지 않아 조회 기간 동안 배치마다 다시 판정되고,
+     * 같은 줄이 배치마다 반복됐다(10/15 07:53·08:20 각 4줄). 앱이 켜져 있는 동안 한 번만 INFO, 그 뒤는 DEBUG.
+     */
+    private final Set<String> rightsLogged = java.util.concurrent.ConcurrentHashMap.newKeySet();
+
+    /** 시험용 — 판단 재료 표 없이(맥락 없음). */
+    public IpoSyncScheduler(DartProperties dartProperties, IpoFilterProperties filterProperties,
+                     DartClient dartClient, IpoDealRepository repository, IpoAlertLogRepository alertLog,
+                     ApplicationEventPublisher publisher, Clock clock) {
+        this(dartProperties, filterProperties, dartClient, repository, alertLog, null, publisher, clock);
+    }
+
+    /**
+     * @param filterProperties 2026-10-15부터 권고에 쓰지 않는다(청약 추천으로 바뀜) — 설정 호환을 위해 받기만 한다
+     */
+    @Autowired
     public IpoSyncScheduler(DartProperties dartProperties, IpoFilterProperties filterProperties,
                              DartClient dartClient, IpoDealRepository repository, IpoAlertLogRepository alertLog,
-                             ApplicationEventPublisher publisher, Clock clock) {
+                             IpoListingHistoryRepository history, ApplicationEventPublisher publisher, Clock clock) {
+        this.history = history;
         this.dartProperties = dartProperties;
         this.filterProperties = filterProperties;
         this.dartClient = dartClient;
@@ -101,6 +135,15 @@ public class IpoSyncScheduler {
     /** 매 평일 08:20 KST 1회 실행. */
     @Scheduled(cron = "0 20 8 * * MON-FRI", zone = "Asia/Seoul")
     public void syncScheduled() {
+        syncNow();
+    }
+
+    /**
+     * 평일 18:30 KST — 그날 오후에 나온 [발행조건확정]을 읽어 청약 추천을 전날 저녁에 보낸다(2026-10-15). 디티에스: 확정 10/12(월) 저녁,
+     * 청약 10/13~14 — 아침 수집만으로는 청약 첫날 아침에야 추천이 나간다. 알림 시간대(07~22시) 안이다.
+     */
+    @Scheduled(cron = "0 30 18 * * MON-FRI", zone = "Asia/Seoul")
+    public void syncEvening() {
         syncNow();
     }
 
@@ -215,10 +258,11 @@ public class IpoSyncScheduler {
         // 상태·알림 재계산은 이번 배치에서 새로 잡히지 않은 기존 딜(예: list.json lookback
         // 창 밖으로 밀려난 딜)도 포함해야 하므로 전체를 다시 훑는다.
         List<IpoDealEntity> all = repository.findAll();
+        List<IpoListingHistoryEntity> past = runStep("판단 재료 기록", () -> recordInputs(all, today), List.of());
         for (IpoDealEntity entity : all) {
             recalculateStatus(entity, today);
             if (!entity.isRightsOffering()) { // 상장사 유상증자는 권고·알림 대상이 아니다
-                evaluateFilter(entity);
+                evaluate(entity, past, today);
             }
         }
         int alerts = runStep("알림", () -> runAlerts(all, today), 0);
@@ -235,8 +279,8 @@ public class IpoSyncScheduler {
             lastSuccessDate = today; // 목록을 끝까지 읽었으면 오늘 수집으로 인정(개별 딜 실패는 위에서 격리)
         }
         return new SyncSummary(since, today, filings.complete(), filings.pagesRead(), filings.totalPages(), deals.size(),
-                created, excluded, skipped, failed, classified, filled.metricsFilled(), filled.pricesFilled(), all.size(),
-                alerts, alertsDeferred);
+                created, excluded, skipped, failed, classified, filled.metricsFilled(), filled.pricesFilled(),
+                filled.floatsFilled(), all.size(), alerts, alertsDeferred);
     }
 
     private <T> T runStep(String name, java.util.function.Supplier<T> step, T fallback) {
@@ -262,21 +306,22 @@ public class IpoSyncScheduler {
      * @param classified    공모 종류를 이번에 판정한 옛 딜 수
      * @param metricsFilled 수요예측 지표를 자동 입력한 회사 수
      * @param pricesFilled  확정 공모가를 자동 입력한 회사 수
+     * @param floatsFilled  상장 직후 유통가능물량을 자동 입력한 회사 수(2026-10-15)
      * @param totalDeals    상태·필터·알림을 다시 계산한 전체 딜 수
      * @param alerts        이번에 보낸 알림 수(신규 모음은 한 통)
      * @param alertsDeferred 밤이라 알림을 미뤘는가
      */
     record SyncSummary(LocalDate since, LocalDate until, boolean complete, int pagesRead, int totalPages, int filings,
                        int created, int excluded, int skipped, int failed, int classified, int metricsFilled,
-                       int pricesFilled, int totalDeals, int alerts, boolean alertsDeferred) {
+                       int pricesFilled, int floatsFilled, int totalDeals, int alerts, boolean alertsDeferred) {
 
         String toLogLine() {
             String head = complete ? "공모주 수집 완료" : "공모주 수집 미완료(공시 목록을 끝까지 읽지 못함 — 다음 시간별 점검에서 다시)";
             String alertText = alertsDeferred ? "알림은 밤이라 미룸(07시 이후 보냄)" : "알림 %d건".formatted(alerts);
             return ("%s — %s~%s 증권신고(지분증권) %d건(목록 %d/%d쪽, 신규 딜 %d·유상증자 제외 %d·저장 생략 %d·실패 %d), "
-                    + "옛 딜 공모 종류 판정 %d건, 자동 입력 수요예측 지표 %d·확정 공모가 %d개 회사, 전체 딜 %d건 상태 재계산, %s")
+                    + "옛 딜 공모 종류 판정 %d건, 자동 입력 수요예측 지표 %d·확정 공모가 %d·유통가능물량 %d개 회사, 전체 딜 %d건 상태 재계산, %s")
                     .formatted(head, since, until, filings, pagesRead, totalPages, created, excluded, skipped, failed,
-                            classified, metricsFilled, pricesFilled, totalDeals, alertText);
+                            classified, metricsFilled, pricesFilled, floatsFilled, totalDeals, alertText);
         }
     }
 
@@ -295,8 +340,13 @@ public class IpoSyncScheduler {
                 today.minusDays(IpoOfferingClassifier.LOOKUP_DAYS), today);
         OfferingKind kind = classifier.kindOf(deal, lookup.map(DartClient.OfferingLookup::kind).orElse(null), existing);
         if (existing.isEmpty() && kind == OfferingKind.RIGHTS) {
-            log.info("상장사 유상증자 — 공모주 딜로 만들지 않음: {} {} (rceptNo={}, 모집방법 {})", deal.corpName(),
-                    deal.reportName(), deal.rceptNo(), lookup.map(DartClient.OfferingLookup::offeringMethod).orElse("확인 못 함"));
+            String method = lookup.map(DartClient.OfferingLookup::offeringMethod).orElse("확인 못 함");
+            if (rightsLogged.add(deal.rceptNo())) {
+                log.info("상장사 유상증자 — 공모주 딜로 만들지 않음: {} {} (rceptNo={}, 모집방법 {})", deal.corpName(),
+                        deal.reportName(), deal.rceptNo(), method);
+            } else {
+                log.debug("상장사 유상증자 — 공모주 딜로 만들지 않음(이미 남김): {} rceptNo={}", deal.corpName(), deal.rceptNo());
+            }
             return DealOutcome.EXCLUDED;
         }
         IpoDealEntity entity = existing
@@ -364,38 +414,160 @@ public class IpoSyncScheduler {
     }
 
     /**
-     * 기관경쟁률≥임계치 AND 확약률≥임계치 → RECOMMEND, 둘 다 있지만 미충족 → SKIP,
-     * 하나라도 없으면 PENDING(ADR-9 ② 필터, IpoRecommendation Javadoc).
+     * 청약 추천을 매긴다({@link IpoSubscriptionAdvisor}, 2026-10-15) — 수동 입력 직후(IpoDealCommandService)에도 부른다.
+     * 기관경쟁률이 없으면 판단 보류(PENDING). 확약이 없어도 판단한다(확약 항목만 0점).
      */
     public void evaluateFilter(IpoDealEntity entity) {
-        BigDecimal competitionRate = entity.getInstitutionalCompetitionRate();
-        BigDecimal lockupRate = entity.getLockupCommitRate();
-        BigDecimal minCompetition = filterProperties.minInstitutionalCompetitionRate();
-        BigDecimal minLockup = filterProperties.minLockupCommitRate();
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
+        evaluate(entity, history == null ? List.of() : history.findAll(), today);
+    }
 
-        if (competitionRate == null || lockupRate == null) {
-            String missing = competitionRate == null && lockupRate == null
-                    ? "기관경쟁률·의무보유확약비율"
-                    : competitionRate == null ? "기관경쟁률" : "의무보유확약비율";
+    void evaluate(IpoDealEntity entity, List<IpoListingHistoryEntity> past, LocalDate today) {
+        if (isSpac(entity.getCorpName())) {
+            // 2026-10-16 로그: 스팩(공모가 2,000원)이 "균등만(+2)"을 받았다. 전략 검증(85곳)에서 스팩은 뺐다 — 추천 대상 아님
+            entity.applyRecommendation(IpoRecommendation.SKIP, SPAC_REASON + sourceNote(entity), clock.instant());
+            entity.applyAdvice(IpoSubscriptionAdvisor.Grade.PASS.name(), null, clock.instant());
+            return;
+        }
+        BigDecimal competitionRate = entity.getInstitutionalCompetitionRate();
+        if (competitionRate == null) {
             String how = entity.getMetricsSource() == IpoDealEntity.MetricsSource.DART
                     ? "수요예측 결과에서 읽지 못함 — 수동 입력 필요(POST /api/ipo/{id}/metrics)"
                     : "[발행조건확정] 수요예측 결과 공시 전 — 공시되면 다음 배치가 자동 입력(수동 입력도 가능)";
+            String missing = entity.getLockupCommitRate() == null ? "기관경쟁률·의무보유확약비율" : "기관경쟁률";
             entity.applyRecommendation(IpoRecommendation.PENDING, missing + " 미입력 — " + how, clock.instant());
+            entity.applyAdvice(IpoSubscriptionAdvisor.Grade.PENDING.name(), null, clock.instant());
             return;
         }
+        IpoSubscriptionAdvisor.Advice advice = IpoSubscriptionAdvisor.advise(new IpoSubscriptionAdvisor.Input(
+                competitionRate, entity.getLockupCommitRate(), entity.getOfferPriceFinal(), entity.getOfferPriceLow(),
+                entity.getOfferPriceHigh(), entity.getFloatRatio(), entity.getListedShares(),
+                context(past, decisionDate(entity, today), entity.getCorpCode())));
+        entity.applyRecommendation(advice.grade().recommendation(), advice.reason() + sourceNote(entity), clock.instant());
+        entity.applyAdvice(advice.grade().name(), advice.score(), clock.instant());
+    }
 
-        boolean pass = competitionRate.compareTo(minCompetition) >= 0
-                && lockupRate.compareTo(minLockup) >= 0;
-        String metrics = "기관경쟁률 %s(임계 %s) / 의무보유확약비율 %s(임계 %s, 수량 기준)".formatted(
-                IpoDemandForecastCollector.rateText(competitionRate), IpoDemandForecastCollector.rateText(minCompetition),
-                IpoDemandForecastCollector.percentText(lockupRate), IpoDemandForecastCollector.percentText(minLockup));
-        if (pass) {
-            entity.applyRecommendation(IpoRecommendation.RECOMMEND,
-                    metrics + " — 둘 다 충족" + sourceNote(entity), clock.instant());
-        } else {
-            entity.applyRecommendation(IpoRecommendation.SKIP,
-                    metrics + " — 임계 미충족" + sourceNote(entity), clock.instant());
+    static final String SPAC_REASON = "패스 — 스팩(기업인수목적회사): 청약 추천 대상 아님(전략 검증에서 제외, 공모가 2,000원 고정)";
+
+    /** 스팩(기업인수목적회사) — 이름으로 가린다(상장일 시세 기록의 제외 규칙과 같은 말). */
+    static boolean isSpac(String corpName) {
+        return corpName != null && (corpName.contains("기업인수목적") || corpName.contains("스팩"));
+    }
+
+    /** 판단 시점 — [발행조건확정] 접수일(맥락이 그날에 고정돼 등급이 날마다 흔들리지 않는다). 수동 입력이면 오늘. */
+    static LocalDate decisionDate(IpoDealEntity entity, LocalDate today) {
+        return IpoOfferingClassifier.rceptDate(entity.getMetricsRceptNo()).orElse(today);
+    }
+
+    /** 판단 시점 앞의 자료로 센 맥락 — 확약은 그 전에 확정 신고서가 나온 곳, 분위기는 그 전에 상장한 곳. 자기 회사는 뺀다. */
+    static IpoSubscriptionAdvisor.Context context(List<IpoListingHistoryEntity> past, LocalDate decisionDate, String corpCode) {
+        List<BigDecimal> lockups = past.stream()
+                .filter(h -> !h.getCorpCode().equals(corpCode) && h.getLockupRate() != null && h.getConfirmedOn() != null
+                        && h.getConfirmedOn().isBefore(decisionDate))
+                .sorted(Comparator.comparing(IpoListingHistoryEntity::getConfirmedOn))
+                .map(IpoListingHistoryEntity::getLockupRate).toList();
+        List<BigDecimal> moods = past.stream()
+                .filter(h -> !h.getCorpCode().equals(corpCode) && h.getListingDate() != null
+                        && h.getListingDate().isBefore(decisionDate) && h.closeReturn() != null)
+                .sorted(Comparator.comparing(IpoListingHistoryEntity::getListingDate))
+                .map(IpoListingHistoryEntity::closeReturn).toList();
+        return IpoSubscriptionAdvisor.Context.of(lockups, moods);
+    }
+
+    /**
+     * 수요예측 결과가 있는 공모주 회사마다 판단 재료를 {@code ipo_listing_history}에 남기고, 표 전체를 돌려준다(맥락 계산용).
+     * 회사의 대표 딜 = 지표가 있는 딜 중 가장 최근 신고서.
+     */
+    private List<IpoListingHistoryEntity> recordInputs(List<IpoDealEntity> all, LocalDate today) {
+        if (history == null) {
+            return List.of();
         }
+        Map<String, IpoListingHistoryEntity> rows = new LinkedHashMap<>();
+        history.findAll().forEach(h -> rows.put(h.getCorpCode(), h));
+        Map<String, IpoDealEntity> representative = new LinkedHashMap<>();
+        for (IpoDealEntity deal : all) {
+            if (deal.isRightsOffering() || deal.getOfferingKind() != OfferingKind.IPO || deal.getInstitutionalCompetitionRate() == null
+                    || isSpac(deal.getCorpName())) {
+                continue;   // 스팩은 판단 재료(확약 중앙값·분위기)를 흐리므로 남기지 않는다
+            }
+            representative.merge(deal.getCorpCode(), deal,
+                    (a, b) -> a.getRceptNo().compareTo(b.getRceptNo()) >= 0 ? a : b);
+        }
+        for (IpoDealEntity deal : representative.values()) {
+            IpoListingHistoryEntity row = rows.computeIfAbsent(deal.getCorpCode(),
+                    code -> new IpoListingHistoryEntity(code, deal.getCorpName(), clock.instant()));
+            row.applyInputs(deal.getCorpName(), decisionDate(deal, today), deal.getInstitutionalCompetitionRate(),
+                    deal.getLockupCommitRate(), deal.getOfferPriceFinal(), deal.getOfferPriceLow(), deal.getOfferPriceHigh(),
+                    deal.getFloatRatio(), deal.getAdviceGrade(), deal.getAdviceScore(), clock.instant());
+            history.save(row);
+        }
+        return List.copyOf(rows.values());
+    }
+
+    /**
+     * 상장일 시세(market 모듈 15:40, 키움 일봉) — 종목코드로 맞춘 공모주 딜에 시가·종가를 남기고 판단 재료 표에도 적는다.
+     * 다음 공모주의 "시장 분위기"(직전 상장 5곳 상장일 종가 평균)가 이 값으로 움직인다.
+     */
+    @EventListener
+    public void onListingDayPrices(ListingDayPrices event) {
+        if (!dartProperties.enabled() || history == null) {
+            return;
+        }
+        try {
+            synchronized (batchLock) {
+                recordListingPrices(event);
+            }
+        } catch (RuntimeException e) {
+            log.error("공모주 상장일 시세 기록 실패 — 다음 거래일 15:40에 다시", e);
+        }
+    }
+
+    private void recordListingPrices(ListingDayPrices event) {
+        List<IpoDealEntity> all = repository.findAll();
+        for (ListingDayPrices.Entry entry : event.entries()) {
+            List<IpoDealEntity> deals = all.stream()
+                    .filter(d -> entry.stockCode().equals(d.getStockCode()) && !d.isRightsOffering()
+                            && !isSpac(d.getCorpName())).toList();
+            if (deals.isEmpty()) {
+                continue;   // 공모주 딜과 맞추지 못한 종목(이전상장·스팩 등)
+            }
+            IpoDealEntity rep = deals.stream().max(Comparator.comparing(IpoDealEntity::getRceptNo)).orElseThrow();
+            BigDecimal offer = deals.stream().map(IpoDealEntity::getOfferPriceFinal).filter(java.util.Objects::nonNull)
+                    .findFirst().orElse(rep.bestKnownOfferPrice());
+            for (IpoDealEntity deal : deals) {
+                if (deal.applyListingPrices(entry.open(), entry.close(), clock.instant())) {
+                    try {
+                        repository.save(deal);
+                    } catch (OptimisticLockingFailureException e) {
+                        log.info("상장일 시세 저장 생략(동시 수동 입력) — {}", deal.getCorpName());
+                    }
+                }
+            }
+            IpoListingHistoryEntity row = history.findById(rep.getCorpCode())
+                    .orElseGet(() -> new IpoListingHistoryEntity(rep.getCorpCode(), rep.getCorpName(), clock.instant()));
+            row.applyListing(entry.stockCode(), entry.listedOn(), entry.open(), entry.close(), offer, clock.instant());
+            history.save(row);
+            log.info("공모주 상장일 성과 기록: {}({}) {} 상장 — 청약 추천 {} · 공모가 {} → 시가 {} · 종가 {}", rep.getCorpName(),
+                    entry.stockCode(), entry.listedOn(), adviceLabel(row.getAdviceGrade(), row.getAdviceScore()),
+                    offer == null ? "미확인" : IpoAlertPlanner.won(offer), change(entry.open(), offer), change(entry.close(), offer));
+        }
+    }
+
+    private static String adviceLabel(String grade, Integer score) {
+        if (grade == null) {
+            return "없음";
+        }
+        String label = IpoSubscriptionAdvisor.Grade.valueOf(grade).label;
+        return score == null ? label : "%s(%+d)".formatted(label, score);
+    }
+
+    private static String change(BigDecimal price, BigDecimal offer) {
+        if (price == null || offer == null || offer.signum() <= 0) {
+            return price == null ? "-" : IpoAlertPlanner.won(price);
+        }
+        BigDecimal pct = price.divide(offer, 6, java.math.RoundingMode.HALF_UP).subtract(BigDecimal.ONE)
+                .multiply(BigDecimal.valueOf(100)).setScale(1, java.math.RoundingMode.HALF_UP);
+        return IpoAlertPlanner.won(price) + "(" + (pct.signum() > 0 ? "+" : "") + pct.toPlainString() + "%)";
     }
 
     /** 지표 출처 — 화면·알림에서 자동 입력과 수동 입력을 구분해 보여준다. */

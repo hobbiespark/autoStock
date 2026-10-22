@@ -58,7 +58,7 @@ public class SystemSleepBlocker {
             return;
         }
         requested = prevent;
-        owner.execute(() -> apply(prevent));
+        owner.execute(() -> apply(prevent, "장외 대기(STANDBY)"));
     }
 
     /** {@code SetThreadExecutionState}에 넘길 값 — 막을 때는 시스템(+화면) 요청, 풀 때는 {@code ES_CONTINUOUS}만(앞선 요청 해제). */
@@ -71,13 +71,14 @@ public class SystemSleepBlocker {
                 : ES_CONTINUOUS | ES_SYSTEM_REQUIRED;
     }
 
-    private void apply(boolean prevent) {
+    /** @param releaseReason 풀 때 로그에 적는 까닭 — 장외 대기 또는 앱 종료(2026-10-15: 장중 종료가 "장외 대기"로 찍혔다) */
+    private void apply(boolean prevent, String releaseReason) {
         if (Kernel32.INSTANCE.SetThreadExecutionState(flags(prevent, keepDisplayOn)) == 0) {
             log.warn("SetThreadExecutionState 실패 — Windows 절전 {}에 실패했다", prevent ? "방지" : "방지 해제");
             return;
         }
         if (!prevent) {
-            log.info("Windows 유휴 절전 방지 해제 — 장외 대기(STANDBY)");
+            log.info("Windows 유휴 절전 방지 해제 — {}", releaseReason);
         } else if (keepDisplayOn) {
             log.info("Windows 유휴 절전 방지 켬(화면 켜 둠 — 최신 대기 모드 진입 차단) — 장 대응 시간(ACTIVE, 거래일 장전 준비 포함)");
         } else {
@@ -88,7 +89,7 @@ public class SystemSleepBlocker {
     @PreDestroy
     void shutdown() {
         if (windows && Boolean.TRUE.equals(requested)) {
-            owner.execute(() -> apply(false));
+            owner.execute(() -> apply(false, "앱 종료"));
         }
         owner.shutdown();
     }

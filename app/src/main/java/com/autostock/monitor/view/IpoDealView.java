@@ -15,6 +15,13 @@ import java.time.LocalDate;
  * @param lockupCommitRate 의무보유확약비율(0~1, 수량 기준)
  * @param metricsSource  지표 출처 — "DART"(수요예측 결과 자동 입력) | "MANUAL"(수동 입력) | null(아직 없음), 2026-10-02
  * @param metricsRceptNo 자동 입력에 쓴 [발행조건확정] 신고서 접수번호(DART일 때만)
+ * @param adviceGrade    청약 추천 등급(2026-10-15, V19) — "PROPORTIONAL"(비례까지)·"EQUAL_ONLY"(균등만)·"PASS"(패스)·"PENDING"(판단 보류)·null(계산 전).
+ *                       근거·청약 방법은 {@code recommendReason}에 글로 실린다. {@code recommendation}은 RECOMMEND(비례까지·균등만)/SKIP(패스)/PENDING
+ * @param adviceScore    청약 추천 점수 합
+ * @param floatRatio     상장 직후 유통가능물량 비율(0~1) — 증권신고서 본문(V19)
+ * @param listedShares   상장예정주식수(V19)
+ * @param listingOpen    상장일 시가(V19, 15:40 키움 일봉)
+ * @param listingClose   상장일 종가(V19)
  */
 public record IpoDealView(
         Long id,
@@ -43,6 +50,12 @@ public record IpoDealView(
         Integer allocatedQty,
         BigDecimal sellPrice,
         LocalDate sellDate,
-        String memo
+        String memo,
+        String adviceGrade,
+        Integer adviceScore,
+        BigDecimal floatRatio,
+        Long listedShares,
+        BigDecimal listingOpen,
+        BigDecimal listingClose
 ) {
 }

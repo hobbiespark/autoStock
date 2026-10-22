@@ -43,4 +43,25 @@ public class KiwoomDailyChartService {
         }
         return candles;
     }
+
+    /**
+     * 판단용 일봉 — <b>오늘(baseDate) 날짜 봉을 뺀</b> 완료된 봉만(2026-10-16).
+     *
+     * <p>실측(2026-10-16 09:40): ka10081은 장중에도 오늘 진행 중인 봉을 맨 앞에 준다(KODEX 200 {@code dt=20261016},
+     * {@code cur_prc}=그 시각 가격). 그래서 09:05에 "마지막 봉 = 어제 종가"로 쓰면 실제로는 09:05 가격을 쓰게 된다 —
+     * 백테스트(어제 종가)와 라이브가 갈라진다. 장전·장중 판단(C3·다전략)은 이 메서드를 쓴다. 장 마감 뒤 오늘 봉이
+     * 필요한 곳(상장일 시세 15:40)은 {@link #fetchDaily}를 쓴다.
+     *
+     * @param today    판단일(KST) — 이 날짜와 그 이후 봉은 뺀다
+     * @param minCount 최소 필요 개수(경고 기준)
+     */
+    public List<Candle> fetchCompletedDaily(String symbol, LocalDate today, int minCount) {
+        List<Candle> all = marketData.dailyCandles(symbol, today);
+        List<Candle> completed = all.stream().filter(c -> c.date() != null && c.date().isBefore(today)).toList();
+        if (!completed.isEmpty() && completed.size() < minCount) {
+            log.warn("요청한 최소 개수({})보다 적은 완료 봉({})만 수신함 (종목={}, 기준일={})",
+                    minCount, completed.size(), StockNames.label(symbol), today);
+        }
+        return completed;
+    }
 }

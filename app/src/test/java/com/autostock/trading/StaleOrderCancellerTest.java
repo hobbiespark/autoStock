@@ -41,7 +41,7 @@ import static org.mockito.Mockito.when;
  */
 class StaleOrderCancellerTest {
 
-    private static final Instant NOW = Instant.parse("2026-08-13T10:00:00Z");
+    private static final Instant NOW = Instant.parse("2026-08-13T01:00:00Z");   // 10:00 KST(장중) — 15:20부터는 취소하지 않는다
     private static final Duration TIMEOUT = Duration.ofMinutes(5);
 
     private OrderRepository orderRepository;
@@ -62,10 +62,29 @@ class StaleOrderCancellerTest {
     }
 
     private StaleOrderCanceller canceller(TradingProperties.Mode mode) {
+        return canceller(mode, fixedClock);
+    }
+
+    private StaleOrderCanceller canceller(TradingProperties.Mode mode, Clock clock) {
         TradingProperties properties = new TradingProperties(mode, TIMEOUT);
         TradingService tradingService = new TradingService(properties, brokerPort, orderRepository,
-                reconciliationService, mock(ApplicationEventPublisher.class), new SimpleMeterRegistry(), fixedClock);
-        return new StaleOrderCanceller(orderRepository, tradingService, properties, fixedClock, marketSession);
+                reconciliationService, mock(ApplicationEventPublisher.class), new SimpleMeterRegistry(), clock);
+        return new StaleOrderCanceller(orderRepository, tradingService, properties, clock, marketSession);
+    }
+
+    @Test
+    void 종가_단일가_15시20분부터는_취소하지_않는다() {
+        // 2026-10-16: 15:26 ON-CLOSE 매수가 15:31 타임아웃 취소 → "RC4058 모의투자 장종료" 실패 → UNKNOWN
+        Instant at1531 = Instant.parse("2026-10-16T06:31:00Z");
+        OrderEntity stale = submittedOrder(at1531.minus(Duration.ofMinutes(6)));
+        listAndLookup(stale);
+
+        canceller(TradingProperties.Mode.LIVE, Clock.fixed(at1531, ZoneOffset.UTC)).cancelStaleOrders();
+        canceller(TradingProperties.Mode.LIVE, Clock.fixed(Instant.parse("2026-10-16T06:20:00Z"), ZoneOffset.UTC))
+                .cancelStaleOrders();
+
+        assertEquals(OrderStatus.SUBMITTED, stale.getStatus());
+        verify(brokerPort, never()).cancelOrder(any(), any(), anyLong());
     }
 
     private static OrderEntity submittedOrder(String clientOrderId, String brokerOrderId, Instant updatedAt) {
