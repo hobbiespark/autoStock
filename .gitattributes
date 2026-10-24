@@ -1,0 +1,6 @@
+# 2026-10-24 운영 PC 이전(aiDoc/pc-migration-2026-10-24.md) — 수집 데이터와 백업 스냅숏은 바이트 그대로 저장한다.
+# core.autocrlf=true여도 줄바꿈을 바꾸지 않는다(CSV·JSONL·DB 덤프가 PC를 옮겨도 같은 바이트).
+data/** -text
+backup/** -text
+*.dump binary
+*.gz binary
