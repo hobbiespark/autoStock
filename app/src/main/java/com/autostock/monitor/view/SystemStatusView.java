@@ -16,6 +16,9 @@ package com.autostock.monitor.view;
  * @param wsEnabled     키움 실시간 WS 연결 활성화 여부(autostock.ws.enabled)
  * @param manualOrderMaxKrw 대시보드 수동 매수 1건 금액 상한(원, risk.manual-order-max-krw) — 화면의 발행 전 확인 창이
  *                      같은 값으로 미리 막는다(판정은 RiskGate, Phase 0.4)
+ * @param brokerServer  키움 접속 서버(2026-10-23) — MOCK(모의 서버 mockapi.kiwoom.com)·REAL(실서버 api.kiwoom.com)·UNKNOWN.
+ *                      실행 모드 LIVE는 "브로커로 주문을 보낸다"는 뜻일 뿐이라, 실계좌인지는 이 값으로 가린다
  */
-public record SystemStatusView(String executionMode, boolean c3Enabled, boolean wsEnabled, long manualOrderMaxKrw) {
+public record SystemStatusView(String executionMode, boolean c3Enabled, boolean wsEnabled, long manualOrderMaxKrw,
+                               String brokerServer) {
 }

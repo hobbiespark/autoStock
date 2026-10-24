@@ -11,6 +11,15 @@ import java.math.BigDecimal;
  * @param symbolName 종목명 — 화면은 코드와 함께 표시한다(2026-10-02). 아직 모르면 null
  * @param quantity   보유 수량
  * @param avgPrice   평균 매수 단가
+ * @param currentPrice  현재가(키움 잔고 cur_prc, 30초마다 갱신) — 모르면 null(2026-10-23)
+ * @param evaluationPnl 평가손익(원) = (현재가 − 평단) × 수량, 비용 전 — 모르면 null
+ * @param returnPct     수익률(%) = 현재가 ÷ 평단 − 1, 소수 둘째 자리 — 모르면 null
  */
-public record PositionView(String symbol, String symbolName, long quantity, BigDecimal avgPrice) {
+public record PositionView(String symbol, String symbolName, long quantity, BigDecimal avgPrice,
+                           BigDecimal currentPrice, BigDecimal evaluationPnl, BigDecimal returnPct) {
+
+    /** 현재가를 모르는 보유. */
+    public PositionView(String symbol, String symbolName, long quantity, BigDecimal avgPrice) {
+        this(symbol, symbolName, quantity, avgPrice, null, null, null);
+    }
 }

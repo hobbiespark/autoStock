@@ -15,8 +15,8 @@
  * 순환이 생기기 때문이다.
  *
  * <p>execution 모듈의 {@code BrokerPort}는 {@link com.autostock.monitor.DailyReportScheduler}가
- * 일일 리포트의 계좌 평가액(kt00018)을 읽을 때만 참조한다(2026-09-23). execution은 monitor를
- * 참조하지 않으므로 순환은 없다.
+ * 일일 리포트의 계좌 평가액(kt00018)을 읽을 때(2026-09-23)와 {@link com.autostock.monitor.AccountSummaryService}가
+ * 대시보드 계좌 잔고를 읽을 때(2026-10-23)만 참조한다. execution은 monitor를 참조하지 않으므로 순환은 없다.
  *
  * <p>ipo 모듈(PLAN.md ADR-9, 트랙 E2)의 {@code IpoDealRepository}/{@code IpoSyncScheduler}도
  * trading과 같은 방식으로 직접 참조한다({@link com.autostock.monitor.IpoController} —

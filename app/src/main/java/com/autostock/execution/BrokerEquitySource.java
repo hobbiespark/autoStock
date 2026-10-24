@@ -11,6 +11,7 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Optional;
 import java.util.concurrent.locks.ReentrantLock;
 
 /**
@@ -67,6 +68,20 @@ public class BrokerEquitySource implements EquitySource {
                 return lastValue; // 캐시 히트 — rate limit 절약(클래스 설명 참고)
             }
             return fetchFresh(now);
+        } finally {
+            lock.unlock();
+        }
+    }
+
+    /**
+     * 조회 없이 마지막 성공값(2026-10-23, 대시보드 일 손실 한도 표시) — 대시보드는 2초마다 부르므로 여기서 조회하면 주말(모의 서버 점검)에
+     * 실패 조회와 경고 로그가 2초마다 쌓인다. 아직 한 번도 못 읽었으면 빈 값.
+     */
+    @Override
+    public Optional<BigDecimal> knownEquity() {
+        lock.lock();
+        try {
+            return Optional.ofNullable(lastValue);
         } finally {
             lock.unlock();
         }

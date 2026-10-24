@@ -223,7 +223,7 @@ public class KiwoomBrokerAdapter implements BrokerPort {
 
         BigDecimal totalEvaluation = KiwoomNumbers.toBigDecimal(response.get("tot_evlt_amt"));
         BigDecimal totalPurchase = KiwoomNumbers.toBigDecimal(response.get("tot_pur_amt"));
-        BigDecimal totalProfitLoss = KiwoomNumbers.toBigDecimal(response.get("tot_evlt_pl"));
+        BigDecimal totalProfitLoss = signedDecimal(response.get("tot_evlt_pl"));   // 손실이면 음수(2026-10-23)
         BigDecimal estimatedDepositAsset = KiwoomNumbers.toBigDecimal(response.get("prsm_dpst_aset_amt"));
 
         List<BrokerHolding> holdings = new ArrayList<>();
@@ -258,7 +258,20 @@ public class KiwoomBrokerAdapter implements BrokerPort {
         }
         return Optional.of(new BrokerHolding(new StockCode(symbol), firstText(raw, "stk_nm"), quantity,
                 firstPrice(raw, "pur_pric", "pchs_avg_pric", "avg_prc", "pur_avg_pric"),
-                firstPrice(raw, "pred_close_pric")));
+                firstPrice(raw, "pred_close_pric"),
+                firstPrice(raw, "cur_prc")));   // 현재가 — 대시보드 평가손익 표시용(2026-10-23), 부호(등락)는 뗀다
+    }
+
+    /**
+     * 부호를 살린 금액(2026-10-23). {@link KiwoomNumbers#toBigDecimal}은 부호를 떼므로(가격 필드용) 총평가손익처럼 음수가 의미
+     * 있는 값은 이 메서드로 읽는다 — 예전에는 총평가손익이 손실이어도 양수로 나왔다(일일 리포트 "총평가손익" 줄).
+     */
+    static BigDecimal signedDecimal(Object raw) {
+        if (raw == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal value = KiwoomNumbers.toBigDecimal(raw);
+        return String.valueOf(raw).trim().startsWith("-") ? value.negate() : value;
     }
 
     private static String firstText(Map<String, Object> map, String... keys) {

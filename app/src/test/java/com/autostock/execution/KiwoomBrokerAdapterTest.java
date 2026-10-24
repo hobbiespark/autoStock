@@ -145,6 +145,24 @@ class KiwoomBrokerAdapterTest {
     }
 
     @Test
+    void 잔고의_현재가는_부호를_떼고_총평가손익은_부호를_살린다() {
+        // 2026-10-23: 대시보드 보유 종목 평가손익 표시용 현재가(cur_prc, 부호=등락), 총평가손익(tot_evlt_pl)은 손실이면 음수
+        when(client.call(eq(TrId.ACCOUNT_BALANCE), anyString(), any())).thenReturn(Map.of(
+                "tot_evlt_amt", "000000000987700", "tot_pur_amt", "000000000941800",
+                "tot_evlt_pl", "-000000000032230", "prsm_dpst_aset_amt", "000000490000000",
+                "acnt_evlt_remn_indv_tot", List.of(
+                        Map.of("stk_cd", "A028050", "stk_nm", "삼성E&A", "rmnd_qty", "000000000000017",
+                                "pur_pric", "000000055400", "pred_close_pric", "000000055400", "cur_prc", "-58100"))));
+
+        BrokerBalance balance = adapter.balance();
+
+        assertEquals(0, new BigDecimal("-32230").compareTo(balance.totalProfitLoss()));
+        assertEquals(0, new BigDecimal("58100").compareTo(balance.holdings().get(0).currentPrice().value()));
+        assertEquals(0, new BigDecimal("32230").compareTo(KiwoomBrokerAdapter.signedDecimal("+32230")));
+        assertEquals(0, BigDecimal.ZERO.compareTo(KiwoomBrokerAdapter.signedDecimal(null)));
+    }
+
+    @Test
     void 잔고에_보유_배열이_없으면_빈_목록이다() {
         when(client.call(eq(TrId.ACCOUNT_BALANCE), anyString(), any())).thenReturn(Map.of("tot_evlt_amt", "0"));
 

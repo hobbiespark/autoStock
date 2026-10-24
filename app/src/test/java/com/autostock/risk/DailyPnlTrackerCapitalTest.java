@@ -15,7 +15,9 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
@@ -86,5 +88,57 @@ class DailyPnlTrackerCapitalTest {
         tracker.onFill(fill(Side.SELL, 600, "94000"));   // −360만 − 비용
 
         assertTrue(killSwitch.isEngaged());
+    }
+
+    // ── 화면용 한도 상태(2026-10-23 — 대시보드의 고정 문구 "-2%" 대신 지금 값) ──────────────────
+
+    @Test
+    void 화면용_한도_상태는_킬스위치와_같은_기준으로_센다() {
+        DailyPnlTracker tracker = tracker(new TradingCapitalProperties(20_000_000, 2.0));
+
+        DailyPnlTracker.LimitStatus empty = tracker.limitStatus();
+        assertEquals(-0.05, empty.lossPct());
+        assertEquals(0, new BigDecimal("20000000").compareTo(empty.base()));      // min(계좌 1억, 운용 자금 2,000만)
+        assertEquals(0, new BigDecimal("-1000000").compareTo(empty.threshold()));
+        assertTrue(empty.capitalLimited());
+        assertEquals(0, new BigDecimal("20000000").compareTo(empty.capitalLimit()));
+
+        tracker.onPositionRestored(new PositionRestored(SAMSUNG, 600, new Price(new BigDecimal("100000")),
+                new Price(new BigDecimal("100000"))));
+        DailyPnlTracker.LimitStatus held = tracker.limitStatus();
+        assertEquals(0, new BigDecimal("60000000").compareTo(held.base()));       // 오늘 최대 보유액 6,000만이 더 크다
+        assertEquals(0, new BigDecimal("-3000000").compareTo(held.threshold()));
+        assertEquals(0, new BigDecimal("60000000").compareTo(held.peakHeld()));
+    }
+
+    @Test
+    void 계좌_평가액을_아직_모르면_대시보드가_준_값을_쓰고_그것도_없으면_기준을_비운다() {
+        EquitySource unknownYet = new EquitySource() {
+            @Override
+            public BigDecimal equity() {
+                throw new AssertionError("화면용 한도 상태는 브로커를 조회하지 않는다");
+            }
+
+            @Override
+            public java.util.Optional<BigDecimal> knownEquity() {
+                return java.util.Optional.empty();
+            }
+        };
+        DailyPnlTracker tracker = new DailyPnlTracker(properties, unknownYet, killSwitch, mock(RiskStateStore.class),
+                Clock.fixed(DAY1, ZoneOffset.UTC), new TradingCapitalProperties(20_000_000, 2.0));
+
+        assertNull(tracker.limitStatus().base());
+        assertNull(tracker.limitStatus().threshold());
+        assertEquals(0, new BigDecimal("-1000000").compareTo(tracker.limitStatus(new BigDecimal("490000000")).threshold()));
+    }
+
+    @Test
+    void 운용_자금이_꺼져_있으면_화면용_한도_기준은_계좌_평가액이다() {
+        DailyPnlTracker.LimitStatus status = tracker(TradingCapitalProperties.none()).limitStatus();
+
+        assertEquals(0, new BigDecimal("100000000").compareTo(status.base()));
+        assertEquals(0, new BigDecimal("-5000000").compareTo(status.threshold()));
+        assertFalse(status.capitalLimited());
+        assertNull(status.capitalLimit());
     }
 }

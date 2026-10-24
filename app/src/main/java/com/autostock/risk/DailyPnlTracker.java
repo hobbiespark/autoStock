@@ -404,6 +404,48 @@ public class DailyPnlTracker {
         }
     }
 
+    /**
+     * 화면용 일 손실 한도 상태(2026-10-23) — 대시보드가 예전 고정 문구("-2%를 참고 기준") 대신 지금 쓰는 값을 보인다.
+     *
+     * @param lossPct        한도 비율(음수, 예: -0.05)
+     * @param base           한도 기준 금액(원) — 계좌 평가액을 모르면 null
+     * @param threshold      한도 금액(원, 음수) = base × lossPct — base를 모르면 null
+     * @param pnlForLimit    오늘 한도용 손익(밤사이 보유분은 전일 종가 기준)
+     * @param capitalLimited 운용 자금 한도가 켜져 있는가
+     * @param capitalLimit   운용 자금(원) — 꺼져 있으면 null
+     * @param peakHeld       오늘 최대 보유액(기준가 기준, 원)
+     */
+    public record LimitStatus(double lossPct, BigDecimal base, BigDecimal threshold, BigDecimal pnlForLimit,
+                              boolean capitalLimited, BigDecimal capitalLimit, BigDecimal peakHeld) {
+    }
+
+    /** {@link #limitStatus(BigDecimal)} — 따로 아는 계좌 평가액 없이. */
+    public LimitStatus limitStatus() {
+        return limitStatus(null);
+    }
+
+    /**
+     * 지금의 일 손실 한도 상태 — 킬스위치 판단(checkLimit)과 같은 기준(limitBase)으로 센다. 계좌 평가액은 브로커를 조회하지 않고
+     * 이미 아는 값({@link EquitySource#knownEquity()})을 쓰고, 그것도 없으면 호출자가 준 값(대시보드가 따로 읽은 잔고)을 쓴다 —
+     * 화면이 2초마다 불러도 브로커 조회가 늘지 않게.
+     *
+     * @param fallbackEquity 이미 아는 값이 없을 때 쓸 계좌 평가액(모르면 null)
+     */
+    public LimitStatus limitStatus(BigDecimal fallbackEquity) {
+        BigDecimal equity = equitySource.knownEquity().orElse(fallbackEquity);
+        lock.lock();
+        try {
+            rollDayIfNeeded();
+            BigDecimal base = equity == null || equity.signum() <= 0 ? null : limitBase(equity).setScale(0, RoundingMode.HALF_UP);
+            BigDecimal threshold = base == null ? null
+                    : base.multiply(BigDecimal.valueOf(properties.dailyMaxLossPct())).setScale(0, RoundingMode.HALF_UP);
+            return new LimitStatus(properties.dailyMaxLossPct(), base, threshold, limitPnlToday, capital.limited(),
+                    capital.limited() ? capital.limit() : null, peakHeldToday.setScale(0, RoundingMode.HALF_UP));
+        } finally {
+            lock.unlock();
+        }
+    }
+
     /** 오늘 한도용 손익(밤사이 보유분은 전일 종가, 오늘 산 분량은 매수가 대비) — 킬스위치 판단 기준. */
     public BigDecimal todayPnlForLimit() {
         lock.lock();

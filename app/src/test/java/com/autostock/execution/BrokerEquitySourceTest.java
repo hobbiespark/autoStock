@@ -11,7 +11,9 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,6 +40,20 @@ class BrokerEquitySourceTest {
         // 실측 확정(2026-09-11): equity는 추정예탁자산(prsm_dpst_aset_amt) 기준 — 4번째 인자.
         return new BrokerBalance(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO,
                 new BigDecimal(amount), List.of());
+    }
+
+    @Test
+    void knownEquity는_브로커를_부르지_않고_마지막_성공값만_준다() {
+        // 2026-10-23: 대시보드가 2초마다 일 손실 한도를 보여도 브로커 조회가 늘지 않게
+        when(brokerPort.balance()).thenReturn(balanceOf("50000000"));
+        BrokerEquitySource source = new BrokerEquitySource(brokerPort, riskProperties, Clock.fixed(T0, ZoneOffset.UTC));
+
+        assertTrue(source.knownEquity().isEmpty());
+        verify(brokerPort, never()).balance();
+
+        source.equity();
+        assertEquals(0, new BigDecimal("50000000").compareTo(source.knownEquity().orElseThrow()));
+        verify(brokerPort, times(1)).balance();
     }
 
     @Test

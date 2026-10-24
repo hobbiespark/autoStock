@@ -18,12 +18,14 @@ import java.util.List;
  * @param trading      매매 상태(운영 상태기계 + 오늘 실적)
  * @param system       시스템(설정) 상태
  * @param slippage     오늘 슬리피지 요약(결정가 대비 체결가, bps 양수=불리 — 트랙 C2)
+ * @param account      계좌 잔고(2026-10-23) — 모르면 null
  */
 public record DashboardView(
         List<PositionView> positions,
         List<EventFeed.FeedItem> recentEvents,
         TradingStatusView trading,
         SystemStatusView system,
-        SlippageTracker.SlippageSummary slippage
+        SlippageTracker.SlippageSummary slippage,
+        AccountView account
 ) {
 }

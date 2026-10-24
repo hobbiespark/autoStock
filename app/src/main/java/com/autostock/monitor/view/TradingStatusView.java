@@ -16,6 +16,7 @@ import java.math.BigDecimal;
  * @param disclosureBlacklistCount 지금 매수 배제 중인 종목 수(risk.DisclosureBlacklist, PLAN.md
  *                          ADR-14 트랙 G1 — 공시 자동 등록 + 운영자 수동 등록 합산). 과확장 금지
  *                          원칙(작업 지시)에 따라 카운트 한 줄만 노출하고 목록 화면은 두지 않는다.
+ * @param dailyLossLimit    일 손실 한도의 지금 값(2026-10-23) — 모르면 null
  */
 public record TradingStatusView(
         TradingSystemStatus status,
@@ -23,6 +24,7 @@ public record TradingStatusView(
         int todayOrderCount,
         BigDecimal todayRealizedPnl,
         boolean conservativeMode,
-        int disclosureBlacklistCount
+        int disclosureBlacklistCount,
+        DailyLossLimitView dailyLossLimit
 ) {
 }

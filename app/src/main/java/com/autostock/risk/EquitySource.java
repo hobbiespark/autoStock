@@ -1,6 +1,7 @@
 package com.autostock.risk;
 
 import java.math.BigDecimal;
+import java.util.Optional;
 
 /**
  * 계좌 평가액(equity) 조회 포트.
@@ -20,4 +21,12 @@ public interface EquitySource {
      *         반환해야 한다 — equity() 실패로 리스크 검사 전체가 멈추면 안 되기 때문이다.
      */
     BigDecimal equity();
+
+    /**
+     * 조회 없이 이미 아는 계좌 평가액(2026-10-23) — 화면처럼 자주 부르는 곳이 브로커 조회를 일으키지 않게. 기본은 {@link #equity()}
+     * (설정값처럼 조회가 없는 구현). 조회가 있는 구현(LIVE)은 마지막 성공값을 돌려주고, 아직 없으면 빈 값이다.
+     */
+    default Optional<BigDecimal> knownEquity() {
+        return Optional.ofNullable(equity());
+    }
 }
