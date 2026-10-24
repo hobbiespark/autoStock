@@ -39,7 +39,7 @@ import java.util.List;
  * {@link BrokerHolding}만 본다.
  *
  * <p><b>일 손실 기준가(2026-10-13)</b>: 복원 이벤트에 전일 종가({@code pred_close_pric})를 싣고, 거래일 08:25(실패하면
- * 08:35·08:45)에 잔고를 다시 읽어 {@link DayStartMarks}를 발행한다 — risk.DailyPnlTracker가 밤사이 들고 온 보유분을
+ * 08:35·08:45·08:50·08:55)에 잔고를 다시 읽어 {@link DayStartMarks}를 발행한다 — risk.DailyPnlTracker가 밤사이 들고 온 보유분을
  * "오늘 움직임"으로 재게 한다. 앱이 밤새 켜져 있어도 매일 아침 새로 잡힌다(예약 작업은 앱 안에서 — 10/12 사용자 지시).
  */
 @Component
@@ -74,9 +74,13 @@ public class PositionRestorer {
 
     /**
      * 거래일 아침 일 손실 기준가 — 잔고의 전일 종가로 {@link DayStartMarks}를 한 번 발행한다(클래스 설명). 잔고 조회가 실패하면
-     * 다음 시각(08:35·08:45)에 다시 본다. 셋 다 실패하면 그날은 기동 때 기준가(없으면 매입 평단)로 잰다 — 보수적인 쪽이다.
+     * 다음 시각(08:35·08:45·08:50·08:55)에 다시 본다. 다 실패하면 그날은 기동 때 기준가(없으면 매입 평단)로 잰다 — 보수적인 쪽이다.
+     *
+     * <p>장중(09:00 뒤)에는 다시 하지 않는다(2026-10-23 장전 작업 따라잡기 점검): 기준가 갱신은 장부 전체의 기준가를 전일 종가로
+     * 바꾸므로, 오늘 산 분량의 기준가(매수가)까지 덮어쓴다. 장중에 기동하면 {@link #restore()}가 잔고의 전일 종가로 시드하므로
+     * 따로 따라잡을 일이 없다. 08:50·08:55 재시도는 08:25~08:45가 모두 실패한 날만 쓰인다(이미 한 날은 바로 돌아간다).
      */
-    @Scheduled(cron = "0 25,35,45 8 * * MON-FRI", zone = "Asia/Seoul")
+    @Scheduled(cron = "0 25,35,45,50,55 8 * * MON-FRI", zone = "Asia/Seoul")
     public void markDayStart() {
         if (!liveMode) {
             return;
@@ -89,7 +93,7 @@ public class PositionRestorer {
         try {
             balance = brokerPort.balance();
         } catch (Exception e) {
-            log.warn("일 손실 기준가용 잔고 조회 실패 — 10분 뒤 다시 본다(08:45까지): {}", e.getMessage());
+            log.warn("일 손실 기준가용 잔고 조회 실패 — 다음 시각에 다시 본다(08:55까지): {}", e.getMessage());
             return;
         }
         markedDay = today;
