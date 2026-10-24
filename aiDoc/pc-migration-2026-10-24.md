@@ -2,6 +2,7 @@
 
 - 요청: 사용자 10/24 10:25 "pc 변경 예정입니다. git 커밋 푸시 점검 후 db등을 백업해 주세요"
 - 스크립트: `scripts\pc_migration_backup.ps1`(옛 PC — 한 폴더에 모으기), `scripts\restore_db.ps1`(새 PC — DB 복원)
+- 새 PC에서 AI와 함께 복구할 때의 안내: [restore-from-backup.md](restore-from-backup.md) — 백업 폴더 맨 위 `RESTORE_GUIDE.md`로도 들어간다
 - 기준: 옛 PC의 저장소 `D:\myApp\autoStock`, DB 컨테이너 `autostock-db`(TimescaleDB HA pg17.11-ts2.30.2, 다이제스트 고정), 백업 폴더 `D:\backup\autostock`
 
 ## 0. 꼭 지킬 것
@@ -19,6 +20,7 @@
 
      | 경로 | 내용 |
      |---|---|
+     | `RESTORE_GUIDE.md` | 복구 안내(AI 작업자용, `aiDoc/restore-from-backup.md`) — 새 PC에서 먼저 읽는다 |
      | `autoStock.bundle` | 저장소 전체(모든 브랜치) — 푸시가 안 돼도 이것으로 clone |
      | `db\autostock_*.dump` · `*.versions.txt` · `rowcounts.txt` | DB 덤프(pg_dump -Fc), 이미지·PostgreSQL·확장 버전, 테이블별 행 수 |
      | `project-local\` | git 밖 파일: `.env`, 키움 키 파일 2개, `STRATEGY.md`, `BACKTEST_REPORT.md`, `data\`(약 675MB), `app\logs\`, `docs\measured\*.log`, `.vscode\` |

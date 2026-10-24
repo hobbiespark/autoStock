@@ -7,7 +7,8 @@
 #      새 PC에서 scripts\restore_db.ps1이 대조한다.
 #   3) git 밖 파일 — .env, 키움 키 파일(*_appkey*.txt·*_secretkey*.txt), STRATEGY.md·BACKTEST_REPORT.md, data\, app\logs\,
 #      docs\measured\*.log, .vscode\, (있으면) D:\keys
-#   4) MANIFEST.csv(파일별 크기·SHA-256)와 migration.log
+#   4) RESTORE_GUIDE.md(aiDoc\restore-from-backup.md — 새 PC에서 AI·사람이 이 폴더로 복구하는 순서), MANIFEST.csv(파일별
+#      크기·SHA-256)와 migration.log
 # 결과: D:\backup\autostock\migration_yyyyMMdd_HHmm\
 #       비밀 값(.env·키 파일)이 들어 있다 — 외장 디스크로 옮기고, 클라우드 공유·메신저로 보내지 않는다.
 #
@@ -147,7 +148,14 @@ CopyDir (Join-Path $Repo "app\logs") (Join-Path $local "app\logs") "app\logs\"
 CopyDir (Join-Path $Repo ".vscode") (Join-Path $local ".vscode") ".vscode\"
 if (Test-Path $KeysDir) { CopyDir $KeysDir (Join-Path $out "keys") "$KeysDir (실전 키 등)" } else { Log "[.] $KeysDir 없음(건너뜀)" }
 
-# ── 4) 목록 ────────────────────────────────────────────────────────────────────
+# ── 4) 복구 안내·목록 ──────────────────────────────────────────────────────────
+$guide = Join-Path $Repo "aiDoc\restore-from-backup.md"
+if (Test-Path $guide) {
+    Copy-Item -Path $guide -Destination (Join-Path $out "RESTORE_GUIDE.md") -Force -ErrorAction Stop
+    Log "[O] RESTORE_GUIDE.md(복구 안내 — 새 PC에서 먼저 읽는다)"
+} else {
+    Fail "복구 안내 없음: $guide"
+}
 Log "[.] MANIFEST.csv 작성(파일별 SHA-256) — data\가 크면 1~2분 걸린다"
 $manifest = Join-Path $out "MANIFEST.csv"
 Get-ChildItem -Path $out -Recurse -File -Force | Where-Object { $_.FullName -ne $manifest -and $_.FullName -ne $logFile } |
