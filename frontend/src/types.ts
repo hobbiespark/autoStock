@@ -16,6 +16,10 @@ export interface Position {
   symbolName: string | null; // 종목명 — 코드와 함께 표시한다(2026-10-02). 서버가 아직 모르면 null
   quantity: number;
   avgPrice: string | number | null; // null = 평단 미상(잔고 복원에서 매입가를 못 찾음)
+  // 2026-10-23 — 키움 잔고(30초마다)의 현재가로 센 평가손익(비용 전)·수익률(%). 모르면 null
+  currentPrice?: string | number | null;
+  evaluationPnl?: string | number | null;
+  returnPct?: string | number | null;
 }
 
 export interface DashboardEvent {
@@ -31,6 +35,32 @@ export interface TradingInfo {
   todayRealizedPnl: string | number;
   conservativeMode: boolean;
   disclosureBlacklistCount: number;
+  dailyLossLimit?: DailyLossLimitInfo | null; // 2026-10-23 — 지금 쓰는 일 손실 한도(모르면 null)
+}
+
+// 일 손실 한도(2026-10-23) — 백엔드 monitor.view.DailyLossLimitView와 1:1
+export interface DailyLossLimitInfo {
+  lossPct: number; // 음수(예: -0.05)
+  base: string | number | null; // 한도 기준 금액(원)
+  threshold: string | number | null; // 한도 금액(원, 음수)
+  pnlForLimit: string | number; // 오늘 한도용 손익(밤사이 보유분은 전일 종가 기준)
+  capitalLimited: boolean;
+  capitalLimit: string | number | null; // 운용 자금(원)
+  peakHeld: string | number; // 오늘 최대 보유액(원)
+}
+
+// 계좌 잔고(2026-10-23) — 백엔드 monitor.view.AccountView와 1:1
+export interface AccountInfo {
+  available: boolean;
+  totalAsset: string | number | null; // 계좌 총자산(추정예탁자산)
+  holdingsValue: string | number | null;
+  holdingsCost: string | number | null;
+  holdingsPnl: string | number | null;
+  asOf: string | null;
+  note: string | null;
+  capitalLimitKrw: number; // 0이면 운용 자금 한도 꺼짐
+  capitalHeldCost: string | number | null;
+  capitalPendingBuy: string | number | null;
 }
 
 export interface SystemInfo {
@@ -39,6 +69,8 @@ export interface SystemInfo {
   wsEnabled: boolean;
   // 대시보드 수동 매수 1건 금액 상한(원) — 발행 전 확인 창이 같은 값으로 미리 막는다(판정은 RiskGate, Phase 0.4)
   manualOrderMaxKrw: number;
+  // 키움 접속 서버(2026-10-23) — LIVE는 "브로커로 주문을 보낸다"는 뜻일 뿐, 실계좌인지는 이 값으로 가린다
+  brokerServer?: 'MOCK' | 'REAL' | 'UNKNOWN' | string;
 }
 
 export interface SlippageInfo {
@@ -55,6 +87,7 @@ export interface DashboardView {
   trading: TradingInfo;
   system: SystemInfo;
   slippage: SlippageInfo;
+  account?: AccountInfo | null; // 2026-10-23
 }
 
 export type Side = 'BUY' | 'SELL';

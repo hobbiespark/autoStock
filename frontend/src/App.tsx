@@ -35,6 +35,7 @@ export default function App() {
       <Header
         status={view?.trading.status}
         executionMode={view?.system.executionMode}
+        brokerServer={view?.system.brokerServer}
         isError={query.isError}
         isFetching={query.isFetching}
         dataUpdatedAt={query.dataUpdatedAt}
@@ -56,7 +57,7 @@ export default function App() {
             <SlippageCard slippage={view?.slippage} />
             <SystemCard system={view?.system} />
             <TestSignalCard system={view?.system} />
-            <PositionsCard positions={view?.positions} />
+            <PositionsCard positions={view?.positions} account={view ? (view.account ?? null) : undefined} />
             <EventFeedCard events={view?.recentEvents} />
           </div>
         </>
