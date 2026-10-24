@@ -24,9 +24,6 @@ application-secret*.yml
 # Runtime
 logs/
 *.log
-# 2026-10-24 운영 PC 이전을 git으로(aiDoc/pc-migration-2026-10-24.md) — 실측 로그와 백업 스냅숏의 로그는 올린다
-!docs/measured/*.log
-!backup/**/*.log
 
 # Python sidecar
 __pycache__/
@@ -37,9 +34,10 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# 수집 데이터(data/)와 개인 전략 문서(STRATEGY.md·BACKTEST_REPORT.md)는 2026-10-24부터 커밋한다 — 사용자 결정
-# (운영 PC 이전을 외장 디스크 대신 git으로, 공개 저장소에 올리는 것을 알고 선택). 예전 제외 이유: 시세 데이터 라이선스·용량,
-# 전략 문서 비공개. 비밀 값(.env·키 파일)은 위 Secrets 규칙으로 계속 뺀다.
+# 수집 자료·DB 백업·API 실측 자료는 PC 이전 때도 Git에 올리지 않는다.
+/data/
+/backup/
+/docs/measured/
 
 # FE(React+TS, ADR-10) — 빌드 산출물은 app/src/main/resources/static으로 배포되므로 의존성만 제외
 frontend/node_modules/
