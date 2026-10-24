@@ -2,6 +2,7 @@ package com.autostock.portfolio;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
+import com.autostock.common.event.StrategySellFilled;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.Price;
@@ -16,6 +17,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -162,5 +164,58 @@ class StrategyBookTest {
         assertEquals(10, book.position("ON-CLOSE", SAMSUNG).orElseThrow().quantity());
         book.onFill(fill("ON-CLOSE", Side.SELL, 10, "1272000"));
         assertFalse(book.holds("ON-CLOSE", SAMSUNG));
+    }
+
+    // ── 매도 알림의 수익률(2026-10-23) ─────────────────────────────────────────────
+
+    private List<StrategySellFilled> sellEvents(List<Object> events) {
+        return events.stream().filter(StrategySellFilled.class::isInstance).map(StrategySellFilled.class::cast).toList();
+    }
+
+    @Test
+    void 매도_체결마다_반영_전_평단과_실현손익을_싣고_청산이_끝나면_요약을_낸다() {
+        List<Object> events = new ArrayList<>();
+        StrategyBook published = new StrategyBook(positions, fills, Clock.fixed(NOW, ZoneOffset.UTC), 0.00015, 0.0020,
+                events::add);
+        published.onFill(fill("ON-CLOSE", Side.BUY, 10, "10000"));
+        published.onFill(fill("ON-CLOSE", Side.SELL, 4, "10300"));
+        published.onFill(fill("ON-CLOSE", Side.SELL, 6, "10200"));
+
+        List<StrategySellFilled> sells = sellEvents(events);
+        assertEquals(2, sells.size(), "매수 체결은 이 이벤트를 내지 않는다");
+        StrategySellFilled first = sells.get(0);
+        assertEquals("ON-CLOSE", first.strategyId());
+        assertEquals(SAMSUNG, first.symbol());
+        assertEquals(4, first.quantity());
+        assertEquals(0, new BigDecimal("10000").compareTo(first.avgPrice()));
+        assertEquals(0, new BigDecimal("1105.42").compareTo(first.realizedPnl()));   // 1,200 − 6 − 6.18 − 82.40
+        assertEquals(6, first.remainingQuantity());
+        assertNull(first.exit(), "아직 청산이 끝나지 않았다");
+
+        StrategySellFilled last = sells.get(1);
+        assertEquals(0, last.remainingQuantity());
+        StrategySellFilled.Exit exit = last.exit();
+        assertEquals(10, exit.quantity());
+        assertEquals(0, new BigDecimal("10000").compareTo(exit.avgPrice()));
+        assertEquals(0, new BigDecimal("10240").compareTo(exit.avgSellPrice()));   // (4×10,300 + 6×10,200) ÷ 10
+        assertEquals(0, new BigDecimal("102400").compareTo(exit.proceeds()));
+        // 2,400 − 매수 수수료 15 − 매도 수수료 15.36 − 거래세 204.80
+        assertEquals(0, new BigDecimal("2164.84").compareTo(exit.realizedPnl()));
+        assertEquals(2, exit.fills());
+    }
+
+    @Test
+    void 이_전략_보유가_없는_매도도_평단_없이_알린다() {
+        List<Object> events = new ArrayList<>();
+        StrategyBook published = new StrategyBook(positions, fills, Clock.fixed(NOW, ZoneOffset.UTC), 0.00015, 0.0020,
+                events::add);
+        published.onFill(fill("VB-DAY", Side.SELL, 3, "10000"));
+
+        List<StrategySellFilled> sells = sellEvents(events);
+        assertEquals(1, sells.size());
+        assertNull(sells.get(0).avgPrice());
+        assertNull(sells.get(0).realizedPnl());
+        assertNull(sells.get(0).exit());
+        assertEquals(0, sells.get(0).remainingQuantity());
     }
 }

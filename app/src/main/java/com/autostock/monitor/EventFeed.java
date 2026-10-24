@@ -4,10 +4,12 @@ import com.autostock.common.event.Fill;
 import com.autostock.common.event.MarketTick;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Signal;
+import com.autostock.common.event.StrategySellFilled;
 import com.autostock.common.util.StockNames;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -62,6 +64,26 @@ public class EventFeed {
     public void on(Fill e) {
         add(new FeedItem("FILL",
                 "[%s] %s %d주 @ %s 체결 (%s)".formatted(StockNames.label(e.symbol()), e.side(), e.filledQuantity().value(), e.fillPrice(), e.brokerOrderId()),
+                e.timestamp()));
+    }
+
+    /**
+     * 전략 청산 요약(2026-10-23) — 부분 체결 FILL 줄은 그대로 두고, 청산이 끝나면 평단·평균 매도가·수익률·실현손익을 한 줄 더 남긴다
+     * (텔레그램 "매도 완료"와 같은 값, {@link TradeNotificationListener#onStrategySellFilled}).
+     */
+    @EventListener
+    public void on(StrategySellFilled e) {
+        StrategySellFilled.Exit exit = e.exit();
+        if (exit == null || exit.avgPrice() == null || exit.avgPrice().signum() <= 0 || exit.quantity() <= 0) {
+            return;
+        }
+        BigDecimal cost = exit.avgPrice().multiply(BigDecimal.valueOf(exit.quantity()));
+        add(new FeedItem("FILL",
+                "[%s] 청산 %d주 — 평단 %s → 평균 매도가 %s, 수익률 %s · 실현손익 %s원 (전략 %s)".formatted(
+                        StockNames.label(e.symbol()), exit.quantity(), TradeNotificationListener.won(exit.avgPrice()),
+                        TradeNotificationListener.won(exit.avgSellPrice()),
+                        TradeNotificationListener.pct(exit.proceeds().subtract(cost), cost),
+                        TradeNotificationListener.signedWon(exit.realizedPnl()), e.strategyId()),
                 e.timestamp()));
     }
 

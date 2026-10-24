@@ -6,6 +6,7 @@ import com.autostock.common.event.MacroIndicatorStale;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.PositionMismatch;
 import com.autostock.common.event.Side;
+import com.autostock.common.event.StrategySellFilled;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Price;
@@ -112,5 +113,62 @@ class TradeNotificationListenerTest {
         assertEquals(NoticeLevel.WARN, notices.get(0).level());
         assertEquals("잔고·장부 불일치: 삼성전자(005930) 브로커 19주 / 장부 0주 — 10분 넘게 같음. 자동 교정 안 함,"
                 + " HTS 잔고와 대시보드 확인 필요", notices.get(0).message());
+    }
+
+    // ── 매도 알림의 수익률(2026-10-23 "매도시 수익율 포함해서 메시지 필요") ──────────────────
+
+    private static final StockCode FINE = new StockCode("441270");
+
+    @Test
+    void 전략_주문의_매도_체결은_Fill_알림을_건너뛴다_전략_장부가_평단을_실어_다시_알린다() {
+        listener.onFill(new Fill("20261023-ON-CLOSE-441270-SELL-001", new BrokerOrderId("0006554"), FINE, Side.SELL,
+                new Quantity(2), new Price(new BigDecimal("9800")), Instant.now()));
+        listener.onFill(new Fill("20261023-ON-CLOSE-441270-BUY-001", new BrokerOrderId("0006555"), FINE, Side.BUY,
+                new Quantity(2), new Price(new BigDecimal("9800")), Instant.now()));
+
+        assertEquals(1, sent().size(), "매수 체결은 그대로 알린다");
+        assertEquals(true, notices.get(0).message().contains("매수 2주"));
+    }
+
+    @Test
+    void 전략_매도_체결은_평단_대비_수익률과_실현손익을_싣는다() {
+        StockNames.learn("441270", "파인엠텍", StockNames.Source.KIWOOM);
+
+        listener.onStrategySellFilled(new StrategySellFilled("ON-CLOSE", FINE, 10, new BigDecimal("10250"),
+                new BigDecimal("10000.0000"), new BigDecimal("2449.25"), 83, null, Instant.now()));
+
+        assertEquals(1, sent().size());
+        assertEquals(NoticeLevel.INFO, notices.get(0).level());
+        assertEquals("체결: 파인엠텍(441270) 매도 10주 × 10,250원 = 102,500원 · 평단 10,000원 대비 +2.50%"
+                + " · 실현 +2,449원(비용 추정 차감) · ON-CLOSE", notices.get(0).message());
+    }
+
+    @Test
+    void 청산이_끝나면_매도_완료_요약을_한_통_더_보낸다() {
+        StockNames.learn("441270", "파인엠텍", StockNames.Source.KIWOOM);
+        // 10/23 09:00 ON-CLOSE 파인엠텍 93주 청산(실제 값): 평단 10,110 → 평균 9,786, 매도 금액 910,098, 실현 -32,229.80
+        StrategySellFilled.Exit exit = new StrategySellFilled.Exit(93, new BigDecimal("10110.0000"), new BigDecimal("9786"),
+                new BigDecimal("910098.0000"), new BigDecimal("-32229.80"), 10);
+
+        listener.onStrategySellFilled(new StrategySellFilled("ON-CLOSE", FINE, 2, new BigDecimal("9831.5000"),
+                new BigDecimal("10110.0000"), new BigDecimal("-580.17"), 0, exit, Instant.now()));
+
+        assertEquals(2, sent().size());
+        assertEquals("체결: 파인엠텍(441270) 매도 2주 × 9,831.50원 = 19,663원 · 평단 10,110원 대비 -2.75%"
+                + " · 실현 -580원(비용 추정 차감) · ON-CLOSE", notices.get(0).message());
+        assertEquals("매도 완료: 파인엠텍(441270) 93주 — 평단 10,110원 → 평균 매도가 9,786원, 수익률 -3.20%(비용 후 -3.43%)"
+                + " · 매도 금액 910,098원 · 실현손익 -32,230원 · ON-CLOSE · 체결 10건", notices.get(1).message());
+    }
+
+    @Test
+    void 평단을_모르면_수익률_없이_보낸다() {
+        StockNames.learn("441270", "파인엠텍", StockNames.Source.KIWOOM);
+
+        listener.onStrategySellFilled(new StrategySellFilled("VB-DAY", FINE, 3, new BigDecimal("10000"),
+                null, null, 0, null, Instant.now()));
+
+        assertEquals(1, sent().size());
+        assertEquals("체결: 파인엠텍(441270) 매도 3주 × 10,000원 = 30,000원 · 평단 모름(수익률 없음) · VB-DAY",
+                notices.get(0).message());
     }
 }

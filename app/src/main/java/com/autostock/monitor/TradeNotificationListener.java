@@ -6,7 +6,9 @@ import com.autostock.common.event.MacroIndicatorStale;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.PositionMismatch;
 import com.autostock.common.event.Side;
+import com.autostock.common.event.StrategySellFilled;
 import com.autostock.common.util.StockNames;
+import com.autostock.portfolio.StrategyBook;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -38,14 +40,68 @@ public class TradeNotificationListener {
         this.dispatcher = dispatcher;
     }
 
-    /** 체결 요약 — INFO. 수량 × 단가 = 금액을 함께 보인다(2026-10-22 사용자 요청 "체결 X 단가로 총 금액 알 수 있게"). */
+    /**
+     * 체결 요약 — INFO. 수량 × 단가 = 금액을 함께 보인다(2026-10-22 사용자 요청 "체결 X 단가로 총 금액 알 수 있게").
+     * 전략 주문의 매도 체결은 여기서 보내지 않는다 — 전략 장부가 평단을 실어 {@link StrategySellFilled}로 다시 알리고,
+     * {@link #onStrategySellFilled}가 수익률을 붙여 보낸다(2026-10-23 "매도시 수익율 포함해서 메시지 필요").
+     */
     @EventListener
     public void onFill(Fill fill) {
+        if (fill.side() == Side.SELL && StrategyBook.strategyIdOf(fill.orderIdempotencyKey()) != null) {
+            return;
+        }
         long qty = fill.filledQuantity().value();
         BigDecimal price = fill.fillPrice().value();
         dispatcher.submit(NoticeLevel.INFO,
                 "체결: %s %s %d주 × %s원 = %s원".formatted(StockNames.label(fill.symbol()), sideText(fill.side()), qty,
                         won(price), won(price.multiply(BigDecimal.valueOf(qty)))));
+    }
+
+    /**
+     * 전략 매도 체결 — INFO(2026-10-23). 체결 한 건마다 평단 대비 수익률·실현손익을 붙이고, 이 체결로 청산이 끝나면
+     * "매도 완료" 요약(평균 매도가·수익률·비용 후 수익률·매도 금액·실현손익)을 한 통 더 보낸다. 평단을 모르면 수익률 없이 보낸다.
+     * 수익률은 가격 기준(체결가 ÷ 평단 − 1), 비용 후 수익률은 실현손익 ÷ 매수 원가(수수료·거래세 추정 차감)다.
+     */
+    @EventListener
+    public void onStrategySellFilled(StrategySellFilled event) {
+        long qty = event.quantity();
+        BigDecimal price = event.fillPrice();
+        StringBuilder text = new StringBuilder("체결: %s 매도 %d주 × %s원 = %s원".formatted(StockNames.label(event.symbol()),
+                qty, won(price), won(price.multiply(BigDecimal.valueOf(qty)))));
+        BigDecimal avg = event.avgPrice();
+        if (avg != null && avg.signum() > 0) {
+            text.append(" · 평단 %s원 대비 %s".formatted(won(avg), pct(price.subtract(avg), avg)));
+            if (event.realizedPnl() != null) {
+                text.append(" · 실현 %s원(비용 추정 차감)".formatted(signedWon(event.realizedPnl())));
+            }
+        } else {
+            text.append(" · 평단 모름(수익률 없음)");
+        }
+        text.append(" · ").append(event.strategyId());
+        dispatcher.submit(NoticeLevel.INFO, text.toString());
+
+        StrategySellFilled.Exit exit = event.exit();
+        if (exit != null && exit.avgPrice() != null && exit.avgPrice().signum() > 0 && exit.quantity() > 0) {
+            BigDecimal cost = exit.avgPrice().multiply(BigDecimal.valueOf(exit.quantity()));
+            dispatcher.submit(NoticeLevel.INFO,
+                    "매도 완료: %s %d주 — 평단 %s원 → 평균 매도가 %s원, 수익률 %s(비용 후 %s) · 매도 금액 %s원 · 실현손익 %s원 · %s · 체결 %d건"
+                            .formatted(StockNames.label(event.symbol()), exit.quantity(), won(exit.avgPrice()),
+                                    won(exit.avgSellPrice()), pct(exit.proceeds().subtract(cost), cost),
+                                    pct(exit.realizedPnl(), cost), won(exit.proceeds().setScale(0, RoundingMode.HALF_UP)),
+                                    signedWon(exit.realizedPnl()), event.strategyId(), exit.fills()));
+        }
+    }
+
+    /** 부호 있는 백분율(소수 둘째 자리) — numerator ÷ denominator × 100. */
+    static String pct(BigDecimal numerator, BigDecimal denominator) {
+        BigDecimal value = numerator.multiply(BigDecimal.valueOf(100)).divide(denominator, 2, RoundingMode.HALF_UP);
+        return (value.signum() > 0 ? "+" : "") + value.toPlainString() + "%";
+    }
+
+    /** 원 단위 반올림, 이익이면 + 부호. */
+    static String signedWon(BigDecimal value) {
+        BigDecimal rounded = value.setScale(0, RoundingMode.HALF_UP);
+        return (rounded.signum() > 0 ? "+" : "") + won(rounded);
     }
 
     /** 주문 요청 발행 — INFO. RiskGate를 통과했다는 뜻(=실제로 브로커에 나갈 주문). 금액은 지정가 기준. */

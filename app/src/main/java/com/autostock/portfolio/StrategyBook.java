@@ -2,14 +2,17 @@ package com.autostock.portfolio;
 
 import com.autostock.common.event.Fill;
 import com.autostock.common.event.Side;
+import com.autostock.common.event.StrategySellFilled;
 import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -81,17 +84,28 @@ public class StrategyBook {
     private final Clock clock;
     private final BigDecimal feeRate;
     private final BigDecimal sellTaxRate;
+    /** 매도 체결 결과({@link StrategySellFilled}) 발행 — 매도 알림의 수익률(2026-10-23). */
+    private final ApplicationEventPublisher publisher;
     private boolean loaded;
 
+    @Autowired
     public StrategyBook(StrategyPositionRepository positionRepository, StrategyFillRepository fillRepository,
                         Clock clock,
                         @Value("${risk.fee-rate:0.00015}") double feeRate,
-                        @Value("${risk.sell-tax-rate:0.0020}") double sellTaxRate) {
+                        @Value("${risk.sell-tax-rate:0.0020}") double sellTaxRate,
+                        ApplicationEventPublisher publisher) {
         this.positionRepository = positionRepository;
         this.fillRepository = fillRepository;
         this.clock = clock;
         this.feeRate = BigDecimal.valueOf(feeRate);
         this.sellTaxRate = BigDecimal.valueOf(sellTaxRate);
+        this.publisher = publisher;
+    }
+
+    /** 이벤트를 내지 않는 장부(시험용). */
+    public StrategyBook(StrategyPositionRepository positionRepository, StrategyFillRepository fillRepository,
+                        Clock clock, double feeRate, double sellTaxRate) {
+        this(positionRepository, fillRepository, clock, feeRate, sellTaxRate, event -> { });
     }
 
     /** 기동 직후 보유를 표에서 읽는다(실패하면 다음 조회 때 다시). */
@@ -182,6 +196,7 @@ public class StrategyBook {
         }
         persist(strategyId, symbol, next, new StrategyFillEntity(strategyId, symbol.value(), fill.side().name(), qty,
                 price, fill.orderIdempotencyKey(), avgBefore, realized, at));
+        StrategySellFilled.Exit exitSummary = null;
         if (fill.side() == Side.SELL && realized != null) {
             log.debug("전략별 장부: {} {} 매도 {}주 @ {} — 평단 {}, 실현손익 {}원(추정 비용 차감){}", strategyId,
                     StockNames.label(symbol), qty, price.toPlainString(), avgBefore.toPlainString(),
@@ -204,9 +219,16 @@ public class StrategyBook {
                         "%,d".formatted(avgSell.longValue()), (pct.signum() > 0 ? "+" : "") + pct.toPlainString(),
                         "%,d".formatted(tally.proceeds.setScale(0, RoundingMode.HALF_UP).longValue()),
                         "%,d".formatted(tally.realized.setScale(0, RoundingMode.HALF_UP).longValue()), tally.fills);
+                exitSummary = new StrategySellFilled.Exit(tally.quantity, avgBefore, avgSell, tally.proceeds,
+                        tally.realized, tally.fills);
             }
         } else if (fill.side() == Side.BUY && current == null) {
             exits.remove(strategyId + "|" + symbol.value());   // 새 보유 — 지난 청산 누계가 남아 있으면 버린다
+        }
+        if (fill.side() == Side.SELL) {
+            // 매도 알림의 수익률(2026-10-23) — 장부를 바꾼 이 자리에서 반영 전 평단을 실어 보낸다(StrategySellFilled 설명)
+            publisher.publishEvent(new StrategySellFilled(strategyId, symbol, qty, price, avgBefore, realized,
+                    next == null ? 0 : next.quantity(), exitSummary, at));
         }
     }
 
@@ -239,8 +261,8 @@ public class StrategyBook {
         }
     }
 
-    /** ClientOrderId에서 전략 ID — 형식이 아니면 null. */
-    static String strategyIdOf(String clientOrderId) {
+    /** ClientOrderId에서 전략 ID — 형식이 아니면 null. 매도 알림이 "전략 장부가 알릴 체결"인지 가르는 데도 쓴다(monitor). */
+    public static String strategyIdOf(String clientOrderId) {
         if (clientOrderId == null) {
             return null;
         }
