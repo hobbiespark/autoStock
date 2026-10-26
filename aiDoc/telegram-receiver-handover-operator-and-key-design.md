@@ -1,5 +1,8 @@
 # 수신 이관 운영자 호출 경로·앱 서명 키 절차 설계 (초안, 미구현)
 
+> 최신 결정: 2026-10-26 사용자 확정: 운영자 호출 방식은 **별도 loopback listener + HMAC·요청 원장**이다. 기존 business 웹서버의 X-Autostock-Operator 토큰 헤더·withdraw 경로 초안은 미채택 과거안이다. stop/observe만 구현하고 자동 재개·withdraw 노출은 하지 않는다. 이번 결정은 소스 구현 경로에 관한 것이며 키 위치/실제 키 생성·운영 활성화·실제 이관 승인이 아니다.
+> 아래 토큰 헤더/withdraw 설계와 결정 대기는 과거 기록이며 구현 지시로 사용하지 않는다. 채택 계약은 VALUNIVO 143-operator-stop-path-and-key-procedure-design.md 및 앱 telegram-operator-request-gate.md를 따른다. 키 위치는 별도 미확정이다.
+
 2026-10-26. 상태: AI 설계 제안이며 사용자가 확정하지 않았다. 코드와 키 변경은 0이다. VALUNIVO 143의 앱 측 문서이며, 앞 단계는 `telegram-receiver-stop-signal-design.md`(142에서 구현)다.
 
 ## 근거로 삼은 현재 사실
