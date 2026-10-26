@@ -19,6 +19,7 @@ import java.util.UUID;
 @ConditionalOnProperty(prefix = "autostock.telegram.handover", name = "enabled", havingValue = "true")
 public class TelegramReceiverStopStore {
     public record Stop(UUID stopId, long confirmedNextOffset, boolean pendingResumeDropped, String instanceId, Instant recordedAt) {}
+    public record OperatorStop(Stop stop, boolean active) {}
 
     private final DataSource source;
 
@@ -35,16 +36,49 @@ public class TelegramReceiverStopStore {
     }
 
     public Stop recordStopped(long confirmedNextOffset, boolean pendingResumeDropped, String instanceId) {
+        return recordStopped(confirmedNextOffset, pendingResumeDropped, instanceId, null, null);
+    }
+
+    /** Internal persistence only, not authentication: a future adapter supplies the private dispatch. */
+    public Stop recordStoppedForOperator(long confirmedNextOffset, boolean pendingResumeDropped, String instanceId, UUID requestId, UUID attemptId) {
+        java.util.Objects.requireNonNull(requestId); java.util.Objects.requireNonNull(attemptId);
+        return recordStopped(confirmedNextOffset, pendingResumeDropped, instanceId, requestId, attemptId);
+    }
+
+    private Stop recordStopped(long confirmedNextOffset, boolean pendingResumeDropped, String instanceId, UUID requestId, UUID attemptId) {
         if (confirmedNextOffset < 0 || confirmedNextOffset == Long.MAX_VALUE) throw new IllegalArgumentException("invalid-receiver-offset");
         instance(instanceId);
         return write(c -> {
             if (active(c).isPresent()) throw new IllegalStateException("telegram-receiver-already-stopped");
+            if (requestId != null) {
+                try (var q = c.prepareStatement("select 1 from telegram_operator_handover_dispatch d join telegram_operator_handover_request r using(request_id) where d.request_id=? and d.attempt_id=? and r.instance_id=?")) {
+                    q.setObject(1, requestId); q.setObject(2, attemptId); q.setString(3, instanceId);
+                    try (var rows = q.executeQuery()) { if (!rows.next()) throw new SecurityException("operator-stop-correlation-denied"); }
+                }
+            }
             UUID id = UUID.randomUUID();
             try (var q = c.prepareStatement("insert into telegram_receiver_stop(stop_id,kind,confirmed_next_offset,pending_resume_dropped,instance_id) values (?,'stopped',?,?,?)")) {
                 q.setObject(1, id); q.setLong(2, confirmedNextOffset); q.setBoolean(3, pendingResumeDropped); q.setString(4, instanceId); q.executeUpdate();
             }
+            if (requestId != null) {
+                try (var q = c.prepareStatement("insert into telegram_operator_handover_stop(request_id,attempt_id,stop_id,stop_kind) values (?,?,?,'stopped')")) {
+                    q.setObject(1, requestId); q.setObject(2, attemptId); q.setObject(3, id); q.executeUpdate();
+                }
+            }
             return active(c).orElseThrow();
         });
+    }
+
+    /** Raw app-owned metadata. The operator HTTP adapter must authenticate fresh observe before calling. */
+    public Optional<OperatorStop> operatorStop(UUID requestId) {
+        java.util.Objects.requireNonNull(requestId);
+        try (var c = source.getConnection(); var q = c.prepareStatement("select s.stop_id,s.confirmed_next_offset,s.pending_resume_dropped,s.instance_id,s.recorded_at,not exists(select 1 from telegram_receiver_stop w where w.stop_id=s.stop_id and w.kind='withdrawn') from telegram_operator_handover_stop o join telegram_receiver_stop s on s.stop_id=o.stop_id and s.kind=o.stop_kind where o.request_id=?")) {
+            q.setObject(1, requestId);
+            try (var rows = q.executeQuery()) {
+                if (!rows.next()) return Optional.empty();
+                return Optional.of(new OperatorStop(new Stop(rows.getObject(1, UUID.class), rows.getLong(2), rows.getBoolean(3), rows.getString(4), rows.getTimestamp(5).toInstant()), rows.getBoolean(6)));
+            }
+        } catch (SQLException e) { throw new IllegalStateException("operator-stop-correlation-unavailable", e); }
     }
 
     /** Only the stop that is currently active can be withdrawn. Never deletes the original row. */
