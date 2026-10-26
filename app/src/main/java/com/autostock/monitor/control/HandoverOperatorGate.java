@@ -23,7 +23,7 @@ public final class HandoverOperatorGate {
     public static final class Verified {
         private final HandoverOperatorGate owner;private final Request request;private final String fingerprint;
         private Verified(HandoverOperatorGate owner,Request request,String fingerprint){this.owner=owner;this.request=request;this.fingerprint=fingerprint;}
-        public Request request(){return request;}public String fingerprint(){return fingerprint;}
+        public Request request(){return request;}public String fingerprint(){return fingerprint;}public String keyId(){return owner.keyId;}
         @Override public String toString(){return "VerifiedOperatorHandover[action="+request.action()+"]";}
     }
     private static final Set<String> FIELDS=Set.of("contract_version","request_id","action","instance_id","expected_active_stop_id","target_request_id","issued_at","expires_at");
