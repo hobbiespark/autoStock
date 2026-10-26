@@ -1,6 +1,5 @@
 package com.autostock.monitor;
 
-import com.autostock.common.util.StockNames;
 import com.autostock.risk.KillSwitch;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.common.util.SecretMasking;
@@ -11,7 +10,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.security.SecureRandom;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
@@ -19,7 +17,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -69,14 +66,10 @@ public class TelegramCommandPoller {
         IGNORED
     }
 
-    /** /resume 확인 코드 유효 시간. */
-    static final Duration RESUME_CONFIRM_WINDOW = Duration.ofSeconds(60);
+    /** /resume 확인 코드 유효 시간 — 의미는 {@link TelegramStockCommands}가 소유한다. */
+    static final Duration RESUME_CONFIRM_WINDOW = TelegramStockCommands.RESUME_CONFIRM_WINDOW;
 
     private static final Pattern RESUME_CONFIRM_PATTERN = Pattern.compile("/resume\\s+(\\d{4})");
-
-    /** 발급한 해제 확인 코드와 만료 시각. */
-    private record PendingResume(String code, Instant expiresAt) {
-    }
 
     private final WebClient webClient;
     private final TelegramProperties properties;
@@ -99,8 +92,14 @@ public class TelegramCommandPoller {
     private final ReentrantLock pollLock = new ReentrantLock();
     /** null=아직 DB 확인 전. 확인 실패 때는 그 회차를 건너뛴다(정지 기록을 모르고 두 번째 수신자가 되지 않게). */
     private volatile Boolean handoverStopped;
-    private final SecureRandom random = new SecureRandom();
-    private final AtomicReference<PendingResume> pendingResume = new AtomicReference<>();
+
+    /**
+     * 명령 의미(/stop·/resume 2단계·/status). 스프링에서는 플랫폼 주식 제어 입구(P2-2d)와 같은 빈을 공유해 확인 코드가 하나뿐이다.
+     * 빈이 없는 직접 생성(테스트)에서는 자기 인스턴스를 쓴다.
+     */
+    private TelegramStockCommands commands;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    void stockCommands(TelegramStockCommands shared){this.commands=Objects.requireNonNull(shared);}
 
     /** 다음 getUpdates 호출에 쓸 offset — 이 값 미만의 update는 이미 처리했다고 텔레그램에 알리는 것. */
     private final AtomicLong nextOffset = new AtomicLong(0);
@@ -120,6 +119,7 @@ public class TelegramCommandPoller {
         this.positionBook = positionBook;
         this.notifier = notifier;
         this.clock = clock;
+        this.commands = new TelegramStockCommands(killSwitch, positionBook, clock);
     }
 
     /**
@@ -192,7 +192,7 @@ public class TelegramCommandPoller {
             handoverStopped = true;
             try {
                 confirmProcessed(nextOffset.get());
-                boolean dropped = pendingResume.getAndSet(null) != null;
+                boolean dropped = commands.dropPendingResume();
                 return recordStop.apply(nextOffset.get(), dropped);
             } catch (RuntimeException e) {
                 // A DB commit may have succeeded before its response was lost. Re-read before polling.
@@ -213,6 +213,31 @@ public class TelegramCommandPoller {
         try {
             stopStore.withdraw(stopId, instanceId);
             handoverStopped = false;
+        } finally {
+            pollLock.unlock();
+        }
+    }
+
+    /**
+     * 로컬 운영자 재개(P2-2d, 사용자 결정 2026-10-27 대안 A) — 플랫폼 반환 증거·정지 ID·운영자 확인을 이미 대조한 호출자 전용.
+     * 플랫폼이 접수한 update를 다시 처리하지 않게 다음 offset 하한을 플랫폼 next_offset으로 올린 뒤 기존 {@link #resumeAfterWithdraw}
+     * 의미를 그대로 쓴다. 철회가 거절되면 offset을 되돌린다. 돌려주는 값은 재개 후 첫 getUpdates offset이다.
+     */
+    public long resumeAfterPlatformRelease(java.util.UUID stopId, String instanceId, long platformNextOffset) {
+        if (platformNextOffset < 0 || platformNextOffset == Long.MAX_VALUE) {
+            throw new IllegalArgumentException("invalid-platform-next-offset");
+        }
+        pollLock.lock();
+        try {
+            long prior = nextOffset.get();
+            nextOffset.set(Math.max(prior, platformNextOffset));
+            try {
+                resumeAfterWithdraw(stopId, instanceId);
+            } catch (RuntimeException rejected) {
+                nextOffset.set(prior);
+                throw rejected;
+            }
+            return nextOffset.get();
         } finally {
             pollLock.unlock();
         }
@@ -388,10 +413,10 @@ public class TelegramCommandPoller {
 
         Command command = parseCommand(chatId, text, properties.chatId());
         switch (command) {
-            case STOP -> killSwitch.engage("텔레그램 원격 명령");
-            case RESUME -> requestResumeConfirmation();
-            case RESUME_CONFIRM -> confirmResume(confirmCodeOf(text));
-            case STATUS -> notifier.notify(NoticeLevel.INFO, buildStatusSummary());
+            case STOP -> commands.stop();
+            case RESUME -> notifyLegacy(commands.requestResume());
+            case RESUME_CONFIRM -> notifyLegacy(commands.confirmResume(confirmCodeOf(text)));
+            case STATUS -> notifyLegacy(commands.status());
             case IGNORED -> {
                 if(platformBridge!=null)platformBridge.accept(update);
                 if (chatId != null && !chatId.equals(properties.chatId())) {
@@ -438,44 +463,10 @@ public class TelegramCommandPoller {
         return matcher.matches() ? matcher.group(1) : null;
     }
 
-    /** 1단계: 해제 확인 코드를 발급해 답장한다(해제는 아직 안 한다). */
-    private void requestResumeConfirmation() {
-        if (!killSwitch.isEngaged()) {
-            pendingResume.set(null);
-            notifier.notify(NoticeLevel.INFO, "킬스위치는 이미 해제 상태입니다(주문 허용).");
-            return;
+    /** 기존 poller 경로의 직접 알림 — 이전과 같은 수준·문구. 작동·해제는 KillSwitchChanged 알림이 대신해 따로 보내지 않는다. */
+    private void notifyLegacy(TelegramStockCommands.Reply reply) {
+        if (reply.legacyNotice() != null) {
+            notifier.notify(reply.legacyNotice(), reply.reply());
         }
-        String code = "%04d".formatted(random.nextInt(10_000));
-        pendingResume.set(new PendingResume(code, clock.instant().plus(RESUME_CONFIRM_WINDOW)));
-        notifier.notify(NoticeLevel.WARN, ("킬스위치 해제 확인 — %d초 안에 /resume %s 를 보내면 해제합니다. "
-                + "해제하면 신규 주문이 다시 허용됩니다. 작동 원인을 확인했나요?")
-                .formatted(RESUME_CONFIRM_WINDOW.toSeconds(), code));
-    }
-
-    /** 2단계: 코드가 맞고 만료 전이면 해제한다. 코드는 한 번 쓰면 버린다(맞든 틀리든 — 추측 반복 차단). */
-    private void confirmResume(String code) {
-        PendingResume pending = pendingResume.getAndSet(null);
-        if (pending == null || clock.instant().isAfter(pending.expiresAt())) {
-            notifier.notify(NoticeLevel.WARN, "해제 확인 코드가 없거나 만료됐습니다 — /resume 부터 다시 보내세요. (해제하지 않았음)");
-            return;
-        }
-        if (!pending.code().equals(code)) {
-            log.warn("텔레그램 /resume 확인 코드 불일치 — 해제하지 않음");
-            notifier.notify(NoticeLevel.WARN, "확인 코드가 맞지 않습니다 — 해제하지 않았습니다. /resume 부터 다시 보내세요.");
-            return;
-        }
-        killSwitch.release("telegram");
-    }
-
-    /** /status 응답 본문 — 포지션 개수/목록 + 킬스위치 상태. */
-    private String buildStatusSummary() {
-        var positions = positionBook.snapshot();
-        StringBuilder sb = new StringBuilder();
-        sb.append("킬스위치: ").append(killSwitch.isEngaged() ? "작동 중" : "정상").append('\n');
-        sb.append("보유 종목 수: ").append(positions.size());
-        positions.forEach((symbol, position) ->
-                sb.append("\n- ").append(StockNames.label(symbol)).append(' ')
-                        .append(position.quantity()).append("주 @ ").append(position.avgPriceText()));
-        return sb.toString();
     }
 }

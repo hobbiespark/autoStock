@@ -191,6 +191,11 @@ autostock:
     handover:
       operator-listener:          # R16 별도 loopback 운영자 listener(P2-1) — 기본 꺼짐. 꺼져 있으면 포트 바인드·키 파일 읽기 0
         enabled: false            # 켤 때는 port·key-id·key-file·instance-id 명시 + autostock.telegram.handover.enabled=true 필요
+      local-resume:               # 로컬 운영자 legacy 수신 재개(P2-2d, 2026-10-27 대안 A) — 기본 꺼짐. 플랫폼 listener와 포트·키 분리
+        enabled: false            # 켤 때는 port·key-id·key-file·instance-id 명시(운영자 listener와 다른 키) + handover·poller 필요
+  platform:
+    stock-control:                # 플랫폼 주식 제어 입구(P2-2d, VALUNIVO 159 §5) — 기본 꺼짐. 꺼져 있으면 포트 바인드·키 파일 읽기 0
+      enabled: false              # 켤 때는 port·bot-ref·space-id·actor-ref·키 4종(platform-request/ack 공개키, app-result 개인키, store) 명시
 
 monitor:
   telegram:

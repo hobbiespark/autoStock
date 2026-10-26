@@ -78,3 +78,12 @@ tasks.register('operatorHandoverCli', JavaExec) {
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'com.autostock.monitor.HandoverOperatorCli'
 }
+
+// R16 로컬 운영자 legacy 수신 재개 클라이언트(P2-2d, 사용자 결정 2026-10-27 대안 A) — 플랫폼 release 응답 파일과 운영자 확인 문구로
+// 서명한 재개 요청 한 건을 127.0.0.1 재개 listener로 보낸다. 플랫폼 listener(stop/observe)와 포트·키·서명 도메인이 다르다.
+tasks.register('legacyResumeCli', JavaExec) {
+    group = 'application'
+    description = 'Signs one local legacy polling resume request with platform release evidence'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.autostock.monitor.LegacyResumeCli'
+}
