@@ -126,6 +126,51 @@ class TelegramReceiverHandoverDbTest extends PostgresDataJpaTest {
         }
     }
 
+    @Test void rejectedGuardPreservesPollingAndPendingResumeWithoutConfirmingOrRecording() {
+        var poller = poller(serving(update(1, "/stop"), update(2, "/resume")), true);
+        poller.poll();
+        String code = notices.stream().map(n -> java.util.regex.Pattern.compile("/resume (\\d{4})").matcher(n)).filter(java.util.regex.Matcher::find).map(m -> m.group(1)).findFirst().orElseThrow();
+        int calls = urls.size();
+        assertThrows(SecurityException.class, () -> poller.stopForHandover("pc-1", () -> { throw new SecurityException("expired claim"); }));
+        assertEquals(calls, urls.size());
+        assertTrue(store.active().isEmpty());
+        poller.handleUpdate(new com.fasterxml.jackson.databind.ObjectMapper().convertValue(Map.of("update_id", 3, "message", Map.of("chat", Map.of("id", 123), "text", "/resume " + code)), Map.class));
+        assertFalse(killSwitch.isEngaged(), "rejected stop must not discard a still valid legacy confirmation");
+        poller.poll();
+        assertEquals(calls + 1, urls.size());
+    }
+
+    @Test void guardIsCheckedAfterInFlightRoundBeforeConfirmation() throws Exception {
+        var release = new CountDownLatch(1);
+        var started = new CountDownLatch(1);
+        var stoppingStarted = new CountDownLatch(1);
+        var valid = new java.util.concurrent.atomic.AtomicBoolean(true);
+        var guardRan = new java.util.concurrent.atomic.AtomicBoolean(false);
+        var poller = poller(url -> {
+            if (!url.contains("limit=1")) {
+                started.countDown();
+                try { if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("test timeout"); }
+                catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException(e); }
+            }
+            return json("{\"ok\":true,\"result\":[]}");
+        }, true);
+        try (var pool = Executors.newFixedThreadPool(2)) {
+            var polling = pool.submit(poller::poll);
+            assertTrue(started.await(5, TimeUnit.SECONDS));
+            var stopping = pool.submit(() -> { stoppingStarted.countDown(); return poller.stopForHandover("pc-1", () -> { guardRan.set(true); if (!valid.get()) throw new SecurityException("expired while waiting"); }); });
+            try {
+                assertTrue(stoppingStarted.await(5, TimeUnit.SECONDS));
+                assertFalse(guardRan.get(), "guard must run after the polling lock");
+                valid.set(false);
+            } finally { release.countDown(); }
+            polling.get(5, TimeUnit.SECONDS);
+            assertInstanceOf(SecurityException.class, assertThrows(ExecutionException.class, () -> stopping.get(5, TimeUnit.SECONDS)).getCause());
+            assertTrue(guardRan.get());
+            assertEquals(1, urls.size(), "expired guard must not confirm an offset");
+            assertTrue(store.active().isEmpty());
+        } finally { release.countDown(); }
+    }
+
     @Test void disabledHandoverKeepsLegacyBehaviour() {
         var poller = poller(serving(update(7, "hello")), false);
         poller.poll();

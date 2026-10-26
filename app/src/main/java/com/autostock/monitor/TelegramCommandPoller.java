@@ -165,6 +165,15 @@ public class TelegramCommandPoller {
      * 확인 호출이나 기록이 실패하면 정지하지 않은 상태로 되돌린다(긴급 /stop 경로 유지). 운영자 명시 호출 전용 — Telegram 명령 아님.
      */
     public TelegramReceiverStopStore.Stop stopForHandover(String instanceId) {
+        return stopForHandover(instanceId, () -> {});
+    }
+
+    /** Source-only operator hook: recheck the private claim after waiting for the polling round.
+     * The callback is not authentication or one-shot dispatch; the caller must supply those separately.
+     * Rejection occurs before confirmation, pending-code disposal or a stop record.
+     */
+    public TelegramReceiverStopStore.Stop stopForHandover(String instanceId, Runnable beforeConfirmation) {
+        Objects.requireNonNull(beforeConfirmation, "handover guard required");
         if (stopStore == null) {
             throw new IllegalStateException("telegram-handover-disabled");
         }
@@ -173,6 +182,7 @@ public class TelegramCommandPoller {
             if (!handoverAllowsPolling()) {
                 throw new IllegalStateException(handoverStopped == null ? "telegram-handover-state-unavailable" : "telegram-receiver-already-stopped");
             }
+            beforeConfirmation.run();
             handoverStopped = true;
             try {
                 confirmProcessed(nextOffset.get());
