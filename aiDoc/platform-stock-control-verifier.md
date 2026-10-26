@@ -7,3 +7,5 @@
 이번 신규5+codec기존6=11/skipped0·Java21/runtime분리build 통과. private생성자/소유verifier/defensive copy·unsigned/잘못키·다른purpose·서명된다른space/변조/잘못request·기한경계/미래/초과·wrapper중복/추가/후행/크기·UTF8 거절 확인. 단위시험이 생성한 메모리 키만 사용하고 privatekey디스크/운영키읽기0. 실제 플랫폼 issuer가 발급한 proof 교차는 아직없으며 test helper발급만 했다.
 
 기존poller/bridge/복구dirty보존·분리build runtime만. 다음 플랫폼 순수발급helper/독립앱 actual서명교차 또는 앱 durable접수·replay/fence/unknown·ACK. source만/운영DB/수신자/offset/제어설정0. D-18 DB조건을바꾸지않았다.
+
+2026-10-26 교차133: 별도 플랫폼JVM의 실제 StockControlProofIssuer/현재수신권 임시DB를 거친4명령 proof를 앱 StockControlProofInteropTest1건/skipped0로 확인했다. 공개키/합성clock/고정scope fixture이며 원본지문 일치·fence변조거절. privatekey디스크0·네트워크/제어0. 증거 C:/ai/VALUNIVO-test-runtime/stock-control-proof-4932383b263d4f38a73dabd99d3c7c55. 실제 운영issuer/key/Telegram출처·현재권한 live대조·재전달·durable/ACK/실행은 여전히미연결이다.
