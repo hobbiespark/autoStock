@@ -46,6 +46,19 @@ public final class StockControlReceiptStore {
    }catch(Exception failure){c.rollback();if(failure instanceof RuntimeException runtime)throw runtime;throw new IllegalStateException("stock-control-receipt-unavailable",failure);}
   }catch(SQLException failure){throw new IllegalStateException("stock-control-receipt-unavailable",failure);}
  }
+ /** Read-only lookup for observe: never inserts a receipt, raises the fence floor or creates an attempt. */
+ public Optional<Receipt> find(StockControlVerifier.Verified value){
+  verifier.requireVerified(value);var request=value.request();
+  try(var c=source.getConnection();var q=c.prepareStatement("select intent_sha256,receiver_fence,request_sha256,state,received_at from platform_stock_control_receipt where bot_ref=? and source_update_id=?")){
+   q.setString(1,request.botRef());q.setLong(2,Long.parseLong(request.sourceUpdateId()));
+   try(var rows=q.executeQuery()){
+    if(!rows.next())return Optional.empty();
+    if(!intent(request).equals(rows.getString(1)))throw new SecurityException("stock-control-update-conflict");
+    var found=new Receipt(request.botRef(),request.sourceUpdateId(),Long.toString(rows.getLong(2)),rows.getString(3),rows.getString(4),rows.getTimestamp(5).toInstant(),true);
+    verifier.requireVerified(value);return Optional.of(found);
+   }
+  }catch(SQLException failure){throw new IllegalStateException("stock-control-receipt-unavailable",failure);}
+ }
  static String intent(StockControlRequest r){
   var normalized=new StockControlRequest(r.contractVersion(),r.appId(),r.botRef(),r.spaceId(),r.actorRef(),r.sourceUpdateId(),"1",r.command(),r.confirmationCode());
   try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(("autostock-control-intent-v1:"+normalized.fingerprint()).getBytes(StandardCharsets.UTF_8)));}catch(NoSuchAlgorithmException impossible){throw new IllegalStateException(impossible);}
