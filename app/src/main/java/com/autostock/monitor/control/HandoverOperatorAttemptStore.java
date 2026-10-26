@@ -86,6 +86,18 @@ public final class HandoverOperatorAttemptStore {
   // A commit may consume time: fail closed after it, without restoring the permit.
   gate.requireVerified(value);if(!clock.instant().isBefore(claim.deadline))throw denied();
  }
+ /** Preserve the completed stop evidence even when the confirming request expired during I/O.
+  * This is an internal recorder, reachable only with this store's already-entered private permit.
+  */
+ public com.autostock.monitor.TelegramReceiverStopStore.Stop recordStopped(Dispatch dispatch,
+         com.autostock.monitor.TelegramReceiverStopStore stops,long offset,boolean dropped){
+  if(dispatch==null||dispatch.owner!=this||!dispatch.entered.get())throw denied();Claim claim=dispatch.claim;
+  return transaction(claim.requestId,c->{
+   String instance;
+   try(var q=c.prepareStatement("select r.instance_id from telegram_operator_handover_request r join telegram_operator_handover_attempt a using(request_id) join telegram_operator_handover_dispatch d on d.request_id=a.request_id and d.attempt_id=a.attempt_id where r.request_id=? and a.attempt_id=? and a.token_sha256=?")){q.setObject(1,claim.requestId);q.setObject(2,claim.attemptId);q.setString(3,hash(claim.token));try(var rows=q.executeQuery()){if(!rows.next())throw denied();instance=rows.getString(1);}}
+   return stops.recordStoppedForOperator(offset,dropped,instance,claim.requestId,claim.attemptId);
+  });
+ }
  /** Safe failure recording is allowed after request expiry; it never restores execution rights. */
  public void markUnknown(Claim claim){owned(claim);transaction(claim.requestId,c->{
   try(var q=c.prepareStatement("insert into telegram_operator_handover_unknown(request_id,attempt_id) select request_id,attempt_id from telegram_operator_handover_attempt where request_id=? and attempt_id=? and token_sha256=? on conflict(request_id) do nothing")){q.setObject(1,claim.requestId);q.setObject(2,claim.attemptId);q.setString(3,hash(claim.token));q.executeUpdate();}return null;

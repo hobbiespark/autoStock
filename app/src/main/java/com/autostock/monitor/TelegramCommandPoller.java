@@ -173,7 +173,13 @@ public class TelegramCommandPoller {
      * Rejection occurs before confirmation, pending-code disposal or a stop record.
      */
     public TelegramReceiverStopStore.Stop stopForHandover(String instanceId, Runnable beforeConfirmation) {
+        return stopForHandover(instanceId, beforeConfirmation, (offset, dropped) -> stopStore.recordStopped(offset, dropped, instanceId));
+    }
+
+    TelegramReceiverStopStore.Stop stopForHandover(String instanceId, Runnable beforeConfirmation,
+            java.util.function.BiFunction<Long, Boolean, TelegramReceiverStopStore.Stop> recordStop) {
         Objects.requireNonNull(beforeConfirmation, "handover guard required");
+        Objects.requireNonNull(recordStop, "handover recorder required");
         if (stopStore == null) {
             throw new IllegalStateException("telegram-handover-disabled");
         }
@@ -187,9 +193,10 @@ public class TelegramCommandPoller {
             try {
                 confirmProcessed(nextOffset.get());
                 boolean dropped = pendingResume.getAndSet(null) != null;
-                return stopStore.recordStopped(nextOffset.get(), dropped, instanceId);
+                return recordStop.apply(nextOffset.get(), dropped);
             } catch (RuntimeException e) {
-                handoverStopped = false;
+                // A DB commit may have succeeded before its response was lost. Re-read before polling.
+                handoverStopped = null;
                 throw new IllegalStateException("telegram-handover-stop-failed");
             }
         } finally {

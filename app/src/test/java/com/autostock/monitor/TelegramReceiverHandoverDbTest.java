@@ -171,6 +171,18 @@ class TelegramReceiverHandoverDbTest extends PostgresDataJpaTest {
         } finally { release.countDown(); }
     }
 
+    @Test void lostCommitResponseRechecksDurableStopBeforePollingAgain() {
+        var poller = poller(serving(), true);
+        assertThrows(IllegalStateException.class, () -> poller.stopForHandover("pc-1", () -> {}, (offset, dropped) -> {
+            store.recordStopped(offset, dropped, "pc-1");
+            throw new IllegalStateException("synthetic lost commit response");
+        }));
+        assertTrue(store.active().isPresent());
+        int calls = urls.size();
+        poller.poll();
+        assertEquals(calls, urls.size(), "uncertain commit must not cache permission to resume polling");
+    }
+
     @Test void disabledHandoverKeepsLegacyBehaviour() {
         var poller = poller(serving(update(7, "hello")), false);
         poller.poll();
