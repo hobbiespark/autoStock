@@ -83,6 +83,9 @@ public class TelegramCommandPoller {
     private final PositionBook positionBook;
     private final Notifier notifier;
     private final Clock clock;
+    private PlatformTelegramBridge platformBridge;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    void platformBridge(PlatformTelegramBridge bridge){this.platformBridge=bridge;}
     private final SecureRandom random = new SecureRandom();
     private final AtomicReference<PendingResume> pendingResume = new AtomicReference<>();
 
@@ -275,6 +278,7 @@ public class TelegramCommandPoller {
             case RESUME_CONFIRM -> confirmResume(confirmCodeOf(text));
             case STATUS -> notifier.notify(NoticeLevel.INFO, buildStatusSummary());
             case IGNORED -> {
+                if(platformBridge!=null)platformBridge.accept(update);
                 if (chatId != null && !chatId.equals(properties.chatId())) {
                     // 보안 감사 로그 — 등록되지 않은 chat_id가 명령을 시도했다는 흔적을 남긴다.
                     log.warn("등록되지 않은 chat_id의 텔레그램 명령 무시: chatId={}", chatId);
