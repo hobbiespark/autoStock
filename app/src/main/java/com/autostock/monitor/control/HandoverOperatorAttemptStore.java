@@ -19,6 +19,13 @@ public final class HandoverOperatorAttemptStore {
   public Instant executeBefore(){return deadline;}
   @Override public String toString(){return "OperatorStopClaim[private context]";}
  }
+ public static final class Dispatch {
+  private final HandoverOperatorAttemptStore owner;
+  private final Claim claim;
+  private final java.util.concurrent.atomic.AtomicBoolean entered=new java.util.concurrent.atomic.AtomicBoolean();
+  private Dispatch(HandoverOperatorAttemptStore owner,Claim claim){this.owner=owner;this.claim=claim;}
+  @Override public String toString(){return "OperatorStopDispatch[private context]";}
+ }
  public record Observation(String state,Instant executeBefore){ }
  private final DataSource source;
  private final HandoverOperatorGate gate;
@@ -52,11 +59,32 @@ public final class HandoverOperatorAttemptStore {
  }
  /** A later poller adapter must invoke this AFTER its round lock and before its side effect. */
  public void requireCurrent(Claim claim,HandoverOperatorGate.Verified value){
-  owned(claim);gate.requireVerified(value);if(value.request().action()!=HandoverOperatorGate.Action.stop||!claim.requestId.equals(value.request().requestId())||!claim.fingerprint.equals(value.fingerprint()))throw denied();
-  transaction(claim.requestId,c->{receipt(c,claim.requestId,value,true);
+  owned(claim);transaction(claim.requestId,c->{current(c,claim,value);return null;});
+ }
+ private void current(Connection c,Claim claim,HandoverOperatorGate.Verified value)throws SQLException{
+   owned(claim);gate.requireVerified(value);if(value.request().action()!=HandoverOperatorGate.Action.stop||!claim.requestId.equals(value.request().requestId())||!claim.fingerprint.equals(value.fingerprint()))throw denied();
+   receipt(c,claim.requestId,value,true);
    try(var q=c.prepareStatement("select 1 from telegram_operator_handover_attempt a where request_id=? and attempt_id=? and token_sha256=? and not exists(select 1 from telegram_operator_handover_unknown u where u.request_id=a.request_id)")){q.setObject(1,claim.requestId);q.setObject(2,claim.attemptId);q.setString(3,hash(claim.token));try(var rows=q.executeQuery()){if(!rows.next())throw denied();}}
-   gate.requireVerified(value);if(!clock.instant().isBefore(claim.deadline))throw denied();return null;
+   gate.requireVerified(value);if(!clock.instant().isBefore(claim.deadline))throw denied();
+ }
+ /** Commit a single durable dispatch reservation before waiting for the poller lock. */
+ public Dispatch dispatch(Claim claim,HandoverOperatorGate.Verified value){
+  owned(claim);return transaction(claim.requestId,c->{
+   current(c,claim,value);
+   try(var q=c.prepareStatement("insert into telegram_operator_handover_dispatch(request_id,attempt_id) values (?,?) on conflict(request_id) do nothing")){q.setObject(1,claim.requestId);q.setObject(2,claim.attemptId);if(q.executeUpdate()!=1)throw new IllegalStateException("operator-stop-already-dispatched");}
+   current(c,claim,value);return new Dispatch(this,claim);
   });
+ }
+ /** One in-memory entry only, AFTER the poller lock. A lost/failed permit is never reconstructed. */
+ public void enter(Dispatch dispatch,HandoverOperatorGate.Verified value){
+  if(dispatch==null||dispatch.owner!=this)throw denied();Claim claim=dispatch.claim;
+  transaction(claim.requestId,c->{
+   current(c,claim,value);
+   try(var q=c.prepareStatement("select 1 from telegram_operator_handover_dispatch where request_id=? and attempt_id=?")){q.setObject(1,claim.requestId);q.setObject(2,claim.attemptId);try(var rows=q.executeQuery()){if(!rows.next())throw denied();}}
+   current(c,claim,value);if(!dispatch.entered.compareAndSet(false,true))throw denied();return null;
+  });
+  // A commit may consume time: fail closed after it, without restoring the permit.
+  gate.requireVerified(value);if(!clock.instant().isBefore(claim.deadline))throw denied();
  }
  /** Safe failure recording is allowed after request expiry; it never restores execution rights. */
  public void markUnknown(Claim claim){owned(claim);transaction(claim.requestId,c->{
