@@ -64,3 +64,6 @@ tasks.named('bootRun') {
     // (scripts\start_autostock.bat의 chcp 65001과 한 쌍 — 둘 다 있어야 콘솔에서 바르게 보인다)
     jvmArgs += ['-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8']
 }
+
+// Synthetic result-proof interop export path; no operating key or endpoint configuration.
+tasks.named('test') { inputs.property('stockResultProofInteropDirectory', providers.environmentVariable('AUTOSTOCK_RESULT_PROOF_INTEROP_DIR').orElse('')) }
