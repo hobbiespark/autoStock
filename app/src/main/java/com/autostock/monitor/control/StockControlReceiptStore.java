@@ -46,7 +46,7 @@ public final class StockControlReceiptStore {
    }catch(Exception failure){c.rollback();if(failure instanceof RuntimeException runtime)throw runtime;throw new IllegalStateException("stock-control-receipt-unavailable",failure);}
   }catch(SQLException failure){throw new IllegalStateException("stock-control-receipt-unavailable",failure);}
  }
- private static String intent(StockControlRequest r){
+ static String intent(StockControlRequest r){
   var normalized=new StockControlRequest(r.contractVersion(),r.appId(),r.botRef(),r.spaceId(),r.actorRef(),r.sourceUpdateId(),"1",r.command(),r.confirmationCode());
   try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(("autostock-control-intent-v1:"+normalized.fingerprint()).getBytes(StandardCharsets.UTF_8)));}catch(NoSuchAlgorithmException impossible){throw new IllegalStateException(impossible);}
  }
