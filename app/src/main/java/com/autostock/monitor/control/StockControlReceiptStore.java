@@ -30,6 +30,7 @@ public final class StockControlReceiptStore {
       if(rows.next()){
        if(!intent.equals(rows.getString(1)))throw new SecurityException("stock-control-update-conflict");
        var result=new Receipt(request.botRef(),request.sourceUpdateId(),Long.toString(rows.getLong(2)),rows.getString(3),rows.getString(4),rows.getTimestamp(5).toInstant(),true);
+       try(var floor=c.prepareStatement("update platform_stock_control_receiver set highest_fence=greatest(highest_fence,?) where bot_ref=?")){floor.setLong(1,fence);floor.setString(2,request.botRef());floor.executeUpdate();}
        verifier.requireVerified(value);c.commit();return result;
       }
      }

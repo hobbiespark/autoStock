@@ -9,3 +9,5 @@
 D-18 확인: 외부test URL없음·Docker엔진/고정이미지이미존재. PostgresTestDatabase의운영동일digest/사전적재설정으로새Testcontainers DB만사용했다. 신규DB6/skipped0·Java21/runtime분리build 통과: 암호원본decrypt/새fence재연결시원본보존·동시중복1·code충돌/낮은fence신규거절·receipt실패주입시watermark까지rollback·만료/타verifier쓰기0·DB원본수정/삭제42501. plainPG대체/운영DB시험0. 테스트컨테이너a768320bb09d51c8194b31e95168e2c9845a4bfa1cd591ce60ff9741225ed6d5는시험종료후목록0(정리확인). 증거는C:/ai/VALUNIVO-test-runtime/autostock-control-test-67a1496698c8430ab599418f6453a9a4/app/test-results/test/TEST-com.autostock.monitor.control.StockControlReceiptStoreDbTest.xml.
 
 기존poller/복구dirty파일보존·신규파일만커밋한다. 운영migration/DB/봇/offset/서비스/킬스위치/거래0. 다음 기존receipt를재실행허가로보지않는최초실행/unknown·멱등ACK 기반. 기존60초일회용resume규칙과실제주문정책을플랫폼이대신하지않는다.
+
+기록전보완: 동일update의유효한새fence재전달도 별도highest watermark를상향하도록했다(원본receipt/암호문/원본fence불변). 새fence2로원본복구후fence1의새update를거절하는회귀를추가하고같은DB6건재실행통과했다. 반복실행을신규건수로합산하지않는다.
