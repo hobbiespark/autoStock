@@ -187,6 +187,10 @@ autostock:
     keep-awake: true            # ACTIVE 동안 Windows 유휴 절전 차단(monitor.SleepGuard, 2026-09-30 장중 절전 사고). 수동 절전·덮개 닫기는 못 막음
     keep-awake-from: "07:30"    # 거래일 이 시각부터 미리 막는다 — 장전 실측·08:30 장 대응 시작 전에 다시 잠들지 않게(2026-10-08). 비우면 ACTIVE 동안만
     keep-display-on: true       # 막는 동안 화면도 켜 둔다 — 최신 대기 모드 PC는 화면이 유휴로 꺼지면 대기에 들어가 앱이 멈춘다(2026-10-12 실측, aiDoc/sleep-resume.md 5절)
+  telegram:
+    handover:
+      operator-listener:          # R16 별도 loopback 운영자 listener(P2-1) — 기본 꺼짐. 꺼져 있으면 포트 바인드·키 파일 읽기 0
+        enabled: false            # 켤 때는 port·key-id·key-file·instance-id 명시 + autostock.telegram.handover.enabled=true 필요
 
 monitor:
   telegram:

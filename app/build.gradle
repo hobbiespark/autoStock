@@ -69,3 +69,12 @@ tasks.named('bootRun') {
 tasks.named('test') { inputs.property('stockResultProofInteropDirectory', providers.environmentVariable('AUTOSTOCK_RESULT_PROOF_INTEROP_DIR').orElse('')) }
 // Synthetic platform result-ACK fixture path; public key only.
 tasks.named('test') { inputs.property('stockResultAckInteropDirectory', providers.environmentVariable('AUTOSTOCK_RESULT_ACK_INTEROP_DIR').orElse('')) }
+
+// R16 운영자 listener 클라이언트(P2-1) — 서명한 stop/observe 요청 한 건을 127.0.0.1 listener로 보내고 응답만 출력한다.
+// poller·DB·Bot API를 띄우지 않는다. 키 값은 인자로 받지 않고 파일 경로만 받는다(HandoverOperatorCli 주석 참조).
+tasks.register('operatorHandoverCli', JavaExec) {
+    group = 'application'
+    description = 'Signs one stop/observe request to the loopback operator listener'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.autostock.monitor.HandoverOperatorCli'
+}
