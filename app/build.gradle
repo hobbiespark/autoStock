@@ -67,3 +67,5 @@ tasks.named('bootRun') {
 
 // Synthetic result-proof interop export path; no operating key or endpoint configuration.
 tasks.named('test') { inputs.property('stockResultProofInteropDirectory', providers.environmentVariable('AUTOSTOCK_RESULT_PROOF_INTEROP_DIR').orElse('')) }
+// Synthetic platform result-ACK fixture path; public key only.
+tasks.named('test') { inputs.property('stockResultAckInteropDirectory', providers.environmentVariable('AUTOSTOCK_RESULT_ACK_INTEROP_DIR').orElse('')) }

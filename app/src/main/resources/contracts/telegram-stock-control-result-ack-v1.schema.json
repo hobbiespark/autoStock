@@ -1,0 +1,116 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "telegram-stock-control-result-ack-v1.schema.json",
+  "$ref": "#/$defs/envelope",
+  "$defs": {
+    "envelope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "key_id",
+        "issued_at",
+        "expires_at",
+        "statement_base64",
+        "signature"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "1.0"
+        },
+        "key_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,80}$"
+        },
+        "issued_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "expires_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "statement_base64": {
+          "type": "string",
+          "minLength": 4,
+          "maxLength": 5464,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        },
+        "signature": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9+/]{86}==$"
+        }
+      }
+    },
+    "statement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract_version",
+        "app_id",
+        "bot_ref",
+        "space_id",
+        "actor_ref",
+        "source_update_id",
+        "attempt_id",
+        "request_sha256",
+        "outcome",
+        "result_sha256",
+        "result_proof_sha256",
+        "platform_recorded_at"
+      ],
+      "properties": {
+        "contract_version": {
+          "const": "1.0"
+        },
+        "app_id": {
+          "const": "autostock"
+        },
+        "bot_ref": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "space_id": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,80}$"
+        },
+        "actor_ref": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "source_update_id": {
+          "type": "string",
+          "pattern": "^(?:[1-9][0-9]{0,17}|[1-8][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|9[0-1][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|92[0-1][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|922[0-2][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|9223[0-2][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|92233[0-6][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|922337[0-1][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|92233720[0-2][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|922337203[0-5][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|9223372036[0-7][0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|92233720368[0-4][0-9][0-9][0-9][0-9][0-9][0-9][0-9]|922337203685[0-3][0-9][0-9][0-9][0-9][0-9][0-9]|9223372036854[0-6][0-9][0-9][0-9][0-9][0-9]|92233720368547[0-6][0-9][0-9][0-9][0-9]|922337203685477[0-4][0-9][0-9][0-9]|9223372036854775[0-7][0-9][0-9]|922337203685477580[0-5]|9223372036854775806)$",
+          "description": "Exact decimal integer 1..9223372036854775806; Java codec enforces range."
+        },
+        "attempt_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$"
+        },
+        "request_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "outcome": {
+          "enum": [
+            "succeeded",
+            "failed"
+          ]
+        },
+        "result_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "result_proof_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "platform_recorded_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  },
+  "description": "Platform durable-receipt ACK for an app terminal result. Purpose valunivo-telegram-control-result-ack-v1. Not Telegram delivery or trading effect."
+}
