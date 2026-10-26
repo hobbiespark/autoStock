@@ -24,7 +24,7 @@ services:
     # 이미지 기본(timescaledb,pg_textsearch)에 느린 질의 통계·재기동 뒤 버퍼 복원을 더한다
     command: ["postgres", "-c", "shared_preload_libraries=timescaledb,pg_textsearch,pg_stat_statements,pg_prewarm"]
     ports:
-      - "5432:5432"
+      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       # HA 이미지의 데이터 경로는 /home/postgres/pgdata/data(uid 1000). 상위 폴더에 붙여야 소유권이 맞는다.
       # 옛 볼륨 pgdata(16-alpine)와 이름이 달라 서로 건드리지 않는다 — 롤백은 옛 볼륨으로 되돌아간다.

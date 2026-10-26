@@ -14,7 +14,7 @@
 # 사용:   powershell -NoProfile -ExecutionPolicy Bypass -File D:\myApp\autoStock\scripts\restore_check.ps1
 #         (옵션) -DumpFile D:\backup\autostock\autostock_20261001_1630.dump  -BackupDir D:\backup\autostock  -Lab
 param(
-    [string]$BackupDir = "D:\backup\autostock",
+    [string]$BackupDir = "C:\ai\backups\autostock",
     [string]$DumpFile = "",
     [string]$LiveContainer = "autostock-db",
     [string]$Image = "",

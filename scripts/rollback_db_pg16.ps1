@@ -14,7 +14,7 @@
 # 사용:   powershell -NoProfile -ExecutionPolicy Bypass -File D:\myApp\autoStock\scripts\rollback_db_pg16.ps1
 #         (옵션) -SkipDump(2단계 생략)  -BackupDir E:\backup\autostock
 param(
-    [string]$BackupDir = "D:\backup\autostock",
+    [string]$BackupDir = "C:\ai\backups\autostock",
     [string]$Container = "autostock-db",
     [switch]$SkipDump
 )

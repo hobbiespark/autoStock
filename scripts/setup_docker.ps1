@@ -5,6 +5,7 @@
 $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $compose  = Join-Path $repoRoot "infra\docker-compose.yml"
+if (Test-Path (Join-Path $repoRoot '.env')) { & (Join-Path $PSScriptRoot 'load_env.ps1') }
 
 function Fail($msg) { Write-Host "[X] $msg" -ForegroundColor Red; exit 1 }
 function Ok($msg)   { Write-Host "[O] $msg" -ForegroundColor Green }
@@ -25,7 +26,7 @@ if ($LASTEXITCODE -ne 0) {
     $dd = "$env:ProgramFiles\Docker\Docker\Docker Desktop.exe"
     if (Test-Path $dd) {
         Write-Host "[.] Docker 엔진이 꺼져 있어 Docker Desktop을 시작합니다 (최대 120초 대기)..."
-        Start-Process $dd | Out-Null
+        Start-Process $dd -WindowStyle Hidden | Out-Null
         $deadline = (Get-Date).AddSeconds(120)
         do {
             Start-Sleep -Seconds 5
@@ -51,7 +52,8 @@ do {
     $health = docker inspect -f '{{.State.Health.Status}}' autostock-db 2>$null
 } until ($health -eq "healthy" -or (Get-Date) -gt $deadline)
 if ($health -ne "healthy") { Fail "autostock-db가 60초 내 healthy가 되지 않았습니다:  docker logs autostock-db" }
-Ok "autostock-db healthy (localhost:5432 / db=autostock user=autostock)"
+docker port autostock-db 5432
+Ok "autostock-db healthy (db=autostock user=autostock)"
 
 # ── 5) 접속 스모크 (컨테이너 안 psql 사용 — 호스트에 psql 불필요) ───────
 docker exec autostock-db psql -U autostock -d autostock -c "select version();" | Select-Object -First 3

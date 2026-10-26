@@ -12,7 +12,7 @@
 # 권장:   작업 스케줄러 — 평일 16:30(15:45 분봉 적재·15:50 리포트 뒤), "사용자의 로그온 여부에 관계없이 실행" 불필요
 #         (Docker Desktop이 로그인 세션에서 돌기 때문 — 로그인 상태에서 실행되게 둔다).
 param(
-    [string]$BackupDir = "D:\backup\autostock",
+    [string]$BackupDir = "C:\ai\backups\autostock",
     [int]$KeepDaily = 14,
     [int]$KeepMonthly = 12,
     [string]$OffsiteDir = "",

@@ -3,7 +3,7 @@ chcp 65001 >nul
 REM console to UTF-8 (pairs with bootRun -Dstdout.encoding=UTF-8 in app/build.gradle)
 REM autoStock start - paper profile, LIVE(mock) mode + C3 + WS + auto-start (RUNBOOK 5)
 REM No goto/labels in this file (line-ending safe). Env load + docker wait are delegated to PowerShell.
-cd /d D:\myApp\autoStock
+cd /d "%~dp0.."
 
 REM ---- already running? (2026-10-15 07:53: started twice 17s apart; the 2nd died on port 8080 after touching the DB) ----
 REM the app itself also refuses a 2nd copy (SingleInstanceGuard file lock) - this only gives a quicker, clearer message
@@ -16,7 +16,7 @@ if errorlevel 1 (
 )
 
 if not exist ".env" (
-  echo [X] .env not found in D:\myApp\autoStock
+  echo [X] .env not found in %CD%
   pause
   exit /b 1
 )
@@ -39,14 +39,15 @@ if "%KIWOOM_MOCK_G_APP_KEY%"=="" (
 )
 echo [O] .env loaded
 
-set "JAVA_HOME=D:\jdks\jdk-21.0.12.101-hotspot"
+if not defined JAVA_HOME set "JAVA_HOME=C:\ai\dev-tools\jdk-21.0.12.1+1"
 set "PATH=%JAVA_HOME%\bin;%PATH%"
 
 REM ---- log file: fixed under the project (was %TEMP%\autostock.log before 2026-09-18) ----
-set "LOG_FILE=D:\myApp\autoStock\app\logs\autostock.log"
-if not exist "D:\myApp\autoStock\app\logs" mkdir "D:\myApp\autoStock\app\logs"
+set "LOG_FILE=%CD%\app\logs\autostock.log"
+if not exist "%CD%\app\logs" mkdir "%CD%\app\logs"
 
 REM ---- wait for Docker engine (max 300s; after login Docker Desktop can take 30-60s+) ----
+powershell -NoProfile -Command "docker info *> $null; if ($LASTEXITCODE -ne 0) { Start-Process -FilePath '%ProgramFiles%\Docker\Docker\Docker Desktop.exe' -WindowStyle Hidden }"
 echo [.] waiting for Docker engine (max 300s)...
 powershell -NoProfile -Command "$n=0; while($n -lt 60){ docker info *>$null; if($LASTEXITCODE -eq 0){ exit 0 }; Start-Sleep -Seconds 5; $n++ }; exit 1"
 if errorlevel 1 (

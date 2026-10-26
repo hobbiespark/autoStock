@@ -2,8 +2,8 @@
 REM install: run autoStock automatically at Windows login (current user Startup folder)
 set "SU=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\autostock_start.bat"
 > "%SU%" echo @echo off
->> "%SU%" echo start "autoStock" cmd /k "D:\myApp\autoStock\scripts\start_autostock.bat"
+>> "%SU%" echo start "autoStock" cmd /k "%~dp0start_autostock.bat"
 echo [O] installed: %SU%
-echo     NOTE: Docker Desktop must also be set to "Start when you sign in" (Docker Settings - General)
+echo     NOTE: start_autostock.bat starts Docker Desktop when the engine is stopped
 echo     remove with: scripts\uninstall_autostart.bat
 pause

@@ -18,7 +18,7 @@
 #                -ReplaceNewVolume(이전 시도의 새 볼륨이 남아 있을 때만 — 그 볼륨을 지우고 다시 만든다)
 # 전환 뒤 되돌리기: scripts\rollback_db_pg16.ps1
 param(
-    [string]$BackupDir = "D:\backup\autostock",
+    [string]$BackupDir = "C:\ai\backups\autostock",
     [string]$Container = "autostock-db",
     [switch]$CheckOnly,
     [switch]$SkipRehearsal,
