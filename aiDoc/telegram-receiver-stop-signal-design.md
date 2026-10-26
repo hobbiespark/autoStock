@@ -1,6 +1,6 @@
 # Telegram 수신자 정상정지·정지확인 신호 설계 (초안, 미구현)
 
-2026-10-26. 상태: AI 설계 제안. 사용자 확정 아님, 코드 변경 0. VALUNIVO 140(이관 dry-run)·141(비확인 peek)과 짝을 이룬다. 실제 이관 실행은 사용자 확인 대상이다.
+2026-10-26. 상태: AI 설계 제안. 같은 날 사용자 결정(bridge 먼저 별도 커밋)에 따라 1~5단계를 source로 구현했다(VALUNIVO 142). V25, `TelegramReceiverStopStore`(기본 비활성), poller `stopForHandover`/`resumeAfterWithdraw`, `TelegramReceiverStopIssuer`. 운영 활성화와 운영자 호출 경로는 아직 없다. VALUNIVO 140(이관 dry-run)·141(비확인 peek)과 짝을 이룬다. 실제 이관 실행은 사용자 확인 대상이다.
 
 ## 왜 필요한가 (현재 코드 사실)
 

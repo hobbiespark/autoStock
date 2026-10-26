@@ -20,6 +20,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -86,6 +87,18 @@ public class TelegramCommandPoller {
     private PlatformTelegramBridge platformBridge;
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     void platformBridge(PlatformTelegramBridge bridge){this.platformBridge=bridge;}
+
+    /**
+     * 수신자 이관 정지(VALUNIVO R16, aiDoc/telegram-receiver-stop-signal-design.md) — autostock.telegram.handover.enabled=true일 때만
+     * 빈이 있다. 없으면 기존 동작 그대로. 있으면 활성 정지 기록이 재기동 뒤에도 폴링을 막는다.
+     */
+    private TelegramReceiverStopStore stopStore;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    void receiverStopStore(TelegramReceiverStopStore store){this.stopStore=store;}
+    /** 폴링 한 회차와 이관 정지가 겹치지 않게 — 진행 중인 묶음을 끝까지 처리한 뒤에만 정지한다. */
+    private final ReentrantLock pollLock = new ReentrantLock();
+    /** null=아직 DB 확인 전. 확인 실패 때는 그 회차를 건너뛴다(정지 기록을 모르고 두 번째 수신자가 되지 않게). */
+    private volatile Boolean handoverStopped;
     private final SecureRandom random = new SecureRandom();
     private final AtomicReference<PendingResume> pendingResume = new AtomicReference<>();
 
@@ -120,6 +133,91 @@ public class TelegramCommandPoller {
         if (!properties.enabled()) {
             return;
         }
+        if (stopStore == null) {
+            pollOnce();
+            return;
+        }
+        pollLock.lock();
+        try {
+            if (handoverAllowsPolling()) {
+                pollOnce();
+            }
+        } finally {
+            pollLock.unlock();
+        }
+    }
+
+    private boolean handoverAllowsPolling() {
+        if (handoverStopped == null) {
+            try {
+                handoverStopped = stopStore.active().isPresent();
+            } catch (RuntimeException e) {
+                log.warn("텔레그램 수신 이관 정지 기록 확인 실패 — 이번 회차 폴링을 건너뜀");
+                return false;
+            }
+        }
+        return !handoverStopped;
+    }
+
+    /**
+     * 이관 정지 — 진행 중인 회차가 끝나기를 기다리고, 처리한 update만 텔레그램에 확인(offset=nextOffset, limit=1, timeout=0;
+     * 응답으로 온 새 update는 처리하지 않고 버려 미확인으로 남긴다), 대기 중인 /resume 확인 코드를 폐기한 뒤 불변 정지 기록을 남긴다.
+     * 확인 호출이나 기록이 실패하면 정지하지 않은 상태로 되돌린다(긴급 /stop 경로 유지). 운영자 명시 호출 전용 — Telegram 명령 아님.
+     */
+    public TelegramReceiverStopStore.Stop stopForHandover(String instanceId) {
+        if (stopStore == null) {
+            throw new IllegalStateException("telegram-handover-disabled");
+        }
+        pollLock.lock();
+        try {
+            if (!handoverAllowsPolling()) {
+                throw new IllegalStateException(handoverStopped == null ? "telegram-handover-state-unavailable" : "telegram-receiver-already-stopped");
+            }
+            handoverStopped = true;
+            try {
+                confirmProcessed(nextOffset.get());
+                boolean dropped = pendingResume.getAndSet(null) != null;
+                return stopStore.recordStopped(nextOffset.get(), dropped, instanceId);
+            } catch (RuntimeException e) {
+                handoverStopped = false;
+                throw new IllegalStateException("telegram-handover-stop-failed");
+            }
+        } finally {
+            pollLock.unlock();
+        }
+    }
+
+    /** 이관 취소 — 플랫폼이 수신권을 잡지 않았음을 운영자가 확인한 뒤에만. 철회 행을 추가하고 폴링을 재개한다. */
+    public void resumeAfterWithdraw(java.util.UUID stopId, String instanceId) {
+        if (stopStore == null) {
+            throw new IllegalStateException("telegram-handover-disabled");
+        }
+        pollLock.lock();
+        try {
+            stopStore.withdraw(stopId, instanceId);
+            handoverStopped = false;
+        } finally {
+            pollLock.unlock();
+        }
+    }
+
+    private void confirmProcessed(long offset) {
+        Map<?, ?> response = webClient.get()
+                .uri(uriBuilder -> uriBuilder
+                        .path("/bot{token}/getUpdates")
+                        .queryParam("offset", offset)
+                        .queryParam("limit", 1)
+                        .queryParam("timeout", 0)
+                        .build(properties.botToken()))
+                .retrieve()
+                .bodyToMono(Map.class)
+                .block(Duration.ofSeconds(10));
+        if (response == null || !Boolean.TRUE.equals(response.get("ok"))) {
+            throw new IllegalStateException("telegram-handover-confirm-failed");
+        }
+    }
+
+    private void pollOnce() {
         Instant now = clock.instant();
         if (failures.shouldWait(now)) {
             return;   // 연속 실패 중 — 간격을 벌려 다시 본다
