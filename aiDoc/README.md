@@ -62,3 +62,4 @@
 - [market-hours-automation.md](market-hours-automation.md) — 2026-10-06 장중 할 일 자동 실행: C3 판단 요약 텔레그램·09:15 실행 확인, 10:00·14:00 장중 상태 점검(이상일 때만 알림), 1.6 TR 실측(10/7 10:00 한 번, 모의 서버 전용, 결과 `docs/measured`)
 - [auto-measurement.md](auto-measurement.md) — 2026-10-08 실측 자동화: 장전 키움 응답(07:30~08:40 5분마다), 09:30 주문 경로 점검(월요일 체결 왕복 — 빠지면 앱이 같은 주 다음 거래일에), WS 주문통보 원문 상시 기록
 - [ipo-automation.md](ipo-automation.md) — 2026-10-13 공모주 자동화 강화: 공시 목록 전 쪽·실패 시 매시 재수집(블랙리스트·거시 지표 포함), 확정 공모가·희망 밴드 자동 입력, 상장일·종목코드 자동 확인(키움 ka10099), 단계 알림 8종·밤 22~07시 금지(V18)
+- [restart-preflight.md](restart-preflight.md) — 2026-10-26 재기동 전 점검 `scripts\preflight_restart.ps1`(미커밋 소스·새로 적용될 마이그레이션·적용분 파일/Flyway 체크섬 대조, 읽기 전용), 재기동 시 V21~V29 적용(V29 미커밋) 사고 경위, stop 스크립트 비대화형 대기·종료 코드
