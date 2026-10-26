@@ -15,11 +15,15 @@ public final class StockControlAttemptStore {
   public Instant executeBefore(){return deadline;}
   @Override public String toString(){return "StockControlClaim[private context]";}
  }
+ public record ResultSnapshot(UUID attemptId,String requestFingerprint,StockControlResultCipher.Result result,String resultSha256,Instant recordedAt){
+  @Override public String toString(){return "StockControlResultSnapshot[outcome="+result.outcome()+"]";}
+ }
  public record Observation(String state,UUID attemptId,String receiverFence,Instant executeBefore){}
- private final DataSource source;private final StockControlVerifier verifier;private final Clock clock;private final Duration budget;
- public StockControlAttemptStore(DataSource source,StockControlVerifier verifier,Clock clock,Duration budget){
+ private final DataSource source;private final StockControlVerifier verifier;private final Clock clock;private final Duration budget;private final StockControlResultCipher resultCipher;
+ public StockControlAttemptStore(DataSource source,StockControlVerifier verifier,Clock clock,Duration budget){this(source,verifier,clock,budget,null);}
+ public StockControlAttemptStore(DataSource source,StockControlVerifier verifier,Clock clock,Duration budget,StockControlResultCipher resultCipher){
   if(source==null||verifier==null||clock==null||budget==null||budget.compareTo(Duration.ofSeconds(1))<0||budget.compareTo(Duration.ofSeconds(30))>0)throw new IllegalArgumentException("invalid-stock-control-attempt-store");
-  this.source=source;this.verifier=verifier;this.clock=clock;this.budget=budget;
+  this.source=source;this.verifier=verifier;this.clock=clock;this.budget=budget;this.resultCipher=resultCipher;
  }
  @FunctionalInterface private interface Work<T>{T apply(Connection c)throws Exception;}
  private <T>T transaction(StockControlRequest r,Work<T> work){
@@ -36,7 +40,30 @@ public final class StockControlAttemptStore {
  }
  public void requireCurrent(Claim claim,StockControlVerifier.Verified value){
   requireOwned(claim);verifier.requireVerified(value);if(!claim.request.fingerprint().equals(value.request().fingerprint()))throw denied();
-  transaction(claim.request,c->{verifier.requireVerified(value);receipt(c,claim.request,true);var state=find(c,claim.request);if(!state.state().equals("running")||!state.attemptId().equals(claim.id)||!clock.instant().isBefore(state.executeBefore()))throw denied();try(var q=c.prepareStatement("select 1 from platform_stock_control_attempt where attempt_id=? and token_sha256=?")){q.setObject(1,claim.id);q.setString(2,hash(claim.token));try(var rows=q.executeQuery()){if(!rows.next())throw denied();}}verifier.requireVerified(value);if(!clock.instant().isBefore(state.executeBefore()))throw denied();return null;});
+  transaction(claim.request,c->{current(c,claim,value);return null;});
+ }
+ private void current(Connection c,Claim claim,StockControlVerifier.Verified value)throws SQLException{
+  verifier.requireVerified(value);receipt(c,claim.request,true);var state=find(c,claim.request);if(!state.state().equals("running")||!state.attemptId().equals(claim.id)||!clock.instant().isBefore(state.executeBefore()))throw denied();
+  try(var q=c.prepareStatement("select 1 from platform_stock_control_attempt where attempt_id=? and token_sha256=?")){q.setObject(1,claim.id);q.setString(2,hash(claim.token));try(var rows=q.executeQuery()){if(!rows.next())throw denied();}}
+  verifier.requireVerified(value);if(!clock.instant().isBefore(state.executeBefore()))throw denied();
+ }
+ public ResultSnapshot complete(Claim claim,StockControlVerifier.Verified value,StockControlResultCipher.Result result){
+  requireOwned(claim);verifier.requireVerified(value);if(resultCipher==null)throw new IllegalStateException("stock-control-result-key-required");if(!claim.request.fingerprint().equals(value.request().fingerprint()))throw denied();String expected=StockControlResultCipher.digest(StockControlResultCipher.encode(result));
+  return transaction(claim.request,c->{
+   verifier.requireVerified(value);receipt(c,claim.request,false);var existing=readResult(c,claim.request);
+   if(existing!=null){if(!existing.attemptId().equals(claim.id)||!existing.resultSha256().equals(expected))throw new IllegalStateException("stock-control-result-conflict");verifier.requireVerified(value);return existing;}
+   current(c,claim,value);String context=claim.request.botRef()+":"+claim.request.sourceUpdateId()+":"+claim.id+":"+claim.request.fingerprint();var sealed=resultCipher.seal(result,context);
+   try(var q=c.prepareStatement("insert into platform_stock_control_result(bot_ref,source_update_id,attempt_id,request_sha256,outcome,result_sha256,key_id,result_enc) values (?,?,?,?,?,?,?,?)")){q.setString(1,claim.request.botRef());q.setLong(2,Long.parseLong(claim.request.sourceUpdateId()));q.setObject(3,claim.id);q.setString(4,claim.request.fingerprint());q.setString(5,result.outcome().name());q.setString(6,sealed.sha256());q.setString(7,sealed.keyId());q.setString(8,sealed.encrypted());q.executeUpdate();}
+   current(c,claim,value);
+   try(var q=c.prepareStatement("update platform_stock_control_attempt set state=? where attempt_id=? and token_sha256=? and state='running'")){q.setString(1,result.outcome().name());q.setObject(2,claim.id);q.setString(3,hash(claim.token));if(q.executeUpdate()!=1)throw denied();}
+   verifier.requireVerified(value);receipt(c,claim.request,true);if(!clock.instant().isBefore(claim.deadline))throw denied();return readResult(c,claim.request);
+  });
+ }
+ public ResultSnapshot result(StockControlVerifier.Verified value){
+  verifier.requireVerified(value);if(resultCipher==null)throw new IllegalStateException("stock-control-result-key-required");var r=value.request();return transaction(r,c->{verifier.requireVerified(value);receipt(c,r,false);var result=readResult(c,r);verifier.requireVerified(value);return result;});
+ }
+ private ResultSnapshot readResult(Connection c,StockControlRequest r)throws SQLException{
+  try(var q=c.prepareStatement("select r.attempt_id,r.request_sha256,r.outcome,r.result_sha256,r.key_id,r.result_enc,r.recorded_at,a.state from platform_stock_control_result r join platform_stock_control_attempt a on r.attempt_id=a.attempt_id where r.bot_ref=? and r.source_update_id=?")){q.setString(1,r.botRef());q.setLong(2,Long.parseLong(r.sourceUpdateId()));try(var rows=q.executeQuery()){if(!rows.next())return null;UUID id=rows.getObject(1,UUID.class);String fingerprint=rows.getString(2),sha=rows.getString(4);var result=resultCipher.open(rows.getString(5),rows.getString(6),sha,r.botRef()+":"+r.sourceUpdateId()+":"+id+":"+fingerprint);if(!result.outcome().name().equals(rows.getString(3))||!rows.getString(3).equals(rows.getString(8)))throw denied();return new ResultSnapshot(id,fingerprint,result,sha,rows.getTimestamp(7).toInstant());}}
  }
  public void markUnknown(Claim claim){
   requireOwned(claim);transaction(claim.request,c->{try(var q=c.prepareStatement("update platform_stock_control_attempt set state='unknown' where attempt_id=? and token_sha256=? and state='running'")){q.setObject(1,claim.id);q.setString(2,hash(claim.token));q.executeUpdate();}return null;});
