@@ -10,6 +10,10 @@ services:
     # 바꿀 때는 테스트 이미지(app/src/test/.../support/PostgresTestDatabase.IMAGE)도 함께 바꾼다.
     image: timescale/timescaledb-ha:pg17.11-ts2.30.2@sha256:2fcc39a5d4c8a65f58691ef92c7819df5773db72397b2dd8493f114659b519c2
     container_name: autostock-db
+    # 2026-10-29 데브 승인(VALUNIVO D132·D152 (가)): Docker 엔진 재시작·PC 재부팅 뒤 DB가 자동으로 다시 뜨게 한다.
+    # 10-28 21:23 엔진 재시작 때 restart 기본값(no)이라 이 DB만 멈춰 있었다. 실행 중 컨테이너는 같은 날 docker update로 이미 같은 값이다.
+    # 앱(@Scheduled)은 이 컨테이너가 아니므로 DB 재시작이 예약 작업을 다시 돌리지 않는다.
+    restart: unless-stopped
     environment:
       POSTGRES_DB: autostock
       POSTGRES_USER: autostock
