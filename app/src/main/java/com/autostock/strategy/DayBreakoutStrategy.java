@@ -38,6 +38,9 @@ import java.util.concurrent.atomic.AtomicInteger;
  *   <li>보유 중 — 실시간 체결가가 평단 +1.8% 이상이면 익절, −1.5% 이하면 손절.</li>
  *   <li>15:15 — 남은 보유 전부 매도, 15:18 한 번 더. 15:20 하루 요약.</li>
  * </ol>
+ * <p><b>3분할·스윙 이월(2026-10-30, {@link SwingCarryManager})</b>: 이월이 켜져 있으면 진입은 1차 분할(종목 예산의 1/3)이다.
+ * 15:15에 비용 후 수익이면 팔고, 아니면 팔지 않고 스윙으로 넘긴다. 넘긴 보유는 이 전략이 실시간·09:00:02·15:15에 다루지 않는다
+ * (2·3차 추가 매수와 청산은 이월 관리자가 09:02에 판단한다).
  * 실시간 체결 처리(WS 스레드)는 메모리만 보고 판단하고, 신호는 {@link SignalOutbox}에 넣는다. 조회(TR)는 스케줄 스레드에서만 한다.
  */
 @Component
@@ -60,6 +63,8 @@ public class DayBreakoutStrategy {
     private final StrategyGuard guard;
     private final ApplicationEventPublisher publisher;
     private final Clock clock;
+    /** 스윙 이월 — null이면 예전 동작(시험용 생성자). */
+    private final SwingCarryManager carry;
 
     private final Map<String, DayBreakoutMath.Setup> setups = new ConcurrentHashMap<>();
     private final Set<String> entered = ConcurrentHashMap.newKeySet();
@@ -69,6 +74,7 @@ public class DayBreakoutStrategy {
     private final AtomicInteger takeProfits = new AtomicInteger();
     private final AtomicInteger stopLosses = new AtomicInteger();
     private final AtomicInteger timeExits = new AtomicInteger();
+    private final AtomicInteger carries = new AtomicInteger();
     private volatile LocalDate day;
     private volatile boolean active;
     private volatile long activeCheckedAt;
@@ -76,6 +82,13 @@ public class DayBreakoutStrategy {
     public DayBreakoutStrategy(DayBreakoutProperties properties, LiveMarket market, StrategyBook book,
                                SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
                                Clock clock) {
+        this(properties, market, book, outbox, guard, publisher, clock, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DayBreakoutStrategy(DayBreakoutProperties properties, LiveMarket market, StrategyBook book,
+                               SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
+                               Clock clock, SwingCarryManager carry) {
         this.properties = properties;
         this.market = market;
         this.book = book;
@@ -83,6 +96,24 @@ public class DayBreakoutStrategy {
         this.guard = guard;
         this.publisher = publisher;
         this.clock = clock;
+        this.carry = carry;
+    }
+
+    /** 이월이 켜져 있나(이 전략). */
+    private boolean carrying() {
+        return carry != null && carry.carries(STRATEGY_ID);
+    }
+
+    /** 넘긴 보유인가 — 이 전략이 직접 다루지 않는다. */
+    private boolean carried(StockCode code) {
+        return carry != null && carry.isCarried(STRATEGY_ID, code);
+    }
+
+    /** 이 전략이 직접 다루는 보유(넘긴 보유 제외). */
+    private Map<StockCode, PositionBook.Position> dayHeld() {
+        Map<StockCode, PositionBook.Position> held = new LinkedHashMap<>(book.positions(STRATEGY_ID));
+        held.keySet().removeIf(this::carried);
+        return held;
     }
 
     /** 기동 — 종목 등록과 실시간 체결 구독(켜져 있을 때만). */
@@ -154,6 +185,7 @@ public class DayBreakoutStrategy {
             takeProfits.set(0);
             stopLosses.set(0);
             timeExits.set(0);
+            carries.set(0);
         }
     }
 
@@ -187,7 +219,7 @@ public class DayBreakoutStrategy {
         if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 09:00 넘어온 보유 매도", LATE_SELL_DEADLINE)) {
             return;
         }
-        Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);
+        Map<StockCode, PositionBook.Position> held = dayHeld();
         if (held.isEmpty()) {
             return;
         }
@@ -211,7 +243,11 @@ public class DayBreakoutStrategy {
             return;
         }
         book.position(STRATEGY_ID, tick.symbol()).ifPresentOrElse(
-                position -> checkExit(symbol, price, position),
+                position -> {
+                    if (!carried(tick.symbol())) {
+                        checkExit(symbol, price, position);
+                    }
+                },
                 () -> checkEntry(symbol, price, now));
     }
 
@@ -284,8 +320,15 @@ public class DayBreakoutStrategy {
         log.info("{}: 돌파 매수 {} — 체결가 {} ≥ 목표가 {}(시가 {} + {}×전일폭)", STRATEGY_ID, StockNames.label(symbol),
                 price.toPlainString(), target.toPlainString(), open.toPlainString(), properties.k());
         // 슬리피지 기준 = 목표가(백테스트 B안의 체결가). 지정가는 체결가 × (1 + 여유)
-        outbox.buy(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(price, 1 + properties.buySlack()), target, 1.0,
-                "변동성 돌파 — 체결가 " + price.toPlainString() + " ≥ 목표가 " + target.toPlainString(), metrics);
+        String why = "변동성 돌파 — 체결가 " + price.toPlainString() + " ≥ 목표가 " + target.toPlainString();
+        if (carrying()) {
+            // 3분할 1차(2026-10-30) — 종목 예산의 1/3. 2·3차는 스윙으로 넘어간 뒤 이월 관리자가 산다
+            outbox.buyTranche(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(price, 1 + properties.buySlack()), target, 1,
+                    why + " · 1차 분할", metrics);
+        } else {
+            outbox.buy(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(price, 1 + properties.buySlack()), target, 1.0,
+                    why, metrics);
+        }
     }
 
     /** 15:15 시간 청산. */
@@ -294,13 +337,27 @@ public class DayBreakoutStrategy {
         if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 시간 청산", CLOSE_AUCTION_DEADLINE)) {
             return;
         }
-        Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);
-        held.keySet().forEach(code -> {
+        Map<StockCode, PositionBook.Position> held = dayHeld();
+        int sold = 0;
+        for (Map.Entry<StockCode, PositionBook.Position> e : held.entrySet()) {
+            String code = e.getKey().value();
+            if (carrying()) {
+                // 비용 후 수익이면 판다. 아니면 팔지 않고 스윙으로 넘긴다(2026-10-30 — 단타가 스윙·중기로 이어진다)
+                BigDecimal bid = market.bestBid(code);
+                if (!SwingCarryMath.profitableAfterCost(bid, e.getValue().avgPrice(), carry.roundTripCost())) {
+                    if (carry.carry(STRATEGY_ID, e.getKey(), bid, e.getValue().avgPrice(), HORIZON,
+                            "15:15 비용 후 수익 아님(호가 " + (bid == null ? "N/A" : bid.toPlainString()) + ")")) {
+                        carries.incrementAndGet();
+                    }
+                    continue;
+                }
+            }
             timeExits.incrementAndGet();
-            sellNow(code.value(), "시간 청산(" + properties.exitAt() + ")");
-        });
+            sold++;
+            sellNow(code, "시간 청산(" + properties.exitAt() + ")");
+        }
         if (!held.isEmpty()) {
-            log.info("{}: 시간 청산 {}종목", STRATEGY_ID, held.size());
+            log.info("{}: 시간 청산 {}종목 · 스윙 이월 {}종목", STRATEGY_ID, sold, held.size() - sold);
         }
     }
 
@@ -310,7 +367,7 @@ public class DayBreakoutStrategy {
         if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 시간 청산 재시도", CLOSE_AUCTION_DEADLINE)) {
             return;
         }
-        Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);
+        Map<StockCode, PositionBook.Position> held = dayHeld();
         if (!held.isEmpty()) {
             log.warn("{}: 15:18 아직 보유 {}종목 — 한 번 더 매도", STRATEGY_ID, held.size());
             held.keySet().forEach(code -> sellNow(code.value(), "시간 청산 재시도"));
@@ -323,9 +380,11 @@ public class DayBreakoutStrategy {
         if (!guard.active(properties.enabled())) {
             return;
         }
-        int left = book.openPositionCount(STRATEGY_ID);
-        String line = "%s %s 요약 — %s · 진입 %d · 익절 %d · 손절 %d · 시간 청산 %d%s".formatted(STRATEGY_ID, guard.today(),
-                funnel(), entries.get(), takeProfits.get(), stopLosses.get(), timeExits.get(),
+        int left = dayHeld().size();
+        int swing = book.openPositionCount(STRATEGY_ID) - left;
+        String line = "%s %s 요약 — %s · 진입 %d · 익절 %d · 손절 %d · 시간 청산 %d · 스윙 이월 %d%s%s".formatted(STRATEGY_ID,
+                guard.today(), funnel(), entries.get(), takeProfits.get(), stopLosses.get(), timeExits.get(), carries.get(),
+                swing > 0 ? " · 스윙 보유 " + swing + "종목" : "",
                 left > 0 ? " · 아직 보유 " + left + "종목(내일 09:00 정리)" : "");
         log.info(line);
         publisher.publishEvent(new StrategyRunCompleted(STRATEGY_ID, guard.today(), line, left > 0 ? 1 : 0,

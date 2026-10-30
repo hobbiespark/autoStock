@@ -99,6 +99,9 @@ public class RiskGate {
     private final StrategyBook strategyBook;
     private final MultiStrategyRiskProperties multiStrategy;
     /** 운용 자금 한도(2026-10-21) — 사이징 기준·전체 매수 원가 상한·1주 허용. 꺼져 있으면 예전 동작. */
+    /** 3분할 매수 차수(2026-10-30) — 한 차수 = 종목 예산 ÷ 이 값. */
+    static final int SPLIT_TRANCHES = 3;
+
     private final TradingCapitalProperties capital;
 
     /** 슬리브 없는 생성자 — 기존 시험용. 운영은 {@link #RiskGate(ApplicationEventPublisher, KillSwitch, RiskProperties, PositionSizer, PositionBook, DailyLimitTracker, EquitySource, Clock, MarketCalendarService, MacroGuard, DisclosureBlacklist, OpenOrderQuery, StrategyBook, MultiStrategyRiskProperties)}. */
@@ -347,6 +350,11 @@ public class RiskGate {
                     + " · 예산으로 0주면 1주 값이 예산의 {}배 이하일 때 1주", "%,d".formatted(capital.limitKrw()),
                     capital.oneShareMaxBudgetMultiple());
         }
+        if (capital.meaningfulRuleOn()) {
+            log.info("최소 유의미 수량 — 수수료 제외 {}% 수익이 {}원 이하인 전략 매수는 최소 수량까지 올림(종목 원가 상한 max(종목 예산×{}, {}원))",
+                    pctText(capital.minProfitReferenceReturn()), capital.minNetProfitKrw(),
+                    capital.oneShareMaxBudgetMultiple(), capital.meaningfulOrderCap(BigDecimal.ZERO).toPlainString());
+        }
         if (multiStrategy.sleeves().isEmpty()) {
             return;
         }
@@ -409,7 +417,22 @@ public class RiskGate {
             return 0;
         }
         String strategy = strategyKey(signal);
-        if (strategyBook.holds(strategy, signal.symbol())) {
+        Integer tranche = signal.tranche();
+        if (tranche != null && (tranche < 1 || tranche > SPLIT_TRANCHES)) {
+            log.warn("분할 차수 범위 밖({}) — 매수 거부: {} {}", tranche, strategy, StockNames.label(signal.symbol()));
+            publishRejected(signal, "분할 차수 범위 밖 — 매수 거부", Map.of("tranche", String.valueOf(tranche)));
+            return 0;
+        }
+        boolean addOn = tranche != null && tranche >= 2;
+        boolean holds = strategyBook.holds(strategy, signal.symbol());
+        if (addOn && !holds) {
+            // 2·3차는 그 전략이 든 종목에 더 사는 매수다 — 보유가 없으면(이미 팔렸다) 새 보유를 만들지 않는다
+            log.info("{}차 분할 매수인데 이 전략 보유 없음 — 매수 거부: {} {}", tranche, strategy,
+                    StockNames.label(signal.symbol()));
+            publishRejected(signal, "분할 추가 매수인데 보유 없음 — 매수 거부", Map.of("tranche", String.valueOf(tranche)));
+            return 0;
+        }
+        if (!addOn && holds) {
             log.info("이 전략이 이미 보유 중 — 추가 매수 차단: {} {}", strategy, StockNames.label(signal.symbol()));
             publishRejected(signal, "이 전략이 이미 보유 중 — 추가 매수 차단", Map.of());
             return 0;
@@ -431,7 +454,8 @@ public class RiskGate {
         }
         long strategyPending = strategyOpenBuys.stream().filter(s -> !strategyBook.holds(strategy, s)).count();
         int strategyOpen = strategyBook.openPositionCount(strategy);
-        if (strategyOpen + strategyPending >= sleeve.maxPositions()) {
+        // 2·3차는 보유 종목 수를 늘리지 않는다 — 동시 보유 한도(전략·계좌)는 새 종목일 때만 본다
+        if (!addOn && strategyOpen + strategyPending >= sleeve.maxPositions()) {
             log.info("전략 동시 보유 한도 도달({}) — 매수 거부: {} {} (보유 {}, 미체결 매수 {})", sleeve.maxPositions(),
                     strategy, StockNames.label(signal.symbol()), strategyOpen, strategyPending);
             publishRejected(signal, "전략 동시 보유 한도 도달(" + sleeve.maxPositions() + ") — 매수 거부",
@@ -439,7 +463,7 @@ public class RiskGate {
                             "pendingBuyCount", String.valueOf(strategyPending)));
             return 0;
         }
-        if (!positionBook.holds(signal.symbol()) && !accountOpenBuys.contains(signal.symbol())) {
+        if (!addOn && !positionBook.holds(signal.symbol()) && !accountOpenBuys.contains(signal.symbol())) {
             long accountPending = accountOpenBuys.stream().filter(s -> !positionBook.holds(s)).count();
             int accountOpen = positionBook.openPositionCount();
             if (accountOpen + accountPending >= properties.maxConcurrentPositions()) {
@@ -455,13 +479,20 @@ public class RiskGate {
         double confidence = clampConfidence(signal);
         BigDecimal price = refPriceOf(signal);
         long qty = 0;
+        BigDecimal perPosition = null;
         BigDecimal budget = null;
         if (price != null && price.signum() > 0 && equity != null && equity.signum() > 0) {
             // 실수 나눗셈(0.15/3 = 0.0499…)으로 1주가 깎이지 않게 금액 단위로 나눈다
-            budget = equity.multiply(BigDecimal.valueOf(sleeve.fraction()))
+            perPosition = equity.multiply(BigDecimal.valueOf(sleeve.fraction()))
                     .divide(BigDecimal.valueOf(sleeve.maxPositions()), 10, java.math.RoundingMode.HALF_UP)
                     .multiply(BigDecimal.valueOf(confidence));
+            // 3분할(2026-10-30): 한 차수는 종목 예산의 1/3
+            budget = tranche == null ? perPosition
+                    : perPosition.divide(BigDecimal.valueOf(SPLIT_TRANCHES), 10, java.math.RoundingMode.HALF_UP);
             qty = budget.divide(price, 0, java.math.RoundingMode.DOWN).longValue();
+        }
+        if (capital.meaningfulRuleOn() && perPosition != null) {
+            return fitMeaningful(signal, strategy, qty, price, budget, perPosition, tranche);
         }
         if (qty <= 0 && capital.allowsOneShare(budget, price)) {
             // 1주 허용(2026-10-21, 운용 자금 — TradingCapitalProperties). 전체 매수 원가 상한은 2-2단계가 다시 본다
@@ -479,6 +510,62 @@ public class RiskGate {
                             "sleeve", String.valueOf(sleeve.fraction())));
         }
         return qty;
+    }
+
+    /**
+     * 최소 유의미 수량(2026-10-30, {@link TradingCapitalProperties#minMeaningfulQuantity}) — 예산 수량이 그보다 적으면 최소
+     * 수량까지 올린다. 이 전략이 이 종목에 이미 든 원가(분할 2·3차) + 이번 주문이 상한
+     * ({@link TradingCapitalProperties#meaningfulOrderCap})을 넘으면 거부한다(예산 수량 그대로는 무의미하다).
+     * 전체 매수 원가 상한(운용 자금)은 2-2단계가 다시 본다.
+     */
+    private long fitMeaningful(Signal signal, String strategy, long budgetQty, BigDecimal price, BigDecimal budget,
+                               BigDecimal perPosition, Integer tranche) {
+        long minQty = capital.minMeaningfulQuantity(price);
+        BigDecimal heldCost = strategyBook.position(strategy, signal.symbol())
+                .filter(p -> p.avgPrice() != null && p.quantity() > 0)
+                .map(p -> p.avgPrice().multiply(BigDecimal.valueOf(p.quantity())))
+                .orElse(BigDecimal.ZERO);
+        BigDecimal cap = capital.meaningfulOrderCap(perPosition);
+        BigDecimal room = cap.subtract(heldCost);
+        String label = tranche == null ? "" : tranche + "차 ";
+        long qty = Math.max(budgetQty, minQty);
+        BigDecimal cost = price.multiply(BigDecimal.valueOf(qty));
+        if (cost.compareTo(room) <= 0) {
+            if (qty > budgetQty) {
+                log.info("{}예산 {}원 → {}주는 무의미(수수료 제외 {}% 수익 {}원 이하) — 최소 {}주({}원)로: {} {}", label,
+                        budget.setScale(0, java.math.RoundingMode.DOWN).toPlainString(), budgetQty,
+                        pctText(capital.minProfitReferenceReturn()), capital.minNetProfitKrw(), qty,
+                        cost.setScale(0, java.math.RoundingMode.HALF_UP).toPlainString(), strategy,
+                        StockNames.label(signal.symbol()));
+            }
+            return qty;
+        }
+        if (budgetQty >= minQty) {
+            // 예산 수량 자체가 유의미하지만 종목 상한을 넘는다(분할 누적) — 여유만큼으로 줄여 유의미하면 산다
+            long fit = room.signum() <= 0 ? 0 : room.divide(price, 0, java.math.RoundingMode.DOWN).longValue();
+            if (fit >= minQty) {
+                log.info("{}종목 상한 — 매수 수량 {}주 → {}주: {} {} (상한 {}원, 보유 원가 {}원)", label, budgetQty, fit, strategy,
+                        StockNames.label(signal.symbol()), cap.setScale(0, java.math.RoundingMode.DOWN).toPlainString(),
+                        heldCost.setScale(0, java.math.RoundingMode.HALF_UP).toPlainString());
+                return fit;
+            }
+        }
+        log.info("{}무의미 거래 — 매수 거부: {} {} 최소 {}주 {}원 > 상한 여유 {}원(상한 {}원 − 보유 원가 {}원)", label, strategy,
+                StockNames.label(signal.symbol()), minQty,
+                price.multiply(BigDecimal.valueOf(minQty)).setScale(0, java.math.RoundingMode.HALF_UP).toPlainString(),
+                room.max(BigDecimal.ZERO).setScale(0, java.math.RoundingMode.DOWN).toPlainString(),
+                cap.setScale(0, java.math.RoundingMode.DOWN).toPlainString(),
+                heldCost.setScale(0, java.math.RoundingMode.HALF_UP).toPlainString());
+        publishRejected(signal, "무의미 거래(최소 수량이 종목 상한 초과) — 매수 거부",
+                Map.of("minQuantity", String.valueOf(minQty), "budgetQuantity", String.valueOf(budgetQty),
+                        "cap", cap.setScale(0, java.math.RoundingMode.DOWN).toPlainString(),
+                        "heldCost", heldCost.setScale(0, java.math.RoundingMode.HALF_UP).toPlainString(),
+                        "tranche", String.valueOf(tranche)));
+        return 0;
+    }
+
+    private static String pctText(double v) {
+        return BigDecimal.valueOf(v).movePointRight(2).stripTrailingZeros().toPlainString();
     }
 
     /**

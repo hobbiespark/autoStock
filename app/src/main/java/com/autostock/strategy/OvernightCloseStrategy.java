@@ -38,6 +38,10 @@ import java.util.stream.Collectors;
  *       15:21에 내면 15:30 체결 전에 취소된다.</li>
  * </ol>
  * 정규장 안에서만 한다(NXT·시간외는 미실측 — D-21).
+ *
+ * <p><b>3분할·스윙 이월(2026-10-30, {@link SwingCarryManager})</b>: 이월이 켜져 있으면 15:26 매수는 1차 분할(종목 예산의 1/3)이다.
+ * 09:00:30에는 비용 후 수익인 보유만 판다. 갭 하락 등으로 수익이 아니면 팔지 않고 스윙으로 넘긴다(사용자 10/30 — "갭 하락이 큰
+ * 고변동은 오히려 스윙으로 갔어야"). 넘긴 보유는 아침 매도·재시도에서 빼고, 2·3차 추가 매수와 청산은 이월 관리자가 09:02에 판단한다.
  */
 @Component
 public class OvernightCloseStrategy {
@@ -59,6 +63,8 @@ public class OvernightCloseStrategy {
     private final StrategyGuard guard;
     private final ApplicationEventPublisher publisher;
     private final Clock clock;
+    /** 스윙 이월 — null이면 예전 동작(시험용 생성자). */
+    private final SwingCarryManager carry;
 
     /** 오늘 고른 종목(15:15) — 15:26에 산다. */
     private volatile Picks picks = new Picks(null, List.of());
@@ -75,6 +81,13 @@ public class OvernightCloseStrategy {
     public OvernightCloseStrategy(OvernightCloseProperties properties, LiveMarket market, StrategyBook book,
                                   SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
                                   Clock clock) {
+        this(properties, market, book, outbox, guard, publisher, clock, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public OvernightCloseStrategy(OvernightCloseProperties properties, LiveMarket market, StrategyBook book,
+                                  SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
+                                  Clock clock, SwingCarryManager carry) {
         this.properties = properties;
         this.market = market;
         this.book = book;
@@ -82,6 +95,20 @@ public class OvernightCloseStrategy {
         this.guard = guard;
         this.publisher = publisher;
         this.clock = clock;
+        this.carry = carry;
+    }
+
+    private boolean carrying() {
+        return carry != null && carry.carries(STRATEGY_ID);
+    }
+
+    /** 이 전략이 직접 다루는 보유(스윙으로 넘긴 보유 제외). */
+    private Map<StockCode, PositionBook.Position> overnightHeld() {
+        Map<StockCode, PositionBook.Position> held = new LinkedHashMap<>(book.positions(STRATEGY_ID));
+        if (carry != null) {
+            held.keySet().removeIf(code -> carry.isCarried(STRATEGY_ID, code));
+        }
+        return held;
     }
 
     /** 09:00:30 — 어제 산 보유 매도. */
@@ -90,20 +117,28 @@ public class OvernightCloseStrategy {
         if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 09:00:30 아침 매도", SELL_DEADLINE)) {
             return;
         }
-        Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);
+        Map<StockCode, PositionBook.Position> held = overnightHeld();
         if (held.isEmpty()) {
             return;
         }
         List<String> parts = new ArrayList<>();
+        int[] carried = {0};
         held.forEach((code, position) -> {
             BigDecimal bid = market.bestBid(code.value());
-            parts.add("%s %d주(평단 %s → 호가 %s)".formatted(StockNames.label(code), position.quantity(),
+            String desc = "%s %d주(평단 %s → 호가 %s)".formatted(StockNames.label(code), position.quantity(),
                     position.avgPrice() == null ? "미상" : position.avgPrice().setScale(0, RoundingMode.HALF_UP),
-                    bid == null ? "N/A" : bid.toPlainString()));
+                    bid == null ? "N/A" : bid.toPlainString());
+            if (carrying() && !SwingCarryMath.profitableAfterCost(bid, position.avgPrice(), carry.roundTripCost())) {
+                carry.carry(STRATEGY_ID, code, bid, position.avgPrice(), HORIZON, "아침 비용 후 수익 아님 — " + desc);
+                carried[0]++;
+                parts.add(desc + " → 스윙 이월");
+                return;
+            }
+            parts.add(desc);
             sell(code.value(), bid, "다음 날 아침 매도");
         });
-        String line = "%s %s 아침 매도 %d종목 — %s".formatted(STRATEGY_ID, guard.today(), held.size(),
-                String.join(" · ", parts));
+        String line = "%s %s 아침 매도 %d종목 · 스윙 이월 %d종목 — %s".formatted(STRATEGY_ID, guard.today(),
+                held.size() - carried[0], carried[0], String.join(" · ", parts));
         log.info(line);
         publisher.publishEvent(new StrategyRunCompleted(STRATEGY_ID, guard.today(), line, 0, clock.instant()));
     }
@@ -115,7 +150,7 @@ public class OvernightCloseStrategy {
         if (!guard.active(properties.enabled()) || guard.tooLate(STRATEGY_ID + " 아침 매도 재시도", SELL_DEADLINE)) {
             return;
         }
-        Map<StockCode, PositionBook.Position> held = book.positions(STRATEGY_ID);
+        Map<StockCode, PositionBook.Position> held = overnightHeld();
         if (held.isEmpty()) {
             return;
         }
@@ -186,8 +221,13 @@ public class OvernightCloseStrategy {
             metrics.put("open", pick.open().toPlainString());
             metrics.put("tradingValue", pick.tradingValue().toPlainString());
             // 슬리피지 기준 = 15:15 현재가(판단 시점). 지정가는 그 ×(1 + 여유)라 종가에 체결된다
-            outbox.buy(STRATEGY_ID, HORIZON, pick.code(), SignalOutbox.times(pick.scanPrice(), 1 + properties.buyPremium()),
-                    pick.scanPrice(), 1.0, "종가 매수(단일가) — 15:15 등락률 +" + pick.changeRate().toPlainString() + "%, 고가 근처 마감", metrics);
+            String why = "종가 매수(단일가) — 15:15 등락률 +" + pick.changeRate().toPlainString() + "%, 고가 근처 마감";
+            BigDecimal limit = SignalOutbox.times(pick.scanPrice(), 1 + properties.buyPremium());
+            if (carrying()) {
+                outbox.buyTranche(STRATEGY_ID, HORIZON, pick.code(), limit, pick.scanPrice(), 1, why + " · 1차 분할", metrics);
+            } else {
+                outbox.buy(STRATEGY_ID, HORIZON, pick.code(), limit, pick.scanPrice(), 1.0, why, metrics);
+            }
         }
         if (!today.items().isEmpty()) {
             log.info("{}: 종가 단일가 매수 신호 {}종목", STRATEGY_ID, today.items().size());
