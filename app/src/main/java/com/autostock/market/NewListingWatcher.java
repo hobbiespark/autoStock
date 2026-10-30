@@ -1,6 +1,7 @@
 package com.autostock.market;
 
 import com.autostock.common.event.ListingDayPrices;
+import com.autostock.common.event.ListingOpenPrices;
 import com.autostock.common.event.RecentListings;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.SecretMasking;
@@ -115,6 +116,68 @@ public class NewListingWatcher {
                 recordListingDayPrices("기동");
             }
         });
+    }
+
+    /** 상장일 시초가 확인에서 빼는 종목(시장명·이름) — 스팩은 넣는다(2026-10-30 사용자 "스팩도 청약"). */
+    private static final java.util.regex.Pattern NOT_OFFERING = java.util.regex.Pattern.compile("ETF|ETN|리츠");
+    /** 상장일 시초가 확인을 마친 날. */
+    private volatile LocalDate openDoneDay;
+
+    /**
+     * 거래일 09:05 — 오늘 상장한 종목의 시초가를 키움 현재가(시가)로 확인해 {@link ListingOpenPrices}를 발행한다(2026-10-30). ipo 모듈이
+     * 관심 공모주 딜에 "시초가·공모가 대비 수익률" 알림을 보낸다. 09:05 재시도(신규 상장 확인)와 같은 시각이라 목록이 없으면 먼저 받는다.
+     */
+    @Scheduled(cron = "0 5 9 * * MON-FRI", zone = "Asia/Seoul")
+    public void listingOpenScheduled() {
+        recordListingOpenPrices("정기");
+    }
+
+    /**
+     * 오늘 상장 종목의 시초가를 확인해 발행한다. 시가가 아직 없으면(0·빈 값) 그 종목은 뺀다. 조회가 실패한 종목이 있으면 그날 확인을
+     * 마친 것으로 치지 않는다(같은 날 다시 부르면 다시 본다 — ipo 쪽 알림 기록이 중복을 막는다).
+     *
+     * @return 발행한 종목 수(발행하지 않았으면 -1)
+     */
+    int recordListingOpenPrices(String reason) {
+        if (!enabled) {
+            return -1;
+        }
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
+        if (today.equals(openDoneDay) || !calendar.isTradingDay(today)) {
+            return -1;
+        }
+        if (lastRecent.stream().noneMatch(l -> today.equals(l.listedOn()))) {
+            watch(reason + "·시초가 전");
+        }
+        List<RecentListings.Listing> targets = lastRecent.stream()
+                .filter(l -> today.equals(l.listedOn()))
+                .filter(l -> !NOT_OFFERING.matcher(String.valueOf(l.name()) + " " + l.marketName()).find())
+                .toList();
+        List<ListingOpenPrices.Entry> entries = new ArrayList<>();
+        int failed = 0;
+        for (RecentListings.Listing listing : targets) {
+            try {
+                MarketDataPort.StockQuote quote = marketData.stockQuote(listing.stockCode());
+                java.math.BigDecimal open = quote == null ? null : abs(quote.open());
+                if (open != null && open.signum() > 0) {
+                    entries.add(new ListingOpenPrices.Entry(listing.stockCode(), listing.name(), open, abs(quote.current())));
+                }
+            } catch (RuntimeException e) {
+                failed++;
+                log.warn("상장일 시초가 확인 실패({}): {}", StockNames.label(listing.stockCode(), listing.name()),
+                        SecretMasking.mask(e.getClass().getSimpleName() + ": " + e.getMessage()));
+            }
+        }
+        if (failed == 0) {
+            openDoneDay = today;
+        }
+        log.info("상장일 시초가 확인({}) — 오늘 상장 {}종목 중 {}종목{}", reason, targets.size(), entries.size(),
+                entries.isEmpty() ? "" : ": " + entries.stream().map(e -> "%s(%s) 시가 %s".formatted(e.name(), e.stockCode(),
+                        e.open().toPlainString())).collect(Collectors.joining(", ")));
+        if (!entries.isEmpty()) {
+            publisher.publishEvent(new ListingOpenPrices(today, entries));
+        }
+        return entries.size();
     }
 
     /** 거래일 15:40 — 최근 상장 종목의 상장일 시세(클래스 설명). */

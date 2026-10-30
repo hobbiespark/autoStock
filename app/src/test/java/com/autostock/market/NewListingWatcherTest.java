@@ -2,6 +2,7 @@ package com.autostock.market;
 
 import com.autostock.common.event.Candle;
 import com.autostock.common.event.ListingDayPrices;
+import com.autostock.common.event.ListingOpenPrices;
 import com.autostock.common.event.RecentListings;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -185,5 +186,34 @@ class NewListingWatcherTest {
 
         assertEquals(0, watcher.recordListingDayPrices("정기"));
         assertEquals(0, watcher.recordListingDayPrices("재시도"), "실패한 날은 마친 것으로 치지 않는다");
+    }
+    @Test
+    void 상장일_09시05분에_오늘_상장_종목의_시초가를_발행하고_스팩은_넣고_ETF는_뺀다() {
+        // 2026-10-30 사용자 공모주 알림 강화 — 상장일 시초가·공모가 대비 수익률 알림 재료
+        LocalDate today = LocalDate.of(2026, 10, 15);
+        when(calendar.isTradingDay(any())).thenReturn(true);
+        when(marketData.listedStocks(MarketDataPort.ListingMarket.KOSPI)).thenReturn(List.of(
+                new MarketDataPort.ListedStock("0241D0", "KODEX 미국AI에이전트액티브", today, "ETF")));
+        when(marketData.listedStocks(MarketDataPort.ListingMarket.KOSDAQ)).thenReturn(List.of(
+                stock("179880", "멜콘", today),
+                stock("499990", "에스케이증권제14호스팩", today),
+                stock("468670", "브릴스", LocalDate.of(2026, 10, 8))));
+        when(marketData.stockQuote("179880")).thenReturn(new MarketDataPort.StockQuote("멜콘", new BigDecimal("-26000"),
+                new BigDecimal("+27400"), null, null));
+        when(marketData.stockQuote("499990")).thenReturn(new MarketDataPort.StockQuote("스팩", new BigDecimal("3870"),
+                new BigDecimal("3900"), null, null));
+        NewListingWatcher watcher = watcher(true, LocalDateTime.of(2026, 10, 15, 9, 5));
+
+        assertEquals(2, watcher.recordListingOpenPrices("정기"));
+        assertEquals(-1, watcher.recordListingOpenPrices("정기"), "그날은 한 번");
+
+        ArgumentCaptor<Object> captor = ArgumentCaptor.forClass(Object.class);
+        verify(publisher, times(2)).publishEvent(captor.capture());   // 목록(먼저 받음) + 시초가
+        ListingOpenPrices opens = (ListingOpenPrices) captor.getAllValues().get(1);
+        assertEquals(List.of("179880", "499990"), opens.entries().stream().map(ListingOpenPrices.Entry::stockCode).toList());
+        assertEquals(new BigDecimal("27400"), opens.entries().get(0).open(), "부호를 뗀다");
+        assertEquals(new BigDecimal("26000"), opens.entries().get(0).current());
+        verify(marketData, never()).stockQuote("0241D0");
+        verify(marketData, never()).stockQuote("468670");
     }
 }

@@ -170,6 +170,11 @@ ipo:
   filter:
     min-institutional-competition-rate: 500    # 기관경쟁률 500:1 이상(ADR-9 ②)
     min-lockup-commit-rate: 0.20                # 의무보유확약비율 20% 이상
+  subscription:                                 # 청약 금액 추천(2026-10-30, aiDoc/ipo-automation.md "2026-10-30 바뀜")
+    budget-krw: 2000000                         # 공모주 청약 예산(원)
+    margin-rate: 0.5                            # 청약 증거금률(주관사마다 다름 — 알림에 "주관사 공고 확인")
+    min-qty: 10                                 # 최소 청약 수량(주, 균등 최소 단위)
+    unit-qty: 10                                # 청약 단위(주, 비례 수량은 이 단위로 내림)
 
 autostock:
   minute-archive:
