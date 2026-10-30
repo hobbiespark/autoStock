@@ -1,6 +1,7 @@
 package com.autostock.risk;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import java.math.BigDecimal;
@@ -19,6 +20,10 @@ import java.math.BigDecimal;
  *       고가주는 한 주도 못 산다(사용자 선택 10/21 — 모의 실측 거래 수 확보). 전체 상한은 그대로 지킨다.</li>
  *   <li><b>일 손실 한도 기준</b>: min(계좌 평가액, 운용 자금)과 오늘 가장 많이 들고 있던 금액(기준가 기준) 중 큰 값 —
  *       {@link DailyPnlTracker}. 운용 자금보다 큰 예전 보유를 정리하는 날 한도가 너무 작아지지 않게.</li>
+ *   <li><b>최소 유의미 수량</b>({@link #minMeaningfulQuantity}, 2026-10-30 사용자 지시 — "1천 원 종목 1주를 사서 수수료 반영 후
+ *       1% 수익이면 유의미하지 않다. 유의미 판단은 수수료 제외 수익금 500원 이하일 때"): 수수료 제외 기준 수익률
+ *       {@link #minProfitReferenceReturn}에서 수익금이 {@link #minNetProfitKrw}원 이하인 수량은 무의미하다. 전략 매수 수량이
+ *       그보다 적으면 {@link RiskGate}가 최소 수량까지 올린다(상한 {@link #meaningfulOrderCap}). 못 올리면 거부한다.</li>
  * </ul>
  *
  * <p>0이면 끈다(예전처럼 계좌 전체). 켤 때는 {@link #MIN_KRW}~{@link #MAX_KRW}만 받는다 — 사용자가 정한 범위 밖 값
@@ -26,11 +31,15 @@ import java.math.BigDecimal;
  *
  * @param limitKrw                  운용 자금(원). 0이면 끔
  * @param oneShareMaxBudgetMultiple 예산으로 0주일 때 1주를 허용하는 배수(1주 값 ≤ 예산 × 이 값). 0이면 끔
+ * @param minNetProfitKrw           유의미 판단 수익금(원) — 기준 수익률에서 이 값 이하면 무의미. 0이면 끔
+ * @param minProfitReferenceReturn  유의미 판단 기준 수익률(수수료 제외, 0.01 = 1%)
  */
 @ConfigurationProperties(prefix = "risk.capital")
 public record TradingCapitalProperties(
         @DefaultValue("0") long limitKrw,
-        @DefaultValue("2.0") double oneShareMaxBudgetMultiple
+        @DefaultValue("2.0") double oneShareMaxBudgetMultiple,
+        @DefaultValue("0") long minNetProfitKrw,
+        @DefaultValue("0.01") double minProfitReferenceReturn
 ) {
 
     /** 운용 자금 하한(원) — 사용자 범위 200만 원. */
@@ -38,6 +47,7 @@ public record TradingCapitalProperties(
     /** 운용 자금 상한(원) — 사용자 범위 2,000만 원. */
     public static final long MAX_KRW = 20_000_000L;
 
+    @ConstructorBinding
     public TradingCapitalProperties {
         if (limitKrw != 0 && (limitKrw < MIN_KRW || limitKrw > MAX_KRW)) {
             throw new IllegalArgumentException("risk.capital.limit-krw는 0(끔) 또는 %d~%d원이어야 한다: %d"
@@ -47,11 +57,55 @@ public record TradingCapitalProperties(
             throw new IllegalArgumentException("risk.capital.one-share-max-budget-multiple은 0 이상: "
                     + oneShareMaxBudgetMultiple);
         }
+        if (minNetProfitKrw < 0) {
+            throw new IllegalArgumentException("risk.capital.min-net-profit-krw는 0 이상: " + minNetProfitKrw);
+        }
+        if (!(minProfitReferenceReturn > 0.0 && minProfitReferenceReturn < 1.0)) {
+            throw new IllegalArgumentException("risk.capital.min-profit-reference-return은 (0, 1): "
+                    + minProfitReferenceReturn);
+        }
+    }
+
+    /** 최소 유의미 수량 없는 생성자 — 예전 시험·호출부용. */
+    public TradingCapitalProperties(long limitKrw, double oneShareMaxBudgetMultiple) {
+        this(limitKrw, oneShareMaxBudgetMultiple, 0, 0.01);
     }
 
     /** 운용 자금 없음(계좌 전체, 1주 허용 없음) — 시험·예전 생성자용. */
     public static TradingCapitalProperties none() {
         return new TradingCapitalProperties(0, 0);
+    }
+
+    /** 최소 유의미 수량 규칙이 켜져 있나. */
+    public boolean meaningfulRuleOn() {
+        return minNetProfitKrw > 0;
+    }
+
+    /**
+     * 수수료 제외 기준 수익률에서 수익금이 {@link #minNetProfitKrw}원을 넘는 가장 작은 수량 — ⌊기준 ÷ (가격 × 수익률)⌋ + 1.
+     * 예: 500원·1%면 1,000원 종목은 51주(51,000원), 30,000원 종목은 2주, 50,001원 이상은 1주. 규칙이 꺼져 있거나 가격이
+     * 없으면 0(제한 없음).
+     */
+    public long minMeaningfulQuantity(BigDecimal price) {
+        if (!meaningfulRuleOn() || price == null || price.signum() <= 0) {
+            return 0;
+        }
+        BigDecimal profitPerShare = price.multiply(BigDecimal.valueOf(minProfitReferenceReturn));
+        return BigDecimal.valueOf(minNetProfitKrw).divide(profitPerShare, 0, java.math.RoundingMode.DOWN).longValue() + 1;
+    }
+
+    /**
+     * 최소 유의미 수량까지 올릴 때의 한 종목 원가 상한 — max(종목 예산 × {@link #oneShareMaxBudgetMultiple},
+     * 2 × 유의미 최소 금액(기준 ÷ 수익률)). 500원·1%면 뒤쪽은 10만 원이라 예산이 작은 전략(차트 기법 종목당 1.6만 원)도
+     * 1주 값 5만 원 이하 종목은 유의미한 수량을 산다. 전체 매수 원가 상한(운용 자금)은 그대로 지킨다.
+     */
+    public BigDecimal meaningfulOrderCap(BigDecimal perPositionBudget) {
+        BigDecimal floor = BigDecimal.valueOf(minNetProfitKrw)
+                .divide(BigDecimal.valueOf(minProfitReferenceReturn), 0, java.math.RoundingMode.HALF_UP)
+                .multiply(BigDecimal.TWO);
+        BigDecimal byBudget = perPositionBudget == null ? BigDecimal.ZERO
+                : perPositionBudget.multiply(BigDecimal.valueOf(oneShareMaxBudgetMultiple));
+        return byBudget.max(floor);
     }
 
     /** 운용 자금이 켜져 있나. */

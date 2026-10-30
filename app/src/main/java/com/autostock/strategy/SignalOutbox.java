@@ -63,6 +63,19 @@ public class SignalOutbox {
         });
     }
 
+    /**
+     * 3분할 매수 신호(2026-10-30, {@link Signal#tranche()}) — 1차는 새 보유, 2·3차는 그 전략이 든 종목에 더 산다.
+     * RiskGate가 한 차수를 종목 예산의 1/3로 센다.
+     */
+    public void buyTranche(String strategyId, String horizon, String symbol, BigDecimal refPrice, BigDecimal benchmark,
+                           int tranche, String reason, Map<String, String> metrics) {
+        submit(() -> {
+            publishDecision(strategyId, horizon, symbol, "BUY", reason, metrics);
+            publisher.publishEvent(new Signal(strategyId, new StockCode(symbol), Side.BUY, priceOrNull(refPrice),
+                    1.0, null, clock.instant(), priceOrNull(benchmark), tranche));
+        });
+    }
+
     /** 매도 신호 — 슬리브 전략은 RiskGate가 그 전략 보유 수량만 판다. */
     public void sell(String strategyId, String horizon, String symbol, BigDecimal refPrice, String reason,
                      Map<String, String> metrics) {
