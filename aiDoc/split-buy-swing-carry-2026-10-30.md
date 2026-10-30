@@ -121,3 +121,12 @@
 - 첫 실행에서 실패 2건을 고쳤다: ① `ArchitectureRulesTest` 순수 계산 코어 규칙 — `SwingCarryMath`가 `Candle`에 의존 → 종가 목록·보유 일수만 받게 바꿈 ② `SchemaAndTimeZoneDbTest` 최신 마이그레이션 기대값 29 → 31.
 - 새 시험: `RiskGateSplitBuyTest` 11건(최소 유의미 수량 계산·차수 예산·보유 필요·동시 보유 제외·종목 상한·범위), `SwingCarryMathTest` 9건(판단 순서), `SwingCarryFlowTest` 7건(1차 진입·15:15 이월/매도·ON-CLOSE 갭 하락 이월 — 10/26 파인엠텍·10/28 코리아써키트 실측값·이월 당일 판단 안 함·2차·차수 증가·이월 끝).
 - 실제 장중 동작(모의 서버 체결, 09:02 판단 신호, 이월 행 저장)은 **운영 반영 뒤 첫 거래일 로그로 확인해야 한다**(6절).
+
+## 8. 운영 반영(2026-10-30, 사용자 지시 "병합·재기동 진행")
+
+- 병합: `claude/as-split-buy-budget`·`claude/as-ipo-spac-alerts`를 main에 `--no-ff`로 병합(충돌 없음). 병합한 main 전체 시험 app·common 1,237건, 실패 0, 건너뜀 8.
+- 재기동 전 점검 `scripts\preflight_restart.ps1`: 미커밋 변경 없음, 적용분 29/29 체크섬 일치, 새로 적용될 것은 커밋된 V31 하나 → `-AcceptPending` 종료 코드 0.
+- 17:20:56 `stop_autostock.bat`(종료 코드 0, PID 25860 정상 종료) → 17:28:24 새 앱 PID 33136. Flyway가 운영 DB에 **V31 적용**(`now at version v31`), 17:28:48 `RUNNING`. 기동 줄로 확인: `운용 자금 2,000,000원`, `최소 유의미 수량 — …`, `VB-DAY … 손절 −7%`, `CARRY: 단타 → 스윙·중기 이월 켜짐 — [VB-DAY, ON-CLOSE]`. 보유 복원 안랩 2주·한미약품 1주.
+- 기동 중 생긴 일(투명성): 첫 실행(17:21)은 AI 세션 셸에서 띄운 창이 세션 환경 변수 `NoDefaultCurrentDirectoryInExePath`를 물려받아 `'gradlew.bat' is not recognized`로 `pause`에 멈췄다(앱 미기동, DB 변경 없음). 창을 닫고 탐색기(`explorer.exe`)로 시작 스크립트를 열어 사용자 더블클릭과 같은 환경으로 기동했다. 앞으로 AI가 재기동할 때는 이 방식을 쓴다.
+- **V30 번호 주의(D88 기록)**: 운영 DB가 V31이 됐으므로 `feat/p2-2d-stock-control-entry`의 `V30`은 그대로 병합하면 Flyway 순서 위반으로 기동이 실패한다. 그 브랜치는 병합 전에 **V32 이상으로 번호를 바꿔야 한다**(V30은 운영에 적용된 적이 없어 번호만 바꾸면 된다). 이 브랜치 번호를 V30으로 바꾸는 대안은 p2-2d와 번호가 겹쳐 고르지 않았다.
+- 발견(공모주 쪽, 미수정): 기동 직후 밀린 알림 계산이 오늘 상장한 인텔리빅스·한화플러스제6호스팩의 `LISTING-AM`(상장일 08:30 매도 안내)을 17:28에 보냈다 — 장 마감 뒤라 쓸모없는 알림이다. 상장일 아침 안내는 장 마감(15:30) 전에만 보내도록 고칠 후속 작업이다.
