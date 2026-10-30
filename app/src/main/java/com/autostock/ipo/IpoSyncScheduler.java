@@ -2,6 +2,7 @@ package com.autostock.ipo;
 
 import com.autostock.common.event.IpoAlert;
 import com.autostock.common.event.ListingDayPrices;
+import com.autostock.common.event.ListingOpenPrices;
 import com.autostock.common.event.RecentListings;
 import com.autostock.common.util.MarketConstants;
 import org.slf4j.Logger;
@@ -62,6 +63,11 @@ import java.util.stream.Collectors;
  *   <li>평일 18:30에 한 번 더 수집한다 — [발행조건확정]은 보통 오후에 나오고 청약은 다음 날 시작해, 추천을 전날 저녁에 받게 한다.</li>
  * </ul>
  *
+ * <p>2026-10-30(사용자 공모주 알림 강화, aiDoc/ipo-automation.md "2026-10-30 바뀜"): 스팩을 별도 등급(SPAC)으로 청약 일정 알림에
+ * 넣고, 마감일·상장일 08:30 아침 알림, 상장일 09:05 시초가 알림({@link ListingOpenPrices}), 월요일 08:00 주간 요약, 청약 금액 추천
+ * ({@link IpoSubscriptionSizer}, {@code ipo.subscription.*})을 더했다. 매시 점검은 알림 시간대 안이면 DB만 보고 알림을 다시 계산한다
+ * (08:30 알림을 앱이 꺼져 놓쳤을 때 다음 매시 점검이 보낸다).
+ *
  * <p><b>소스별/딜별 실패 격리</b>({@code market.HolidaySyncService}·{@code
  * macrointel.MacroSyncScheduler}와 동일 정책): 한 딜의 상세 조회 실패가 다른 딜 처리를 막지
  * 않는다 — 딜 단위로 try-catch한다.
@@ -94,6 +100,8 @@ public class IpoSyncScheduler {
     private final IpoListingMatcher listingMatcher;
     /** 판단 재료·상장일 성과(V19) — 시험용 7인자 생성자로 만들면 null(맥락 없이 판단, 기록 안 함). */
     private final IpoListingHistoryRepository history;
+    /** 청약 금액 추천(2026-10-30). */
+    private final IpoSubscriptionSizer sizer;
 
     /** 수집·알림·상장 확인이 같은 딜을 동시에 고치지 않게 — 정기 배치·매시 점검·상장 확인 이벤트가 겹칠 수 있다. */
     private final Object batchLock = new Object();
@@ -111,13 +119,24 @@ public class IpoSyncScheduler {
         this(dartProperties, filterProperties, dartClient, repository, alertLog, null, publisher, clock);
     }
 
+    /** 시험용 — 청약 금액 추천 기본값(예산 200만 원·증거금률 50%·최소 10주·10주 단위). */
+    public IpoSyncScheduler(DartProperties dartProperties, IpoFilterProperties filterProperties,
+                            DartClient dartClient, IpoDealRepository repository, IpoAlertLogRepository alertLog,
+                            IpoListingHistoryRepository history, ApplicationEventPublisher publisher, Clock clock) {
+        this(dartProperties, filterProperties, dartClient, repository, alertLog, history, IpoSubscriptionProperties.DEFAULT,
+                publisher, clock);
+    }
+
     /**
      * @param filterProperties 2026-10-15부터 권고에 쓰지 않는다(청약 추천으로 바뀜) — 설정 호환을 위해 받기만 한다
+     * @param subscriptionProperties 청약 금액 추천 설정(2026-10-30, {@code ipo.subscription.*})
      */
     @Autowired
     public IpoSyncScheduler(DartProperties dartProperties, IpoFilterProperties filterProperties,
                              DartClient dartClient, IpoDealRepository repository, IpoAlertLogRepository alertLog,
-                             IpoListingHistoryRepository history, ApplicationEventPublisher publisher, Clock clock) {
+                             IpoListingHistoryRepository history, IpoSubscriptionProperties subscriptionProperties,
+                             ApplicationEventPublisher publisher, Clock clock) {
+        this.sizer = new IpoSubscriptionSizer(subscriptionProperties);
         this.history = history;
         this.dartProperties = dartProperties;
         this.filterProperties = filterProperties;
@@ -145,6 +164,38 @@ public class IpoSyncScheduler {
     @Scheduled(cron = "0 30 18 * * MON-FRI", zone = "Asia/Seoul")
     public void syncEvening() {
         syncNow();
+    }
+
+    /**
+     * 매일 08:30 KST — 청약 마감일 "오늘 마감" 재알림(END-AM)과 상장일 매도 안내(LISTING-AM)(2026-10-30). DB만 보고 외부 호출은 없다.
+     * 휴일에도 돈다(달력 기준 — D-1과 같은 관례). 해당 딜이 없으면 아무것도 보내지 않는다.
+     */
+    @Scheduled(cron = "0 30 8 * * *", zone = "Asia/Seoul")
+    public void morningAlerts() {
+        if (!dartProperties.enabled()) {
+            return;
+        }
+        try {
+            alertPass(LocalDate.now(clock.withZone(MarketConstants.KST)), "아침 알림 08:30", true);
+        } catch (RuntimeException e) {
+            log.error("공모주 아침 알림 실패 — 다음 시간별 점검에서 다시", e);
+        }
+    }
+
+    /**
+     * 월요일 08:00 KST — 이번 주 청약·상장 일정 요약 한 통(2026-10-30). 휴장일이어도 보낸다(일정 안내라 거래일 판정과 무관 — D-1처럼
+     * 달력 기준). 놓치면 그날 매시 점검이 보낸다(주마다 한 번, {@code ipo_alert_log}).
+     */
+    @Scheduled(cron = "0 0 8 * * MON", zone = "Asia/Seoul")
+    public void weeklySummary() {
+        if (!dartProperties.enabled()) {
+            return;
+        }
+        try {
+            weeklyPass(LocalDate.now(clock.withZone(MarketConstants.KST)));
+        } catch (RuntimeException e) {
+            log.error("공모주 주간 요약 실패 — 다음 시간별 점검에서 다시", e);
+        }
     }
 
     /** 마지막으로 DART 공시 목록을 끝까지 읽은 날(KST) — 따라잡기 판단 기준. */
@@ -176,11 +227,13 @@ public class IpoSyncScheduler {
         }
         LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
         if (today.equals(lastSuccessDate)) {
-            if (alertsDeferred && withinAlertHours()) {
+            if (withinAlertHours()) {
+                // 밤에 미룬 알림, 그리고 시각이 정해진 알림(08:30 아침·월요일 08:00 주간)을 그 시각에 놓쳤을 때 — DB만 본다(2026-10-30)
                 try {
-                    alertPass(today, "밤에 미룬 알림");
+                    alertPass(today, alertsDeferred ? "밤에 미룬 알림" : "시간별 점검", !alertsDeferred);
+                    weeklyPass(today);
                 } catch (RuntimeException e) {
-                    log.error("ipo 미룬 알림 보내기 실패 — 다음 시간별 점검에서 재시도", e);
+                    log.error("ipo 알림 점검 실패 — 다음 시간별 점검에서 재시도", e);
                 }
             }
             return;
@@ -424,9 +477,11 @@ public class IpoSyncScheduler {
 
     void evaluate(IpoDealEntity entity, List<IpoListingHistoryEntity> past, LocalDate today) {
         if (isSpac(entity.getCorpName())) {
-            // 2026-10-16 로그: 스팩(공모가 2,000원)이 "균등만(+2)"을 받았다. 전략 검증(85곳)에서 스팩은 뺐다 — 추천 대상 아님
-            entity.applyRecommendation(IpoRecommendation.SKIP, SPAC_REASON + sourceNote(entity), clock.instant());
-            entity.applyAdvice(IpoSubscriptionAdvisor.Grade.PASS.name(), null, clock.instant());
+            // 2026-10-16 로그: 스팩(공모가 2,000원)이 "균등만(+2)"을 받았다. 전략 검증(85곳)에서 스팩은 뺐다 — 점수는 매기지 않는다.
+            // 2026-10-30 사용자 "스팩도 청약": 패스에서 빼고 별도 등급(SPAC)으로 청약 일정 알림 대상(관심 딜)에 넣는다.
+            entity.applyRecommendation(IpoSubscriptionAdvisor.Grade.SPAC.recommendation(), SPAC_REASON + sourceNote(entity),
+                    clock.instant());
+            entity.applyAdvice(IpoSubscriptionAdvisor.Grade.SPAC.name(), null, clock.instant());
             return;
         }
         BigDecimal competitionRate = entity.getInstitutionalCompetitionRate();
@@ -447,7 +502,12 @@ public class IpoSyncScheduler {
         entity.applyAdvice(advice.grade().name(), advice.score(), clock.instant());
     }
 
-    static final String SPAC_REASON = "패스 — 스팩(기업인수목적회사): 청약 추천 대상 아님(전략 검증에서 제외, 공모가 2,000원 고정)";
+    /**
+     * 스팩 사유 — 2026-10-30부터 청약 일정 알림 대상이다(예전 문구 "패스 — 스팩(기업인수목적회사): 청약 추천 대상 아님"). 점수는 매기지
+     * 않는다(전략 검증에서 제외). 청약 금액은 {@link IpoSubscriptionSizer}가 알림에 붙인다.
+     */
+    static final String SPAC_REASON = "스팩 — 기업인수목적회사: 점수 없이 청약 일정 알림(전략 검증 제외, 공모가 2,000원 고정). "
+            + "청약: 겹치는 추천 딜 몫을 뺀 남은 예산 안에서 비례";
 
     /** 스팩(기업인수목적회사) — 이름으로 가린다(상장일 시세 기록의 제외 규칙과 같은 말). */
     static boolean isSpac(String corpName) {
@@ -601,7 +661,7 @@ public class IpoSyncScheduler {
             return 0;
         }
         Set<String> sent = alertLog.findByCorpCodeIn(corps).stream().map(IpoAlertLogEntity::key).collect(Collectors.toSet());
-        IpoAlertPlanner.Plan plan = IpoAlertPlanner.plan(all, today, sent);
+        IpoAlertPlanner.Plan plan = IpoAlertPlanner.plan(all, today, nowKst(), sent, sizer);
         if (plan.isEmpty()) {
             alertsDeferred = false;
             return 0;
@@ -627,8 +687,20 @@ public class IpoSyncScheduler {
         return published;
     }
 
-    /** DB만 보고 상태를 다시 계산해 알림을 보낸다 — 밤에 미룬 알림, 상장 확인 직후. 외부 호출이 없다. */
+    private LocalTime nowKst() {
+        return ZonedDateTime.now(clock.withZone(MarketConstants.KST)).toLocalTime();
+    }
+
     private void alertPass(LocalDate today, String reason) {
+        alertPass(today, reason, false);
+    }
+
+    /**
+     * DB만 보고 상태를 다시 계산해 알림을 보낸다 — 밤에 미룬 알림, 상장 확인 직후, 08:30 아침 알림, 매시 점검. 외부 호출이 없다.
+     *
+     * @param quiet 바뀐 것도 보낸 것도 없으면 INFO 로그를 남기지 않는다(매시 점검이 시간마다 같은 줄을 쌓지 않게)
+     */
+    private void alertPass(LocalDate today, String reason, boolean quiet) {
         synchronized (batchLock) {
             List<IpoDealEntity> all = repository.findAll();
             Set<IpoDealEntity> changed = new HashSet<>();
@@ -647,8 +719,58 @@ public class IpoSyncScheduler {
                     log.info("공모주 딜 상태 저장 생략(동시 수동 입력) — corpName={}", entity.getCorpName());
                 }
             }
+            if (quiet && changed.isEmpty() && alerts == 0 && !alertsDeferred) {
+                log.debug("공모주 알림 점검({}) — 바뀐 것 없음", reason);
+                return;
+            }
             log.info("공모주 알림 점검({}) — 상태 바뀐 딜 {}건, {}", reason, changed.size(),
                     alertsDeferred ? "알림은 밤이라 미룸" : "알림 " + alerts + "건");
+        }
+    }
+
+    /** 주간 요약(월요일 08:00 이후 한 번) — 시간대 밖이면 보내지 않는다(다음 매시 점검이 다시 본다). */
+    private void weeklyPass(LocalDate today) {
+        if (!withinAlertHours()) {
+            return;
+        }
+        synchronized (batchLock) {
+            Set<String> sent = alertLog.findByCorpCodeIn(Set.of(IpoAlertPlanner.WEEKLY_CORP)).stream()
+                    .map(IpoAlertLogEntity::key).collect(Collectors.toSet());
+            IpoAlertPlanner.weekly(repository.findAll(), today, nowKst(), sent, sizer).ifPresent(alert -> {
+                publishAlert(alert.corpName(), alert.phase(), alert.message());
+                record(alert);
+            });
+        }
+    }
+
+    /**
+     * 상장일 시초가(market 모듈 09:05) — 오늘 상장한 관심 딜에 시초가와 공모가 대비 수익률을 알린다(2026-10-30). 실패해도 발행한
+     * 쪽(market)에 예외를 넘기지 않는다.
+     */
+    @EventListener
+    public void onListingOpenPrices(ListingOpenPrices event) {
+        if (!dartProperties.enabled()) {
+            return;
+        }
+        try {
+            LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
+            if (!today.equals(event.day()) || !withinAlertHours()) {
+                return;
+            }
+            Map<String, BigDecimal> opens = new LinkedHashMap<>();
+            event.entries().forEach(e -> opens.put(e.stockCode(), e.open()));
+            synchronized (batchLock) {
+                List<IpoDealEntity> all = repository.findAll();
+                Set<String> corps = all.stream().map(IpoDealEntity::getCorpCode).collect(Collectors.toSet());
+                Set<String> sent = corps.isEmpty() ? Set.of() : alertLog.findByCorpCodeIn(corps).stream()
+                        .map(IpoAlertLogEntity::key).collect(Collectors.toSet());
+                for (IpoAlertPlanner.PlannedAlert alert : IpoAlertPlanner.openingAlerts(all, today, sent, opens)) {
+                    publishAlert(alert.corpName(), alert.phase(), alert.message());
+                    record(alert);
+                }
+            }
+        } catch (RuntimeException e) {
+            log.error("공모주 상장일 시초가 알림 실패", e);
         }
     }
 

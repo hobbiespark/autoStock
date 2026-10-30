@@ -39,7 +39,12 @@ final class IpoSubscriptionAdvisor {
         PROPORTIONAL("비례까지"),
         EQUAL_ONLY("균등만"),
         PASS("패스"),
-        PENDING("판단 보류");
+        PENDING("판단 보류"),
+        /**
+         * 스팩(기업인수목적회사) — 점수 없이 청약 일정 알림 대상(2026-10-30 사용자 "스팩도 청약"). 판단 재료 표·확약 중앙값·분위기에는
+         * 넣지 않는다({@link IpoSyncScheduler#isSpac}). 권고 칸은 RECOMMEND(관심 딜)로 옮긴다.
+         */
+        SPAC("스팩");
 
         final String label;
 
@@ -50,7 +55,7 @@ final class IpoSubscriptionAdvisor {
         /** 기존 권고 칸(RECOMMEND/SKIP/PENDING)으로 옮긴 값 — 화면·API 호환. */
         IpoRecommendation recommendation() {
             return switch (this) {
-                case PROPORTIONAL, EQUAL_ONLY -> IpoRecommendation.RECOMMEND;
+                case PROPORTIONAL, EQUAL_ONLY, SPAC -> IpoRecommendation.RECOMMEND;
                 case PASS -> IpoRecommendation.SKIP;
                 case PENDING -> IpoRecommendation.PENDING;
             };
@@ -224,7 +229,7 @@ final class IpoSubscriptionAdvisor {
                     + "증권사 한 곳만(중복청약 금지). 상장일 시초가 매도";
             case EQUAL_ONLY -> "청약: 균등 " + minimum + "만. 증권사 한 곳만. 상장일 시초가 매도";
             case PASS -> "청약하지 않음";
-            case PENDING -> null;
+            case PENDING, SPAC -> null;   // 스팩은 점수 없이 SPAC_REASON(IpoSyncScheduler)과 청약 금액 추천으로 안내
         };
     }
 

@@ -89,17 +89,19 @@ class IpoSyncSchedulerTest {
     }
 
     @Test
-    void 스팩은_기관경쟁률이_높아도_추천하지_않는다() {
-        // 2026-10-16 로그: 에스케이증권제14호기업인수목적(기관 1,228.38:1, 공모가 2,000원)이 "균등만(+2)"을 받았다
+    void 스팩은_점수를_매기지_않고_별도_등급으로_청약_일정_알림_대상에_넣는다() {
+        // 2026-10-16 로그: 에스케이증권제14호기업인수목적(기관 1,228.38:1, 공모가 2,000원)이 "균등만(+2)"을 받았다 — 점수는 매기지 않는다.
+        // 2026-10-30 사용자 "스팩도 청약": 패스(SKIP)가 아니라 SPAC 등급(권고 칸 RECOMMEND = 관심 딜)
         IpoDealEntity entity = new IpoDealEntity("01234567", "에스케이증권제14호기업인수목적", "20261014000196", "DART",
                 Instant.now());
         entity.applyMetrics(new BigDecimal("1228.38"), null, Instant.now());
 
         scheduler.evaluateFilter(entity);
 
-        assertEquals(IpoRecommendation.SKIP, entity.getRecommendation());
-        assertEquals("PASS", entity.getAdviceGrade());
-        assertTrue(entity.getRecommendReason().startsWith("패스 — 스팩"), entity.getRecommendReason());
+        assertEquals(IpoRecommendation.RECOMMEND, entity.getRecommendation());
+        assertEquals("SPAC", entity.getAdviceGrade());
+        assertEquals(null, entity.getAdviceScore());
+        assertTrue(entity.getRecommendReason().startsWith("스팩 — 기업인수목적회사: 점수 없이 청약 일정 알림"), entity.getRecommendReason());
         assertTrue(IpoSyncScheduler.isSpac("엔에이치스팩33호"));
         assertFalse(IpoSyncScheduler.isSpac("진코스텍"));
     }
@@ -586,7 +588,9 @@ class IpoSyncSchedulerTest {
         assertEquals("METRICS", captor.getValue().phase());
         assertEquals("[청약 추천] 진코스텍 — 확정 공모가 23,500원. 균등만(점수 +2) — 기관 1,097.62:1(+2) · "
                 + "확약 5.29%(직전 비교 표본 0건 — 점수 없음) · 밴드 위치 미확인 · 유통가능물량 미확인 · 분위기 판단 표본 부족(직전 상장 0곳). "
-                + "청약: 균등 최소 단위(보통 10주, 증거금 약 117,500원)만. 증권사 한 곳만. 상장일 시초가 매도. 청약 10/2(금)~10/6(화), 하나증권.",
+                + "청약: 균등 최소 단위(보통 10주, 증거금 약 117,500원)만. 증권사 한 곳만. 상장일 시초가 매도. 청약 10/2(금)~10/6(화), 하나증권. "
+                + "추천 청약: 10주 · 증거금 약 117,500원(예산 200만 원 중) — 균등 최소 수량. 확정가 23,500원 기준 · 증거금률 50%·최소 10주·"
+                + "10주 단위 가정, 주관사 공고 확인.",
                 captor.getValue().message());
     }
 
@@ -670,9 +674,10 @@ class IpoSyncSchedulerTest {
         assertEquals("250030", deal.getStockCode());
         assertEquals(IpoStatus.LISTED, deal.getStatus());
         var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
-        verify(publisher, times(1)).publishEvent(captor.capture());
+        verify(publisher, times(2)).publishEvent(captor.capture());   // 정오 — 08:30이 지나 상장일 매도 안내도 함께(2026-10-30)
         assertEquals("[상장일] 진코스텍(250030) — 오늘 상장. 공모가 23,500원(확정), 배정 10주(기록 기준). 매도는 영웅문S#에서 수동.",
-                captor.getValue().message());
+                captor.getAllValues().get(0).message());
+        assertEquals("LISTING-AM", captor.getAllValues().get(1).phase());
     }
 
     @Test
@@ -796,5 +801,70 @@ class IpoSyncSchedulerTest {
         assertEquals(LocalDate.of(2026, 10, 15), row.getListingDate());
         assertEquals(0, new BigDecimal("0.357724").compareTo(row.closeReturn()), "종가 16,700 ÷ 공모가 12,300 − 1");
         assertEquals(1, rows.size(), "맞추지 못한 종목은 남기지 않는다");
+    }
+    // ── 2026-10-30: 08:30 아침 알림, 월요일 주간 요약, 상장일 시초가, 스팩 청약 알림 ─────────────────────
+
+    @Test
+    void 매일_08시30분에_마감일_추천_딜에_오늘_마감을_보내고_매시_점검은_다시_보내지_않는다() {
+        MutableClock clock = new MutableClock(LocalDateTime.of(2026, 10, 6, 8, 30));   // 진코스텍 청약 마감일
+        IpoDealEntity deal = jincostech();
+        deal.applyMetrics(new BigDecimal("1200"), new BigDecimal("0.30"), Instant.now());
+        when(repository.findAll()).thenReturn(List.of(deal));
+        IpoSyncScheduler scheduler = new IpoSyncScheduler(enabledProps, filterProps, dartClient, repository, alertLog, null,
+                IpoSubscriptionProperties.DEFAULT, publisher, clock);
+        scheduler.evaluateFilter(deal);
+
+        scheduler.morningAlerts();
+        scheduler.morningAlerts();
+
+        var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
+        verify(publisher, times(2)).publishEvent(captor.capture());
+        assertEquals(List.of("END-AM", "END"), captor.getAllValues().stream().map(IpoAlert::phase).toList());
+        assertTrue(captor.getAllValues().get(0).message().startsWith("[오늘 청약 마감] 진코스텍 — 오늘 10/6(화) 청약 마지막 날"),
+                captor.getAllValues().get(0).message());
+        assertTrue(captor.getAllValues().get(0).message().contains("추천 청약: 10주 · 증거금 약 97,500원(예산 200만 원 중)"),
+                captor.getAllValues().get(0).message());
+    }
+
+    @Test
+    void 월요일_주간_요약은_한_번만_보내고_밤에는_보내지_않는다() {
+        MutableClock clock = new MutableClock(LocalDateTime.of(2026, 10, 19, 8, 0));
+        IpoDealEntity deal = dealStarting("01359815", "한울반도체", "20260910000583", LocalDate.of(2026, 10, 20), "5030");
+        when(repository.findAll()).thenReturn(List.of(deal));
+        IpoSyncScheduler scheduler = new IpoSyncScheduler(enabledProps, filterProps, dartClient, repository, alertLog, publisher,
+                clock);
+        scheduler.evaluateFilter(deal);
+
+        scheduler.weeklySummary();
+        scheduler.weeklySummary();
+
+        var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
+        verify(publisher, times(1)).publishEvent(captor.capture());
+        assertEquals("WEEKLY", captor.getValue().phase());
+        assertTrue(captor.getValue().message().startsWith("[이번 주 공모주] 10/19(월)~10/25(일) — 청약 1건 · 상장 0건\n· 청약 "
+                + "10/20(화)~10/21(수) 한울반도체(SK증권) — 균등만(점수 +2)"), captor.getValue().message());
+        assertEquals("WEEKLY|WEEKLY|2026-10-19", alertRows.get(0).key());
+    }
+
+    @Test
+    void 상장일_시초가를_받으면_관심_딜에만_한_번_수익률을_알린다() {
+        LocalDate today = LocalDate.of(2026, 10, 15);
+        IpoDealEntity deal = jincostech();
+        deal.applyFinalPrice(new BigDecimal("23500"), null, null, Instant.now());
+        deal.applyListing("250030", today, Instant.now());
+        deal.applyRecord(20, null, 10, null, null, null, Instant.now());
+        when(repository.findAll()).thenReturn(List.of(deal));
+        IpoSyncScheduler scheduler = new IpoSyncScheduler(enabledProps, filterProps, dartClient, repository, alertLog, publisher,
+                new MutableClock(LocalDateTime.of(2026, 10, 15, 9, 5)));
+        var event = new com.autostock.common.event.ListingOpenPrices(today, List.of(
+                new com.autostock.common.event.ListingOpenPrices.Entry("250030", "진코스텍", new BigDecimal("47000"), null)));
+
+        scheduler.onListingOpenPrices(event);
+        scheduler.onListingOpenPrices(event);
+
+        var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
+        verify(publisher, times(1)).publishEvent(captor.capture());
+        assertEquals("[상장 시초가] 진코스텍(250030) — 시초가 47,000원, 공모가 23,500원 대비 +100.0%, 배정 10주 기준 차익 약 235,000원"
+                + "(수수료·세금 전). 기본 기준: 시초가 매도. 매도는 영웅문S#에서 수동.", captor.getValue().message());
     }
 }
