@@ -20,6 +20,7 @@ import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -29,7 +30,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 class ApiExceptionHandlerTest {
 
     private final MockMvc mvc = MockMvcBuilders.standaloneSetup(new ProbeController())
-            .setControllerAdvice(new ApiExceptionHandler()).build();
+            .setControllerAdvice(new ApiExceptionHandler()).addFilters(new TraceIds()).build();
 
     @Test
     void 검증_실패는_400_VALIDATION_FAILED와_필드별_오류_목록이다() throws Exception {
@@ -80,6 +81,39 @@ class ApiExceptionHandlerTest {
                 .andExpect(jsonPath("$.code").value("INTERNAL_ERROR"))
                 .andExpect(content().string(not(containsString("SELECT"))))
                 .andExpect(content().string(not(containsString("NullPointer"))));
+    }
+
+    @Test
+    void 오류에는_공통_칸_type_retryable_trace_id가_붙고_헤더와_같은_추적_ID다() throws Exception {
+        var result = mvc.perform(get("/probe/conflict"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.type").value("urn:valunivo:CONFLICT"))
+                .andExpect(jsonPath("$.code").value("CONFLICT"))
+                .andExpect(jsonPath("$.retryable").value(false))
+                .andExpect(jsonPath("$.trace_id").value(org.hamcrest.Matchers.matchesPattern("[0-9a-f]{32}")))
+                .andReturn();
+        String header = result.getResponse().getHeader(TraceIds.HEADER);
+        org.junit.jupiter.api.Assertions.assertEquals(header,
+                com.jayway.jsonpath.JsonPath.read(result.getResponse().getContentAsString(), "$.trace_id"));
+    }
+
+    @Test
+    void 프레임워크_오류에도_공통_칸이_붙는다() throws Exception {
+        mvc.perform(post("/probe/validate").contentType(MediaType.APPLICATION_JSON).content("{not json"))
+                .andExpect(jsonPath("$.type").value("urn:valunivo:MALFORMED_REQUEST"))
+                .andExpect(jsonPath("$.retryable").value(false))
+                .andExpect(jsonPath("$.trace_id").isNotEmpty());
+    }
+
+    @Test
+    void 올바른_traceparent는_그_trace_id를_잇고_틀리면_새로_만든다() throws Exception {
+        String id = "4bf92f3577b34da6a3ce929d0e0e4736";
+        mvc.perform(get("/probe/boom").header("traceparent", "00-" + id + "-00f067aa0ba902b7-01"))
+                .andExpect(header().string(TraceIds.HEADER, id))
+                .andExpect(jsonPath("$.trace_id").value(id));
+        mvc.perform(get("/probe/boom").header("traceparent", "00-" + "0".repeat(32) + "-00f067aa0ba902b7-01"))
+                .andExpect(header().string(TraceIds.HEADER, not(id)))
+                .andExpect(header().string(TraceIds.HEADER, org.hamcrest.Matchers.matchesPattern("[0-9a-f]{32}")));
     }
 
     @Test

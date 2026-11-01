@@ -18,6 +18,7 @@ import org.springframework.web.context.request.WebRequest;
 import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
 
+import java.net.URI;
 import java.util.List;
 import java.util.Map;
 
@@ -25,6 +26,8 @@ import java.util.Map;
  * API 오류 응답을 한 곳에서 만든다 — RFC 9457 ProblemDetail({@code application/problem+json}) + 기계용
  * {@code code}(ErrorCode). Spring MVC 표준 예외는 상위 클래스가 ProblemDetail로 만들고 여기서 code만 붙인다.
  * 내부 원인(예외 메시지·스택·SQL)은 서버 로그에만 남긴다(§5.5, §6).
+ * VALUNIVO 공통 칸(4-2 S4): {@code type=urn:valunivo:코드}, {@code retryable}(429·503만 true, 플랫폼과 같음),
+ * {@code trace_id}(응답 헤더 {@code X-Trace-Id}와 같은 값, {@link TraceIds}). 기존 {@code code}는 소비자 보호를 위해 그대로 둔다.
  */
 @RestControllerAdvice
 public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
@@ -105,6 +108,9 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
                 && (problem.getProperties() == null || !problem.getProperties().containsKey("code"))) {
             problem.setProperty("code", ErrorCode.fromStatus(response.getStatusCode().value()).name());
         }
+        if (response != null && response.getBody() instanceof ProblemDetail problem) {
+            common(problem);
+        }
         return response;
     }
 
@@ -120,7 +126,18 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
         return body;
     }
 
+    /** 공통 칸을 붙인다. 주문처럼 멱등하지 않은 요청이 있어 502 브로커 실패도 retryable=false다. */
+    private static void common(ProblemDetail body) {
+        Object code = body.getProperties() == null ? null : body.getProperties().get("code");
+        if (code != null) {
+            body.setType(URI.create("urn:valunivo:" + code));
+        }
+        body.setProperty("retryable", body.getStatus() == 429 || body.getStatus() == 503);
+        TraceIds.current().ifPresent(id -> body.setProperty("trace_id", id));
+    }
+
     private static ResponseEntity<ProblemDetail> response(ProblemDetail body) {
+        common(body);
         return ResponseEntity.status(body.getStatus()).body(body);
     }
 }
