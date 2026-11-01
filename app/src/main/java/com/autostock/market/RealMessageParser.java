@@ -8,7 +8,7 @@ import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
-import com.fasterxml.jackson.databind.JsonNode;
+import tools.jackson.databind.JsonNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,7 +55,7 @@ final class RealMessageParser {
      * @return type이 0B면 MarketTick, 00이면 OrderNotice, 그 외/필수값 누락이면 null
      */
     static Object parse(JsonNode data, Clock clock) {
-        String type = data.path("type").asText("");
+        String type = data.path("type").asString("");
         return switch (type) {
             case TYPE_TICK -> parseTick(data, clock);
             case TYPE_ORDER_NOTICE -> parseOrderNotice(data, clock);
@@ -71,9 +71,9 @@ final class RealMessageParser {
      * (필요해지면 MarketTick 확장 또는 별도 이벤트로 다룰 것).
      */
     private static MarketTick parseTick(JsonNode data, Clock clock) {
-        String rawSymbol = data.path("item").asText("").trim();
+        String rawSymbol = data.path("item").asString("").trim();
         JsonNode values = data.path("values");
-        String priceRaw = values.path("10").asText("");
+        String priceRaw = values.path("10").asString("");
         if (rawSymbol.isEmpty() || priceRaw.isEmpty()) {
             return null;
         }
@@ -93,8 +93,8 @@ final class RealMessageParser {
         }
         // FID 15(체결량)도 같은 이유로 부호가 붙는다(+매수 주도/-매도 주도) — MarketTick.volume은
         // 방향이 아니라 크기만 의미하므로 부호를 벗긴다.
-        long volume = KiwoomNumbers.toLongOrZero(values.path("15").asText(""));
-        Instant timestamp = parseTickTimestamp(values.path("20").asText(""), clock);
+        long volume = KiwoomNumbers.toLongOrZero(values.path("15").asString(""));
+        Instant timestamp = parseTickTimestamp(values.path("20").asString(""), clock);
         return new MarketTick(symbol, new Price(price), volume, timestamp, MarketTick.Source.LIVE);
     }
 
@@ -127,7 +127,7 @@ final class RealMessageParser {
      */
     private static OrderNotice parseOrderNotice(JsonNode data, Clock clock) {
         JsonNode values = data.path("values");
-        String rawBrokerOrderId = values.path("9203").asText("").trim();
+        String rawBrokerOrderId = values.path("9203").asString("").trim();
         if (rawBrokerOrderId.isEmpty()) {
             // 주문번호가 없으면 어떤 주문의 통보인지 알 수 없어 매핑 불가능 — 버린다
             return null;
@@ -138,14 +138,14 @@ final class RealMessageParser {
         }
         BrokerOrderId brokerOrderId = new BrokerOrderId(rawBrokerOrderId);
         // 종목코드는 비거나 형식이 틀려도 통보를 버리지 않는다 — 체결 유실이 더 위험하다(소비자는 DB 주문 종목을 쓴다)
-        String rawSymbol = values.path("9001").asText("").trim();
+        String rawSymbol = values.path("9001").asString("").trim();
         StockCode symbol = rawSymbol.matches(StockCode.PATTERN) ? new StockCode(rawSymbol) : null;
-        String status = values.path("913").asText("");
-        long filledQuantity = KiwoomNumbers.toLongOrZero(values.path("911").asText(""));
-        Price fillPrice = fillPriceOf(values.path("910").asText(""), rawBrokerOrderId);
+        String status = values.path("913").asString("");
+        long filledQuantity = KiwoomNumbers.toLongOrZero(values.path("911").asString(""));
+        Price fillPrice = fillPriceOf(values.path("910").asString(""), rawBrokerOrderId);
         // FID 902(미체결 잔량) — 필드가 아예 없으면(과거 픽스처 등) -1(알 수 없음)로 구분한다.
         // "0"으로 실제로 온 경우와 필드 자체가 없는 경우를 섞으면 안 되기 때문.
-        String remainingRaw = values.path("902").asText("");
+        String remainingRaw = values.path("902").asString("");
         long remainingQuantity = remainingRaw.isEmpty() ? -1L : KiwoomNumbers.toLongOrZero(remainingRaw);
         return new OrderNotice(brokerOrderId, symbol, status, filledQuantity, fillPrice,
                 remainingQuantity, TYPE_ORDER_NOTICE, clock.instant());

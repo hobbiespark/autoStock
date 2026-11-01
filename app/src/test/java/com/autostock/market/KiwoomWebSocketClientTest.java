@@ -3,7 +3,7 @@ package com.autostock.market;
 import com.autostock.common.event.MarketDataStale;
 import com.autostock.kiwoom.KiwoomProperties;
 import com.autostock.kiwoom.TokenManager;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -178,9 +178,9 @@ class KiwoomWebSocketClientTest {
         assertEquals(2, sent.size());
         assertTrue(sent.get(0).contains("\"00\"") && sent.get(0).contains("\"grp_no\":\"2\""));
         var reg = new ObjectMapper().readTree(sent.get(1));
-        assertEquals("REG", reg.path("trnm").asText());
+        assertEquals("REG", reg.path("trnm").asString());
         assertEquals(23, reg.path("data").get(0).path("item").size());
-        assertEquals("0B", reg.path("data").get(0).path("type").get(0).asText());
+        assertEquals("0B", reg.path("data").get(0).path("type").get(0).asString());
     }
 
     @Test
@@ -450,8 +450,8 @@ class KiwoomWebSocketClientTest {
                 "{\"trnm\":\"REAL\",\"data\":[{\"type\":\"00\",\"name\":\"주문체결\",\"values\":{\"9203\":\"0064217\",\"913\":\"확인\"}},"
                         + "{\"type\":\"04\",\"item\":\"005930\",\"values\":{\"930\":\"192\"}}]}"));
 
-        var captor = org.mockito.ArgumentCaptor.forClass(com.fasterxml.jackson.databind.JsonNode.class);
+        var captor = org.mockito.ArgumentCaptor.forClass(tools.jackson.databind.JsonNode.class);
         org.mockito.Mockito.verify(recorder, org.mockito.Mockito.times(1)).record(captor.capture());
-        assertEquals("확인", captor.getValue().path("values").path("913").asText());
+        assertEquals("확인", captor.getValue().path("values").path("913").asString());
     }
 }

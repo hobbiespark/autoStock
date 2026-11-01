@@ -1,5 +1,5 @@
 package com.autostock.monitor.control;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
@@ -21,7 +21,7 @@ public final class StockControlResultIssuer {
    for(String field:List.of("autostock-telegram-control-result-proof-v1",kid,issued.toString(),expires.toString(),encoded)){byte[] utf8=field.getBytes(StandardCharsets.UTF_8);framed.writeInt(utf8.length);framed.write(utf8);}
    var signature=Signature.getInstance("Ed25519");signature.initSign(key);signature.update(bytes.toByteArray());byte[] result=json.writeValueAsBytes(Map.of("contract_version","1.0","key_id",kid,"issued_at",issued.toString(),"expires_at",expires.toString(),"statement_base64",encoded,"signature",Base64.getEncoder().encodeToString(signature.sign())));
    if(result.length>32768)throw denied();verifier.requireVerified(value);if(!clock.instant().isBefore(expires))throw denied();return result;
-  }catch(GeneralSecurityException|IOException invalid){throw denied();}
+  }catch(GeneralSecurityException|IOException|tools.jackson.core.JacksonException invalid){throw denied();}
  }
  private static SecurityException denied(){return new SecurityException("stock-control-result-issue-denied");}
 }

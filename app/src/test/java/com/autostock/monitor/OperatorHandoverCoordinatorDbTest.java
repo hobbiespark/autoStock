@@ -4,7 +4,7 @@ import com.autostock.monitor.control.*;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.KillSwitch;
 import com.autostock.support.PostgresDataJpaTest;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import javax.sql.DataSource;

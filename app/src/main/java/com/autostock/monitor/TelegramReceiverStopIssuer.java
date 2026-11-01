@@ -1,6 +1,7 @@
 package com.autostock.monitor;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.ByteArrayOutputStream;
 import java.io.DataOutputStream;
@@ -49,7 +50,7 @@ public final class TelegramReceiverStopIssuer {
             var still = store.active();
             if (still.isEmpty() || !still.get().equals(stop) || !clock.instant().isBefore(expires)) throw denied();
             return envelope;
-        } catch (GeneralSecurityException | IOException invalid) {
+        } catch (GeneralSecurityException | IOException | JacksonException invalid) {
             throw denied();
         }
     }

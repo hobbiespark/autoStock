@@ -8,7 +8,7 @@ import com.autostock.kiwoom.KiwoomRestClient;
 import com.autostock.kiwoom.TrId;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.risk.KillSwitch;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;

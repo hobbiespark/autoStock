@@ -1,5 +1,5 @@
 package com.autostock.monitor.control;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.databind.*;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.security.*;
@@ -29,7 +29,7 @@ class StockControlVerifierTest {
  }
  @Test void signedWrongSpaceTamperedPayloadAndMalformedUnsignedRequestAreDenied()throws Exception{
   assertThrows(SecurityException.class,()->verifier().verify(proof(StockControlWire.encode(request("sp_other")),NOW,NOW.plusSeconds(30),pair.getPrivate(),"valunivo-telegram-stock-control-proof-v1")));
-  var tampered=json.readTree(valid());((com.fasterxml.jackson.databind.node.ObjectNode)tampered).put("request_base64",Base64.getEncoder().encodeToString(StockControlWire.encode(request("sp_other"))));assertThrows(SecurityException.class,()->verifier().verify(json.writeValueAsBytes(tampered)));
+  var tampered=json.readTree(valid());((tools.jackson.databind.node.ObjectNode)tampered).put("request_base64",Base64.getEncoder().encodeToString(StockControlWire.encode(request("sp_other"))));assertThrows(SecurityException.class,()->verifier().verify(json.writeValueAsBytes(tampered)));
   assertThrows(SecurityException.class,()->verifier().verify(proof("{}".getBytes(StandardCharsets.UTF_8),NOW,NOW.plusSeconds(30),pair.getPrivate(),"valunivo-telegram-stock-control-proof-v1")));
  }
  @Test void deadlineIsCheckedAgainAndOldProofCannotBeRenewedByObservation()throws Exception{

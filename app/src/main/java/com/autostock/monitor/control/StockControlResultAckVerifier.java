@@ -1,6 +1,6 @@
 package com.autostock.monitor.control;
-import com.fasterxml.jackson.core.*;
-import com.fasterxml.jackson.databind.*;
+import tools.jackson.core.*;
+import tools.jackson.databind.*;
 import java.io.*;
 import java.nio.*;
 import java.nio.charset.*;
@@ -20,7 +20,7 @@ public final class StockControlResultAckVerifier {
  }
  private static final Set<String> ENVELOPE=Set.of("contract_version","key_id","issued_at","expires_at","statement_base64","signature");
  private static final Set<String> STATEMENT=Set.of("contract_version","app_id","bot_ref","space_id","actor_ref","source_update_id","attempt_id","request_sha256","outcome","result_sha256","result_proof_sha256","platform_recorded_at");
- private static final ObjectMapper JSON=new ObjectMapper(JsonFactory.builder().streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(2).maxStringLength(6000).maxNumberLength(20).build()).enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build()).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+ private static final ObjectMapper JSON=tools.jackson.databind.json.JsonMapper.builder(tools.jackson.core.json.JsonFactory.builder().streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(2).maxStringLength(6000).maxNumberLength(20).build()).enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build()).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
  private final String keyId,bot,space,actor;private final PublicKey key;private final Clock clock;
  public StockControlResultAckVerifier(String keyId,PublicKey key,String bot,String space,String actor,Clock clock){
   if(keyId==null||!keyId.matches("[A-Za-z0-9_-]{1,80}")||!(key instanceof EdECPublicKey ed)||!ed.getParams().getName().equals("Ed25519")||bot==null||!bot.matches("[a-f0-9]{64}")||space==null||!space.matches("[A-Za-z0-9_-]{1,80}")||actor==null||!actor.matches("[a-f0-9]{64}")||clock==null)throw new IllegalArgumentException("invalid-stock-result-ack-trust");
@@ -43,8 +43,8 @@ public final class StockControlResultAckVerifier {
  public void requireVerified(Verified value){if(value==null||value.owner!=this)throw denied();fresh(value.issued,value.expires);}
  private void fresh(Instant issued,Instant expires){Instant now=clock.instant();if(!expires.isAfter(issued)||expires.isAfter(issued.plusSeconds(30))||issued.isAfter(now)||!now.isBefore(expires))throw denied();}
  private static JsonNode parse(byte[] raw)throws Exception{return JSON.readTree(StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(raw)).toString());}
- private static void fields(JsonNode root,Set<String> expected){if(root==null||!root.isObject())throw denied();var actual=new HashSet<String>();root.fieldNames().forEachRemaining(actual::add);if(!actual.equals(expected))throw denied();}
+ private static void fields(JsonNode root,Set<String> expected){if(root==null||!root.isObject())throw denied();var actual=new HashSet<String>();root.propertyNames().forEach(actual::add);if(!actual.equals(expected))throw denied();}
  private static byte[] base64(String text,int maximum){byte[] bytes=Base64.getDecoder().decode(text);if(bytes.length>maximum||!Base64.getEncoder().encodeToString(bytes).equals(text))throw denied();return bytes;}
- private static String text(JsonNode root,String field){var value=root.get(field);if(value==null||!value.isTextual())throw denied();return value.textValue();}
+ private static String text(JsonNode root,String field){var value=root.get(field);if(value==null||!value.isString())throw denied();return value.stringValue();}
  private static SecurityException denied(){return new SecurityException("stock-result-ack-denied");}
 }

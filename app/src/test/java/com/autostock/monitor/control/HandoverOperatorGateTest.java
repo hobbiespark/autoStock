@@ -1,6 +1,6 @@
 package com.autostock.monitor.control;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
@@ -16,10 +16,10 @@ class HandoverOperatorGateTest {
  final Time clock=new Time();final byte[] key=new byte[32];final ObjectMapper json=new ObjectMapper();final HandoverOperatorGate gate=new HandoverOperatorGate(KID,key,INSTANCE,clock);
  ObjectNode body(String action){var n=json.createObjectNode();n.put("contract_version","1.0");n.put("request_id",UUID.randomUUID().toString());n.put("action",action);n.put("instance_id",INSTANCE);n.putNull("expected_active_stop_id");if(action.equals("observe"))n.put("target_request_id",UUID.randomUUID().toString());else n.putNull("target_request_id");n.put("issued_at",NOW.toString());n.put("expires_at",NOW.plusSeconds(30).toString());return n;}
  String mac(String path,byte[] bytes,String domain,byte[] secret)throws Exception{var buffer=new ByteArrayOutputStream();var framed=new DataOutputStream(buffer);for(String value:List.of(domain,KID,"POST",path)){byte[] raw=value.getBytes(StandardCharsets.UTF_8);framed.writeInt(raw.length);framed.write(raw);}framed.writeInt(bytes.length);framed.write(bytes);var mac=Mac.getInstance("HmacSHA256");mac.init(new SecretKeySpec(secret,"HmacSHA256"));return HexFormat.of().formatHex(mac.doFinal(buffer.toByteArray()));}
- HandoverOperatorGate.Verified verify(ObjectNode node)throws Exception{byte[] bytes=json.writeValueAsBytes(node);String path="/receiver-handover/"+node.get("action").textValue();return gate.verify("POST",path,KID,mac(path,bytes,DOMAIN,key),bytes);}
+ HandoverOperatorGate.Verified verify(ObjectNode node)throws Exception{byte[] bytes=json.writeValueAsBytes(node);String path="/receiver-handover/"+node.get("action").stringValue();return gate.verify("POST",path,KID,mac(path,bytes,DOMAIN,key),bytes);}
  void deniedRaw(byte[] bytes,String path)throws Exception{String signature=mac(path,bytes,DOMAIN,key);assertEquals("operator-handover-denied",assertThrows(SecurityException.class,()->gate.verify("POST",path,KID,signature,bytes)).getMessage());}
  @Test void stopAndObserveProduceOnlyPrivateVerifiedRequest()throws Exception{
-  for(String action:List.of("stop","observe")){var n=body(action);var verified=verify(n);gate.requireVerified(verified);assertEquals(action,verified.request().action().name());assertEquals(INSTANCE,verified.request().instanceId());assertEquals(64,verified.fingerprint().length());assertFalse(verified.toString().contains(n.get("request_id").textValue()));assertEquals(action.equals("observe"),verified.request().targetRequestId()!=null);}
+  for(String action:List.of("stop","observe")){var n=body(action);var verified=verify(n);gate.requireVerified(verified);assertEquals(action,verified.request().action().name());assertEquals(INSTANCE,verified.request().instanceId());assertEquals(64,verified.fingerprint().length());assertFalse(verified.toString().contains(n.get("request_id").stringValue()));assertEquals(action.equals("observe"),verified.request().targetRequestId()!=null);}
   for(var ctor:HandoverOperatorGate.Verified.class.getDeclaredConstructors())assertTrue(java.lang.reflect.Modifier.isPrivate(ctor.getModifiers()));
  }
  @Test void methodPathKeyPurposeMacAndBodyAreBound()throws Exception{

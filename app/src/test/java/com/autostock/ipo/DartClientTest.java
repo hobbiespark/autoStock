@@ -1,6 +1,6 @@
 package com.autostock.ipo;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.web.reactive.function.client.WebClient;

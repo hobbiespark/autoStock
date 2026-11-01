@@ -4,10 +4,10 @@ import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.jackson2.autoconfigure.Jackson2AutoConfiguration;
+import org.springframework.boot.jackson.autoconfigure.JacksonAutoConfiguration;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,7 +23,7 @@ class ValueObjectJsonTest {
     }
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
-            .withConfiguration(AutoConfigurations.of(Jackson2AutoConfiguration.class))
+            .withConfiguration(AutoConfigurations.of(JacksonAutoConfiguration.class))
             .withUserConfiguration(JacksonConfig.class);
 
     @Test

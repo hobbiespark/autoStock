@@ -1,6 +1,6 @@
 package com.autostock.monitor;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 import java.net.URI;
@@ -83,7 +83,7 @@ public class PlatformTelegramBridge {
             var replies=json.readTree(call("/replies","GET",null));
             if(!replies.isArray()||replies.size()>5)throw new IllegalStateException("Invalid reply batch");
             for(var reply:replies) {
-                String id=reply.path("updateId").asText();String text=reply.path("text").asText();
+                String id=reply.path("updateId").asString();String text=reply.path("text").asString();
                 if(!id.matches("(?:[1-9][0-9]{0,18}|r_[0-9A-Z]{26})")||text.isBlank()||text.length()>3000)throw new IllegalStateException("Invalid reply");
                 send("[VALUNIVO] "+text);call("/replies/"+id+"/ack","POST","{}");
                 Thread.sleep(1100);

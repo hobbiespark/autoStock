@@ -1,9 +1,9 @@
 package com.autostock.market;
 
 import com.autostock.common.util.MarketConstants;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -65,7 +65,7 @@ public class OrderNoticeRecorder {
             JsonNode copy = data.deepCopy();
             if (copy.path("values") instanceof ObjectNode values) {
                 for (String fid : MASKED_FIDS) {
-                    if (values.hasNonNull(fid) && !values.get(fid).asText().isBlank()) {
+                    if (values.hasNonNull(fid) && !values.get(fid).asString().isBlank()) {
                         values.put(fid, "****");
                     }
                 }

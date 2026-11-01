@@ -1,7 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.support.PostgresDataJpaTest;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,21 +43,21 @@ class TelegramReceiverStopIssuerDbTest extends PostgresDataJpaTest {
         var stop = store.recordStopped(43, true, "pc-1");
         byte[] envelope = issuer.issue();
         var outer = json.readTree(envelope);
-        var names = new HashSet<String>(); outer.fieldNames().forEachRemaining(names::add);
+        var names = new HashSet<String>(); names.addAll(outer.propertyNames());
         assertEquals(Set.of("contract_version", "key_id", "issued_at", "expires_at", "statement_base64", "signature"), names);
-        assertEquals(clock.instant().plusSeconds(30).toString(), outer.get("expires_at").textValue());
+        assertEquals(clock.instant().plusSeconds(30).toString(), outer.get("expires_at").stringValue());
         var bytes = new ByteArrayOutputStream(); var framed = new DataOutputStream(bytes);
-        for (String field : List.of("autostock-telegram-receiver-stopped-v1", "autostock_stop_test", outer.get("issued_at").textValue(), outer.get("expires_at").textValue(), outer.get("statement_base64").textValue())) {
+        for (String field : List.of("autostock-telegram-receiver-stopped-v1", "autostock_stop_test", outer.get("issued_at").stringValue(), outer.get("expires_at").stringValue(), outer.get("statement_base64").stringValue())) {
             byte[] utf8 = field.getBytes(StandardCharsets.UTF_8); framed.writeInt(utf8.length); framed.write(utf8);
         }
         var check = Signature.getInstance("Ed25519"); check.initVerify(pair.getPublic()); check.update(bytes.toByteArray());
-        assertTrue(check.verify(Base64.getDecoder().decode(outer.get("signature").textValue())));
-        var statement = json.readTree(Base64.getDecoder().decode(outer.get("statement_base64").textValue()));
+        assertTrue(check.verify(Base64.getDecoder().decode(outer.get("signature").stringValue())));
+        var statement = json.readTree(Base64.getDecoder().decode(outer.get("statement_base64").stringValue()));
         assertEquals(8, statement.size());
-        assertEquals(stop.stopId().toString(), statement.get("stop_id").textValue());
-        assertEquals("43", statement.get("confirmed_next_offset").textValue());
+        assertEquals(stop.stopId().toString(), statement.get("stop_id").stringValue());
+        assertEquals("43", statement.get("confirmed_next_offset").stringValue());
         assertTrue(statement.get("pending_resume_dropped").booleanValue());
-        assertEquals(stop.recordedAt().toString(), statement.get("stopped_at").textValue());
+        assertEquals(stop.recordedAt().toString(), statement.get("stopped_at").stringValue());
         String directory = System.getenv("AUTOSTOCK_RECEIVER_STOP_INTEROP_DIR");
         if (directory != null && !directory.isBlank()) {
             Path root = Path.of(directory); Files.createDirectories(root);

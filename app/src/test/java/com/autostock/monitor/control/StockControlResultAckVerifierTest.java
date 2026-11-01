@@ -1,6 +1,6 @@
 package com.autostock.monitor.control;
-import com.fasterxml.jackson.databind.*;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.*;
+import tools.jackson.databind.node.ObjectNode;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
@@ -40,9 +40,9 @@ class StockControlResultAckVerifierTest {
  }
  @Test void verifiesActualPlatformAckFixturesAndRejectsTampering()throws Exception{
   String directory=System.getenv("AUTOSTOCK_RESULT_ACK_INTEROP_DIR");org.junit.jupiter.api.Assumptions.assumeTrue(directory!=null&&!directory.isBlank(),"explicit synthetic public fixture required");Path root=Path.of(directory);var metadata=json.readTree(Files.readAllBytes(root.resolve("ack-public-metadata.json")));
-  var key=KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(metadata.get("public_key").textValue())));var verifier=new StockControlResultAckVerifier(metadata.get("key_id").textValue(),key,metadata.get("bot_ref").textValue(),"sp_self","b".repeat(64),Clock.fixed(Instant.parse(metadata.get("now").textValue()),ZoneOffset.UTC));
-  for(String outcome:List.of("succeeded","failed")){String id=outcome.equals("succeeded")?"50":"51";byte[] raw=Files.readAllBytes(root.resolve("ack-"+outcome+".json"));var value=verifier.verify(raw);var expected=metadata.get("bindings").get(id);var ack=value.ack();assertEquals(id,ack.sourceUpdateId());assertEquals(expected.get("attempt_id").textValue(),ack.attemptId().toString());assertEquals(expected.get("request_sha256").textValue(),ack.requestFingerprint());assertEquals(expected.get("result_sha256").textValue(),ack.resultSha256());assertEquals(outcome,ack.outcome());
-   var tampered=(ObjectNode)json.readTree(raw);var s=(ObjectNode)json.readTree(Base64.getDecoder().decode(tampered.get("statement_base64").textValue()));s.put("result_sha256","0".repeat(64));tampered.put("statement_base64",Base64.getEncoder().encodeToString(json.writeValueAsBytes(s)));assertThrows(SecurityException.class,()->verifier.verify(json.writeValueAsBytes(tampered)));
-   var asResultProof=new StockControlVerifier(metadata.get("key_id").textValue(),key,metadata.get("bot_ref").textValue(),"sp_self","b".repeat(64),Clock.fixed(Instant.parse(metadata.get("now").textValue()),ZoneOffset.UTC));assertThrows(SecurityException.class,()->asResultProof.verify(raw));}
+  var key=KeyFactory.getInstance("Ed25519").generatePublic(new X509EncodedKeySpec(Base64.getDecoder().decode(metadata.get("public_key").stringValue())));var verifier=new StockControlResultAckVerifier(metadata.get("key_id").stringValue(),key,metadata.get("bot_ref").stringValue(),"sp_self","b".repeat(64),Clock.fixed(Instant.parse(metadata.get("now").stringValue()),ZoneOffset.UTC));
+  for(String outcome:List.of("succeeded","failed")){String id=outcome.equals("succeeded")?"50":"51";byte[] raw=Files.readAllBytes(root.resolve("ack-"+outcome+".json"));var value=verifier.verify(raw);var expected=metadata.get("bindings").get(id);var ack=value.ack();assertEquals(id,ack.sourceUpdateId());assertEquals(expected.get("attempt_id").stringValue(),ack.attemptId().toString());assertEquals(expected.get("request_sha256").stringValue(),ack.requestFingerprint());assertEquals(expected.get("result_sha256").stringValue(),ack.resultSha256());assertEquals(outcome,ack.outcome());
+   var tampered=(ObjectNode)json.readTree(raw);var s=(ObjectNode)json.readTree(Base64.getDecoder().decode(tampered.get("statement_base64").stringValue()));s.put("result_sha256","0".repeat(64));tampered.put("statement_base64",Base64.getEncoder().encodeToString(json.writeValueAsBytes(s)));assertThrows(SecurityException.class,()->verifier.verify(json.writeValueAsBytes(tampered)));
+   var asResultProof=new StockControlVerifier(metadata.get("key_id").stringValue(),key,metadata.get("bot_ref").stringValue(),"sp_self","b".repeat(64),Clock.fixed(Instant.parse(metadata.get("now").stringValue()),ZoneOffset.UTC));assertThrows(SecurityException.class,()->asResultProof.verify(raw));}
  }
 }

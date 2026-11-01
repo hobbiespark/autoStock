@@ -3,7 +3,7 @@ package com.autostock.monitor;
 import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.MarketConstants;
 import com.autostock.common.util.StockNames;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.EventListener;

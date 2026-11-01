@@ -1,7 +1,7 @@
 package com.autostock.monitor.control;
 import com.autostock.support.PostgresDataJpaTest;
 import com.autostock.support.PostgresTestDatabase;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.node.ObjectNode;
 import javax.sql.DataSource;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.junit.jupiter.api.Test;

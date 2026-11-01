@@ -2,7 +2,7 @@ package com.autostock.market;
 
 import com.autostock.kiwoom.KiwoomProperties;
 import com.autostock.kiwoom.TokenManager;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;

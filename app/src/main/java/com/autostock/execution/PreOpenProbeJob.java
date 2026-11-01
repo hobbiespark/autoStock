@@ -8,7 +8,8 @@ import com.autostock.kiwoom.KiwoomRestClient;
 import com.autostock.kiwoom.TrId;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.market.MarketDataPort;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -278,7 +279,7 @@ public class PreOpenProbeJob {
         try {
             Files.write(dir().resolve("pre_open_%s_summary.json".formatted(today.format(DateTimeFormatter.BASIC_ISO_DATE))),
                     objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(summary));
-        } catch (IOException e) {
+        } catch (IOException | JacksonException e) {
             log.warn("장전 키움 응답 실측 요약 저장 실패 — {}", e.getMessage());
         }
         if (errorCount > 0) {

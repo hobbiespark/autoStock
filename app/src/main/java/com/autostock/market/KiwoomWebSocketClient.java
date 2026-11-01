@@ -4,8 +4,8 @@ import com.autostock.common.event.MarketDataStale;
 import com.autostock.common.util.StockNames;
 import com.autostock.kiwoom.KiwoomProperties;
 import com.autostock.kiwoom.TokenManager;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -540,7 +540,7 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
     protected void handleTextMessage(WebSocketSession current, TextMessage message) throws Exception {
         lastMessageAt.set(clock.instant());
         JsonNode root = objectMapper.readTree(message.getPayload());
-        String trnm = root.path("trnm").asText();
+        String trnm = root.path("trnm").asString();
         if ("PING".equals(trnm)) {
             current.sendMessage(message); // PING은 그대로 응답 (실측: 서버가 약 10초 간격 전송)
             return;
@@ -556,14 +556,14 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                 // (신규 연결·재연결 모두 이 경로 하나로 처리 = 등록 누락 방지).
                 registerAll(current);
                 log.info("WS 로그인 성공(sor_yn={}) — 체결통보 + 재구독 {}종목 등록 (REG {}건)",
-                        root.path("sor_yn").asText(), subscribedSymbols.size(),
+                        root.path("sor_yn").asString(), subscribedSymbols.size(),
                         1 + chunkCount(subscribedSymbols.size()));
             } else {
                 // 인증 실패 — 이 연결로는 어떤 REG도 유효하지 않다. 토큰을 폐기하고 닫아서 watchdog이
                 // 새 토큰으로 재연결하게 한다. 폐기하지 않으면 캐시상 유효한 같은 토큰으로 계속 재로그인해
                 // 실패가 반복된다(2026-09-30 REST 8005 실측과 같은 경로). 폐기 빈도는 TokenManager가 제한한다.
                 log.error("WS 로그인 실패 return_code={} msg={} — 토큰 폐기 후 연결을 닫고 재연결에 맡긴다",
-                        returnCode, root.path("return_msg").asText());
+                        returnCode, root.path("return_msg").asString());
                 tokenManager.invalidate(loginToken.get());
                 current.close();
             }
@@ -575,7 +575,7 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
                 // 실측 예: 100013 = 인증 전 REG(무시됨), 105110 = REG 요청 건수 초과(2026-10-16). 0이 아니면 그 구독은
                 // 살아있지 않다 — 어느 REG인지 응답이 알려 주지 않으므로 잠시 뒤 전체를 다시 등록한다.
                 boolean willRetry = regRetriesLeft.get() > 0;
-                log.warn("WS REG 거절 return_code={} msg={} — {}", returnCode, root.path("return_msg").asText(),
+                log.warn("WS REG 거절 return_code={} msg={} — {}", returnCode, root.path("return_msg").asString(),
                         willRetry ? REG_RETRY_DELAY.toSeconds() + "초 뒤 체결통보·시세 전체 재등록"
                                 : "재등록 횟수 소진(이 연결) — 체결통보가 안 올 수 있다, 다음 재연결에서 다시 등록");
                 scheduleReRegister(current);
@@ -587,7 +587,7 @@ public class KiwoomWebSocketClient extends TextWebSocketHandler {
         if ("REAL".equals(trnm)) {
             for (JsonNode data : root.path("data")) {
                 OrderNoticeRecorder recorder = orderNoticeRecorder;
-                if (recorder != null && "00".equals(data.path("type").asText())) {
+                if (recorder != null && "00".equals(data.path("type").asString())) {
                     recorder.record(data);   // 주문체결통보 원문 기록(실측) — 해석과 상관없이 먼저 남긴다
                 }
                 // type에 따라 MarketTick(0B) 또는 OrderNotice(00)로 변환됨. 그 외 타입은 null.

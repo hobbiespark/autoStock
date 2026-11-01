@@ -1,7 +1,7 @@
 package com.autostock.market;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -46,9 +46,9 @@ class OrderNoticeRecorderTest {
         List<String> lines = Files.readAllLines(dir.resolve("ws_orders_20261008.jsonl"), StandardCharsets.UTF_8);
         assertEquals(2, lines.size());
         JsonNode line = objectMapper.readTree(lines.get(0));
-        assertEquals("2026-10-08T10:00:17+09:00", line.path("receivedAt").asText());
-        assertEquals("****", line.path("data").path("values").path("9201").asText());
-        assertEquals("0063988", line.path("data").path("values").path("904").asText());   // 원주문번호 등은 그대로
+        assertEquals("2026-10-08T10:00:17+09:00", line.path("receivedAt").asString());
+        assertEquals("****", line.path("data").path("values").path("9201").asString());
+        assertEquals("0063988", line.path("data").path("values").path("904").asString());   // 원주문번호 등은 그대로
         assertFalse(lines.get(0).contains("1234567890"));
     }
 
@@ -59,7 +59,7 @@ class OrderNoticeRecorderTest {
 
         recorder.record(original);
 
-        assertEquals("1234567890", original.path("values").path("9201").asText());   // 해석(RealMessageParser)은 원본을 쓴다
+        assertEquals("1234567890", original.path("values").path("9201").asString());   // 해석(RealMessageParser)은 원본을 쓴다
     }
 
     @Test

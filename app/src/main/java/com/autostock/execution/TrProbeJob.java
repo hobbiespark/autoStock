@@ -11,8 +11,9 @@ import com.autostock.kiwoom.KiwoomRestClient;
 import com.autostock.kiwoom.TrId;
 import com.autostock.market.MarketCalendarService;
 import com.autostock.risk.KillSwitch;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -256,8 +257,8 @@ public class TrProbeJob {
         }
         try {
             JsonNode buyNo = objectMapper.readTree(summary.toFile()).path("scenarios").path("fill-round-trip").path("buyOrderNo");
-            return buyNo.isTextual() && !buyNo.asText().isBlank();
-        } catch (IOException | RuntimeException e) {
+            return buyNo.isString() && !buyNo.asString().isBlank();
+        } catch (RuntimeException e) {
             log.warn("TR 실측(1.6): {} 요약을 읽지 못했다 — 체결 왕복을 안 한 날로 본다: {}", day, e.getMessage());
             return false;
         }
@@ -913,7 +914,7 @@ public class TrProbeJob {
         private void write(Path file, Object value) {
             try {
                 Files.write(file, objectMapper.writerWithDefaultPrettyPrinter().writeValueAsBytes(value));
-            } catch (IOException e) {
+            } catch (IOException | JacksonException e) {
                 failures++;
                 log.warn("TR 실측(1.6) 결과 저장 실패: {} — {}", file.toAbsolutePath(), e.getMessage());
             }

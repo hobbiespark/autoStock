@@ -7,8 +7,7 @@ import com.autostock.common.util.BrokerOrderId;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import tools.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -37,7 +36,7 @@ class EventAuditListenerTest {
     private final EventRecordRepository repository = mock(EventRecordRepository.class);
     private final SimpleMeterRegistry registry = new SimpleMeterRegistry();
     private final EventAuditListener listener = new EventAuditListener(repository,
-            new ObjectMapper().registerModule(new JavaTimeModule()), Clock.systemUTC(), registry);
+            new ObjectMapper(), Clock.systemUTC(), registry);
 
     private static final Instant AT = Instant.parse("2026-10-06T00:05:00Z");
 

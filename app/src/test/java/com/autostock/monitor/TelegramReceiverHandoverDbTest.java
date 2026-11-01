@@ -84,7 +84,7 @@ class TelegramReceiverHandoverDbTest extends PostgresDataJpaTest {
         var stop = poller.stopForHandover("pc-1");
         assertTrue(stop.pendingResumeDropped());
         poller.resumeAfterWithdraw(stop.stopId(), "pc-1");
-        poller.handleUpdate(new com.fasterxml.jackson.databind.ObjectMapper().convertValue(Map.of("update_id", 3, "message", Map.of("chat", Map.of("id", 123), "text", "/resume " + code)), Map.class));
+        poller.handleUpdate(new tools.jackson.databind.ObjectMapper().convertValue(Map.of("update_id", 3, "message", Map.of("chat", Map.of("id", 123), "text", "/resume " + code)), Map.class));
         assertTrue(killSwitch.isEngaged(), "dropped confirmation code must not release the kill switch");
     }
 
@@ -134,7 +134,7 @@ class TelegramReceiverHandoverDbTest extends PostgresDataJpaTest {
         assertThrows(SecurityException.class, () -> poller.stopForHandover("pc-1", () -> { throw new SecurityException("expired claim"); }));
         assertEquals(calls, urls.size());
         assertTrue(store.active().isEmpty());
-        poller.handleUpdate(new com.fasterxml.jackson.databind.ObjectMapper().convertValue(Map.of("update_id", 3, "message", Map.of("chat", Map.of("id", 123), "text", "/resume " + code)), Map.class));
+        poller.handleUpdate(new tools.jackson.databind.ObjectMapper().convertValue(Map.of("update_id", 3, "message", Map.of("chat", Map.of("id", 123), "text", "/resume " + code)), Map.class));
         assertFalse(killSwitch.isEngaged(), "rejected stop must not discard a still valid legacy confirmation");
         poller.poll();
         assertEquals(calls + 1, urls.size());

@@ -3,7 +3,7 @@ package com.autostock.monitor;
 import java.time.Clock;
 import com.autostock.common.event.SignalDecision;
 import com.autostock.common.util.StockCode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;

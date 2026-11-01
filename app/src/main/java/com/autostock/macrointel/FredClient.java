@@ -1,14 +1,14 @@
 package com.autostock.macrointel;
 
 import com.autostock.common.util.SecretMasking;
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
-import java.io.IOException;
+import tools.jackson.core.JacksonException;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.LocalDate;
@@ -145,7 +145,7 @@ public class FredClient {
         }
         try {
             return JSON.readValue(trimmed, MAP_TYPE);
-        } catch (IOException e) {
+        } catch (JacksonException e) {
             throw new NonJsonResponseException("JSON 파싱 실패 — " + describe(trimmed));
         }
     }

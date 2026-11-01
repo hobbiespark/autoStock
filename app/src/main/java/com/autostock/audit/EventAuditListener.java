@@ -7,7 +7,7 @@ import com.autostock.common.event.NewsSentiment;
 import com.autostock.common.event.OrderRequest;
 import com.autostock.common.event.Signal;
 import com.autostock.common.event.SignalDecision;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
