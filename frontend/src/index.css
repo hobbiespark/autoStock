@@ -1,19 +1,26 @@
 /* VALUNIVO 공통 토큰(valunivo-tokens 1.0.0) 바이트 복사본. 값은 여기서 고치지 않는다(VALUNIVO 4-2 S3). */
 @import './valunivo-tokens.css';
 
-/* 기존 vanilla index.html의 다크 테마 디자인 토큰을 그대로 유지한다(ADR-10).
-   S3는 화면을 바꾸지 않으므로 아래 값은 그대로 두고, 공통 토큰 별칭으로 바꾸는 일은 S6에서 한다. */
+/* 옛 변수 이름은 공통 토큰 별칭으로만 남긴다(VALUNIVO 4-2 S6). 색 값은 이 파일에 직접 쓰지 않고
+   valunivo-tokens.css에서 받는다. 밝게·어둡게는 시스템 설정을 따른다(토큰의 prefers-color-scheme).
+   상태 배지 색은 공통 6상태(UI-M1)로 대응한다. 대응표: aiDoc/ui-status-colors.md */
 :root {
-  --bg: #0f1420;
-  --card: #1a2233;
-  --line: #2a3550;
-  --text: #e6ebf5;
-  --dim: #8a95b0;
-  --accent: #4f8cff;
-  --danger: #ff5d5d;
-  --ok: #3ecf8e;
-  --warn-bg: #4a3a1e;
-  --warn-fg: #ffd58a;
+  --bg: var(--vn-color-bg);
+  --card: var(--vn-color-surface);
+  --line: var(--vn-color-border);
+  --text: var(--vn-color-text);
+  --dim: var(--vn-color-text-muted);
+  --accent: var(--vn-color-primary);
+  --danger: var(--vn-color-danger);
+  --ok: var(--vn-status-done-fg);
+  --warn-bg: var(--vn-color-warning-bg);
+  --warn-fg: var(--vn-color-warning-fg);
+}
+
+/* 키보드 초점 링(UI-A2). 마우스 클릭에는 보이지 않고 키보드 이동에만 보인다. */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: var(--vn-focus-width) solid var(--vn-color-focus);
+  outline-offset: var(--vn-focus-offset);
 }
 
 * {
@@ -55,9 +62,9 @@ h1 {
 
 /* 연결 실패 배너 */
 .error-banner {
-  background: #4a1e1e;
-  color: #ff8a8a;
-  border: 1px solid #6a2a2a;
+  background: var(--vn-color-danger-bg);
+  color: var(--vn-color-danger);
+  border: 1px solid var(--vn-color-danger);
   border-radius: 8px;
   padding: 10px 14px;
   margin-bottom: 16px;
@@ -118,7 +125,7 @@ th {
 
 .feed-item {
   padding: 5px 0;
-  border-bottom: 1px solid #232d45;
+  border-bottom: 1px solid var(--line);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -131,7 +138,7 @@ th {
 
 @keyframes feed-highlight {
   from {
-    background: rgba(79, 140, 255, 0.25);
+    background: color-mix(in srgb, var(--vn-color-primary) 25%, transparent);
   }
   to {
     background: transparent;
@@ -154,16 +161,16 @@ th {
 }
 
 .SIGNAL {
-  background: #2b3a5e;
-  color: #9db8ff;
+  background: var(--vn-status-received-bg);
+  color: var(--vn-status-received-fg);
 }
 .ORDER {
   background: var(--warn-bg);
   color: var(--warn-fg);
 }
 .FILL {
-  background: #1e4a35;
-  color: #7fe0b0;
+  background: var(--vn-status-done-bg);
+  color: var(--vn-status-done-fg);
 }
 
 .ks-on {
@@ -191,7 +198,7 @@ th {
 
 button {
   background: var(--accent);
-  color: #fff;
+  color: var(--vn-color-on-primary);
   border: 0;
   border-radius: 6px;
   padding: 10px 16px;
@@ -203,7 +210,7 @@ button.danger {
   background: var(--danger);
 }
 button.secondary {
-  background: #2a3550;
+  background: var(--vn-color-surface-selected);
   color: var(--text);
 }
 button:disabled {
@@ -218,7 +225,7 @@ input,
 select {
   background: var(--bg);
   color: var(--text);
-  border: 1px solid var(--line);
+  border: 1px solid var(--vn-color-border-control);
   border-radius: 6px;
   padding: 8px;
   font-size: 13px;
@@ -239,7 +246,7 @@ select {
   margin-top: 8px;
 }
 
-/* 운영 상태 배지 — 상태별 색상 구분(STOPPED/STARTING/RUNNING/STOPPING/DEGRADED/ERROR) */
+/* 운영 상태 배지 — 상태별 색상 구분(STOPPED/STARTING/RUNNING/STOPPING/DEGRADED/ERROR), UI-M1 대응 */
 .badge {
   display: inline-block;
   border-radius: 6px;
@@ -249,28 +256,28 @@ select {
   letter-spacing: 0.5px;
 }
 .badge-STOPPED {
-  background: #2a3550;
-  color: var(--dim);
+  background: var(--vn-status-waiting-bg);
+  color: var(--vn-status-waiting-fg);
 }
 .badge-STARTING {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
+  background: var(--vn-status-running-bg);
+  color: var(--vn-status-running-fg);
 }
 .badge-RUNNING {
-  background: #1e4a35;
-  color: #7fe0b0;
+  background: var(--vn-status-done-bg);
+  color: var(--vn-status-done-fg);
 }
 .badge-STOPPING {
+  background: var(--vn-status-running-bg);
+  color: var(--vn-status-running-fg);
+}
+.badge-DEGRADED {
   background: var(--warn-bg);
   color: var(--warn-fg);
 }
-.badge-DEGRADED {
-  background: #4a2a1e;
-  color: #ffab7a;
-}
 .badge-ERROR {
-  background: #4a1e1e;
-  color: #ff8a8a;
+  background: var(--vn-status-failed-bg);
+  color: var(--vn-status-failed-fg);
 }
 
 /* 실행 모드 뱃지 — LIVE는 위험색으로 강조 */
@@ -282,12 +289,12 @@ select {
   padding: 4px 10px;
 }
 .mode-SIM {
-  background: #1e4a35;
-  color: #7fe0b0;
+  background: var(--vn-status-done-bg);
+  color: var(--vn-status-done-fg);
 }
 .mode-LIVE {
-  background: #4a1e1e;
-  color: #ff8a8a;
+  background: var(--vn-color-danger-bg);
+  color: var(--vn-color-danger);
 }
 
 .dot {
@@ -312,7 +319,7 @@ select {
   flex-wrap: wrap;
 }
 .tab {
-  background: #2a3550;
+  background: var(--vn-color-surface-alt);
   color: var(--dim);
   border-radius: 6px;
   padding: 6px 10px;
@@ -323,7 +330,7 @@ select {
 }
 .tab.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--vn-color-on-primary);
 }
 .feed-controls {
   display: flex;
@@ -407,20 +414,21 @@ select {
   letter-spacing: 0.3px;
 }
 .order-badge-ok {
-  background: #1e4a35;
-  color: #7fe0b0;
+  background: var(--vn-status-done-bg);
+  color: var(--vn-status-done-fg);
 }
 .order-badge-danger {
-  background: #4a1e1e;
-  color: #ff8a8a;
+  background: var(--vn-status-failed-bg);
+  color: var(--vn-status-failed-fg);
 }
+/* UNKNOWN(결과 불명)은 실패와 다른 색(UI-M1) */
 .order-badge-warn {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
+  background: var(--vn-status-unknown-bg);
+  color: var(--vn-status-unknown-fg);
 }
 .order-badge-neutral {
-  background: #2a3550;
-  color: var(--dim);
+  background: var(--vn-status-waiting-bg);
+  color: var(--vn-status-waiting-fg);
 }
 
 /* 성과 화면 차트 제목 */
@@ -442,7 +450,7 @@ select {
   margin-bottom: 16px;
 }
 .horizon-sub-nav-btn {
-  background: #232c42;
+  background: var(--vn-color-surface-alt);
   color: var(--dim);
   border: 1px solid var(--line);
   border-radius: 16px;
@@ -455,7 +463,7 @@ select {
 }
 .horizon-sub-nav-btn.active {
   background: var(--accent);
-  color: #0f1420;
+  color: var(--vn-color-on-primary);
   border-color: var(--accent);
   font-weight: 700;
 }
@@ -471,7 +479,7 @@ select {
   gap: 10px;
 }
 .decision-row {
-  background: #161d2e;
+  background: var(--vn-color-surface-sunken);
   border: 1px solid var(--line);
   border-radius: 8px;
   padding: 12px 14px;
@@ -515,24 +523,24 @@ select {
   letter-spacing: 0.3px;
 }
 .decision-badge-buy {
-  background: #1e4a35;
-  color: #7fe0b0;
+  background: var(--vn-status-done-bg);
+  color: var(--vn-status-done-fg);
 }
 .decision-badge-sell {
-  background: #4a3a1e;
-  color: #ffbf7a;
+  background: var(--warn-bg);
+  color: var(--warn-fg);
 }
 .decision-badge-rejected {
-  background: #4a1e1e;
-  color: #ff8a8a;
+  background: var(--vn-status-failed-bg);
+  color: var(--vn-status-failed-fg);
 }
 .decision-badge-skip {
-  background: #2a3550;
-  color: var(--dim);
+  background: var(--vn-status-waiting-bg);
+  color: var(--vn-status-waiting-fg);
 }
 .decision-badge-hold {
-  background: #22304a;
-  color: #9fb2d6;
+  background: var(--vn-status-received-bg);
+  color: var(--vn-status-received-fg);
 }
 
 /* 공모주 화면(FE-3, PLAN.md ADR-9 트랙 E2) */
@@ -559,12 +567,12 @@ select {
   letter-spacing: 0.3px;
 }
 .ipo-badge-recommend {
-  background: #1e4a35;
-  color: #7fe0b0;
+  background: var(--vn-status-done-bg);
+  color: var(--vn-status-done-fg);
 }
 .ipo-badge-skip {
-  background: #2a3550;
-  color: var(--dim);
+  background: var(--vn-status-waiting-bg);
+  color: var(--vn-status-waiting-fg);
 }
 .ipo-badge-pending {
   background: var(--warn-bg);
@@ -582,12 +590,12 @@ select {
   padding: 4px 10px;
 }
 .ipo-dday-upcoming {
-  background: #2b3a5e;
-  color: #9db8ff;
+  background: var(--vn-status-received-bg);
+  color: var(--vn-status-received-fg);
 }
 .ipo-dday-active {
-  background: #1e4a35;
-  color: #7fe0b0;
+  background: var(--vn-status-done-bg);
+  color: var(--vn-status-done-fg);
   animation: feed-highlight 2s ease-in-out infinite alternate;
 }
 .ipo-dday-listed {
@@ -595,8 +603,8 @@ select {
   color: var(--warn-fg);
 }
 .ipo-dday-passed {
-  background: #2a3550;
-  color: var(--dim);
+  background: var(--vn-status-waiting-bg);
+  color: var(--vn-status-waiting-fg);
 }
 
 .ipo-detail {
@@ -627,8 +635,8 @@ select {
 
 /* LIVE 모드 상단 띠 — 어느 탭에서든 보이게 헤더 맨 위 */
 .live-band {
-  background: #5a1616;
-  color: #ffd0d0;
+  background: var(--vn-color-danger-bg);
+  color: var(--vn-color-danger);
   border: 1px solid var(--danger);
   border-radius: 8px;
   padding: 8px 14px;
@@ -660,7 +668,7 @@ select {
 }
 
 .live-inline {
-  color: #ff9d9d;
+  color: var(--vn-color-danger);
   font-size: 12px;
   font-weight: 700;
   margin-bottom: 8px;
@@ -668,7 +676,7 @@ select {
 
 /* 명령 실패 표시(role="alert") */
 .error-text {
-  color: #ff8a8a;
+  color: var(--vn-color-danger);
   font-size: 13px;
   margin-top: 8px;
 }
@@ -684,7 +692,7 @@ select {
   width: min(440px, calc(100vw - 32px));
 }
 .confirm-dialog::backdrop {
-  background: rgba(0, 0, 0, 0.6);
+  background: color-mix(in srgb, var(--vn-color-bg) 75%, transparent);
 }
 .confirm-dialog h3 {
   font-size: 16px;
@@ -720,7 +728,7 @@ select {
   padding: 10px;
   border: 1px solid var(--danger);
   border-radius: 8px;
-  color: #ffd0d0;
+  color: var(--vn-color-danger);
 }
 .live-confirm input {
   margin-top: 8px;

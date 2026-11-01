@@ -13,6 +13,7 @@ interface Props {
 
 // 위험 동작 확인 창(Phase 0.5) — 브라우저 기본 <dialog>(showModal)라 포커스 가두기·Esc 닫기·배경 차단을
 // 브라우저가 맡는다. 라이브러리를 들이지 않는다(번들 비대화 회피, ADR-10). Esc는 취소와 같다.
+// 위험 확인(danger)이면 확인 버튼 앞에 [위험] 단어를 붙여 색만으로 알리지 않는다(VALUNIVO 공통 UI-M5).
 export default function ConfirmDialog({
   open,
   title,
@@ -60,7 +61,7 @@ export default function ConfirmDialog({
           disabled={confirmDisabled}
           onClick={onConfirm}
         >
-          {confirmLabel}
+          {danger ? `[위험] ${confirmLabel}` : confirmLabel}
         </button>
       </div>
     </dialog>

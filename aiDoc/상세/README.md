@@ -38,6 +38,7 @@
 | 문서 | 내용 |
 |---|---|
 | [upgrade-2026-10/04-research-design.md](../upgrade-2026-10/04-research-design.md) | 디자인 관점 조사 |
+| [ui-status-colors.md](../ui-status-colors.md) | 화면 상태 색 대응표(UI-M1)·위험 표시(UI-M5)·테마 |
 | [stock-names.md](../stock-names.md) | 종목명(코드) 표기 규칙 |
 
 ## FE

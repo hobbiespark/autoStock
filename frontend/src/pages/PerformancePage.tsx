@@ -19,15 +19,21 @@ const DAY_OPTIONS = [30, 90] as const;
 // 백테스트 CostModel의 slippagePct 가정치(SlippageCard와 동일 상수, 5bps).
 const BACKTEST_ASSUMED_AVG_BPS = 5;
 
-// 차트 색상 — index.css의 다크 테마 토큰과 맞춘다(CSS 변수는 SVG 안에서 직접 읽기
-// 번거로워 recharts에는 리터럴 색상을 그대로 전달한다).
+// 차트 색상 — 공통 토큰(valunivo-tokens.css)을 CSS 변수로 넘긴다(VALUNIVO 4-2 S6). SVG 표현 속성의
+// var()는 현재 브라우저가 읽으므로 밝게·어둡게 테마를 따라 바뀐다. 막대·선은 파랑/초록으로 구분을 유지한다.
 const COLORS = {
-  bar: '#4f8cff',
-  cumulative: '#3ecf8e',
-  avgSlip: '#4f8cff',
-  maxSlip: '#ff5d5d',
-  grid: '#2a3550',
-  text: '#8a95b0',
+  bar: 'var(--vn-status-running-fg)',
+  cumulative: 'var(--vn-status-done-fg)',
+  avgSlip: 'var(--vn-status-running-fg)',
+  maxSlip: 'var(--vn-color-danger)',
+  grid: 'var(--vn-color-border)',
+  text: 'var(--vn-color-text-muted)',
+};
+
+const TOOLTIP_STYLE = {
+  background: 'var(--vn-color-surface)',
+  border: '1px solid var(--vn-color-border)',
+  color: 'var(--vn-color-text)',
 };
 
 interface ChartRow {
@@ -103,7 +109,7 @@ export default function PerformancePage() {
                 <YAxis yAxisId="left" tick={{ fill: COLORS.text, fontSize: 11 }} />
                 <YAxis yAxisId="right" orientation="right" tick={{ fill: COLORS.text, fontSize: 11 }} />
                 <Tooltip
-                  contentStyle={{ background: '#1a2233', border: '1px solid #2a3550', color: '#e6ebf5' }}
+                  contentStyle={TOOLTIP_STYLE}
                   formatter={(value) => (typeof value === 'number' ? value.toLocaleString() : String(value ?? ''))}
                 />
                 <Legend wrapperStyle={{ fontSize: 12, color: COLORS.text }} />
@@ -127,7 +133,7 @@ export default function PerformancePage() {
                 <XAxis dataKey="tradeDate" tick={{ fill: COLORS.text, fontSize: 11 }} />
                 <YAxis tick={{ fill: COLORS.text, fontSize: 11 }} />
                 <Tooltip
-                  contentStyle={{ background: '#1a2233', border: '1px solid #2a3550', color: '#e6ebf5' }}
+                  contentStyle={TOOLTIP_STYLE}
                   formatter={(value) => (typeof value === 'number' ? `${value.toFixed(2)} bps` : String(value ?? ''))}
                 />
                 <Legend wrapperStyle={{ fontSize: 12, color: COLORS.text }} />
