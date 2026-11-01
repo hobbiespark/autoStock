@@ -6,6 +6,7 @@ import org.springframework.boot.context.properties.ConfigurationPropertiesScan;
 import org.springframework.modulith.Modulithic;
 
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * autoStock — 논리적 MSA, 물리적 모놀리스 (PLAN.md ADR-1).
@@ -26,6 +27,13 @@ public class AutostockApplication {
         if (!SingleInstanceGuard.disabled(args) && !SingleInstanceGuard.acquire(lockFile)) {
             System.err.println("[X] autoStock이 이미 실행 중이다(" + lockFile.toAbsolutePath() + " 잠김) — 두 번째 실행은 멈춘다. "
                     + "켜져 있는 창을 확인하고, 다시 켜려면 먼저 scripts\\stop_autostock.bat으로 끈다.");
+            System.exit(1);
+        }
+        // DB 계정·암호 하드코딩 기본값을 뺐다(VALUNIVO 4-0/env, D256) — 값이 없으면 옛 계정으로 붙지 않고 여기서 멈춘다.
+        List<String> missingDb = DatabaseEnvironment.missing(System.getenv());
+        if (!missingDb.isEmpty()) {
+            System.err.println("[X] DB 접속 환경 변수 없음: " + String.join(", ", missingDb) + " — .env의 AUTOSTOCK_APP_CONFIG"
+                    + "(VALUNIVO 생성기가 만든 app-config\\<환경>\\autostock.env) 또는 DB_* 줄을 확인한다.");
             System.exit(1);
         }
         SpringApplication.run(AutostockApplication.class, args);

@@ -14,9 +14,12 @@ spring:
   datasource:
     # socketTimeout: PC 절전·도커 DB 정지 뒤 죽은 소켓에 걸린 쿼리가 커넥션을 영원히 잡지 않게 한다
     # (2026-09-22 절전 복귀 후 풀 고갈 실측 — 죽은 커넥션 10개가 풀 전체를 점유).
-    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:autostock}?socketTimeout=30
-    username: ${DB_USER:autostock}
-    password: ${DB_PASSWORD:autostock}
+    # 계정·암호·포트·DB 이름은 기본값 없이 환경 변수로만 받는다(VALUNIVO 4-0/env, D213·D256). 원본은 Git 밖 VALUNIVO 입력 파일,
+    # 생성 앱 설정 app-config\<환경>\autostock.env를 scripts/load_env.ps1이 .env의 AUTOSTOCK_APP_CONFIG로 읽는다.
+    # 빠지면 AutostockApplication이 Spring 전에 키 이름을 알리고 멈춘다(DatabaseEnvironment). 시험은 PostgresTestDatabase가 덮어쓴다.
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT}/${DB_NAME}?socketTimeout=30
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
     hikari:
       connection-timeout: 10000        # 풀 대기 상한 10초(기본 30초) — 풀 고갈 시 빨리 실패해 스케줄 회차가 쌓이지 않게
       validation-timeout: 3000

@@ -1,4 +1,4 @@
-# autoStock .env 로더 (공용) — bat와 대화형 PowerShell 양쪽에서 사용.
+﻿# autoStock .env 로더 (공용) — bat와 대화형 PowerShell 양쪽에서 사용.
 #
 # 규칙:
 #   KEY=VALUE            → 환경변수 KEY 설정 (# 주석/빈 줄 무시)
@@ -22,6 +22,24 @@ Get-Content $envFile -Encoding UTF8 | ForEach-Object {
     if ($p.Count -eq 2 -and $p[0].Trim() -and -not $p[0].Trim().StartsWith('#')) {
         $vars[$p[0].Trim()] = $p[1].Trim()
     }
+}
+
+# 생성 앱 설정(VALUNIVO 4-0/env, D213·D256): AUTOSTOCK_APP_CONFIG=<VALUNIVO-runtime\app-config\<환경>\autostock.env 절대 경로>
+#   VALUNIVO Initialize-ServerEnvironmentFiles.ps1이 입력 파일에서 만든 DB_* 값을 읽어 .env의 같은 키보다 우선한다.
+#   손으로 고치지 않는 파일이다. 경로가 있는데 파일이 없으면 기본값으로 붙지 않게 멈춘다.
+if ($vars.Contains('AUTOSTOCK_APP_CONFIG') -and $vars['AUTOSTOCK_APP_CONFIG']) {
+    $configPath = $vars['AUTOSTOCK_APP_CONFIG']
+    if (-not [System.IO.Path]::IsPathRooted($configPath)) { $configPath = Join-Path $root $configPath }
+    if (-not (Test-Path -LiteralPath $configPath -PathType Leaf)) { Write-Host "[X] AUTOSTOCK_APP_CONFIG 파일 없음: $configPath"; exit 1 }
+    $configCount = 0
+    Get-Content -LiteralPath $configPath -Encoding UTF8 | ForEach-Object {
+        $p = $_ -split '=', 2
+        if ($p.Count -eq 2 -and $p[0].Trim() -and -not $p[0].Trim().StartsWith('#')) {
+            $vars[$p[0].Trim()] = $p[1].Trim()
+            $configCount++
+        }
+    }
+    Write-Host "[O] app config loaded (${configCount} vars)"
 }
 
 # 2차 처리: *_FILE 간접 참조 해석 (평문보다 우선)
