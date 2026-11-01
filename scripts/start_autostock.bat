@@ -1,6 +1,6 @@
 @echo off
 chcp 65001 >nul
-REM console to UTF-8 (pairs with bootRun -Dstdout.encoding=UTF-8 in app/build.gradle)
+REM console to UTF-8 (pairs with bootRun -Dstdout.encoding=UTF-8 in app/build.gradle.kts)
 REM autoStock start - paper profile, LIVE(mock) mode + C3 + WS + auto-start (RUNBOOK 5)
 REM No goto/labels in this file (line-ending safe). Env load + docker wait are delegated to PowerShell.
 cd /d "%~dp0.."

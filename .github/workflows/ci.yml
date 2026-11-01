@@ -4,7 +4,7 @@
 #   KIWOOM_MOCK_G_* : 모의투자 일반(주식, 주문 가능)  ← CI 스모크는 이것만 사용
 #   KIWOOM_MOCK_P_* : 모의투자 선물 (현 REST API는 국내주식 전용 — 추후 선물 지원 시 사용)
 #   KIWOOM_LIVE_*   : 실전투자 — CI에서 절대 사용 금지 (게이트 ② 통과 후 운영 배포에서만)
-# 매핑: 시크릿 KIWOOM_MOCK_G_* → 테스트 JVM env KIWOOM_MOCK_G_APP_KEY/SECRET (app/build.gradle이
+# 매핑: 시크릿 KIWOOM_MOCK_G_* → 테스트 JVM env KIWOOM_MOCK_G_APP_KEY/SECRET (app/build.gradle.kts가
 # 이 이름을 최우선으로 읽는다 — paper 프로필과 동일 네이밍). LIVE_*는 CI에 전달하지 않는다.
 # 포크 PR에는 시크릿이 전달되지 않으므로 KiwoomSmokeIT는 assumeTrue로 자동 스킵된다
 # (키가 없어도 CI는 초록불 — 스모크만 빠지고 나머지 테스트는 전부 수행).

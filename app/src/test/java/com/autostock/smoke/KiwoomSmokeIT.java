@@ -58,7 +58,7 @@ class KiwoomSmokeIT {
 
     @Test
     void 토큰_발급_잔고조회_일봉조회가_실제_모의투자_서버에서_정상_동작한다() {
-        // KIWOOM_MOCK_G_*(신명) 우선, 없으면 구명 KIWOOM_APP_*로 폴백(build.gradle의 test env 주입과 동일 관례).
+        // KIWOOM_MOCK_G_*(신명) 우선, 없으면 구명 KIWOOM_APP_*로 폴백(build.gradle.kts의 test env 주입과 동일 관례).
         // 실전(LIVE_*)은 이 스모크 테스트에서 절대 사용하지 않는다 — 모의투자 서버 전용.
         String appKey = envOrFallback("KIWOOM_MOCK_G_APP_KEY", "KIWOOM_APP_KEY");
         String appSecret = envOrFallback("KIWOOM_MOCK_G_APP_SECRET", "KIWOOM_APP_SECRET");

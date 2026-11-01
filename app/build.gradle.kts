@@ -1,0 +1,77 @@
+plugins {
+    id("org.springframework.boot")
+    id("io.spring.dependency-management")
+}
+
+dependencyManagement {
+    imports {
+        mavenBom("org.springframework.modulith:spring-modulith-bom:2.1.2")
+    }
+}
+
+dependencies {
+    implementation(project(":common"))
+
+    implementation("org.springframework.boot:spring-boot-starter-webmvc")
+    implementation("org.springframework.boot:spring-boot-starter-webclient")    // WebClient (키움 REST) — Boot 4에서 webflux 스타터와 분리
+    implementation("org.springframework.boot:spring-boot-starter-websocket")   // 키움 실시간 WS
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
+    implementation("org.springframework.boot:spring-boot-starter-actuator")    // micrometer-core 포함 — 별도 의존성 불필요
+    // Swagger UI(springdoc) — 공모주 반수동 입력(/api/ipo/{id}/record·metrics) 등 수동 호출용. http://localhost:8080/swagger-ui.html
+    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0")   // 3.x가 Boot 4 대응(3.2.0 부모 Boot 4.1.2)
+
+    // Caffeine 로컬 캐시 — 단일 JVM 모놀리스(PLAN ADR-1)라 Redis 없이 인메모리로 충분 (PLAN ADR-5)
+    implementation("org.springframework.boot:spring-boot-starter-cache")
+    implementation("com.github.ben-manes.caffeine:caffeine")
+
+    implementation("org.springframework.modulith:spring-modulith-starter-core")
+    implementation("org.springframework.modulith:spring-modulith-starter-jpa") // 이벤트 발행 로그(아웃박스)
+
+    implementation("org.springframework.boot:spring-boot-starter-flyway")      // Boot 4는 Flyway 자동 설정을 별도 스타터로 나눴다
+    implementation("org.flywaydb:flyway-database-postgresql")
+    runtimeOnly("org.postgresql:postgresql")
+
+    implementation("io.github.resilience4j:resilience4j-ratelimiter:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-retry:2.2.0")
+    // Windows 유휴 절전 차단(SetThreadExecutionState) — monitor.SystemSleepBlocker. 장중 PC 절전 사고(2026-09-30) 대응
+    implementation("net.java.dev.jna:jna-platform:5.14.0")
+
+    testImplementation("org.springframework.boot:spring-boot-starter-test")
+    testImplementation("org.springframework.boot:spring-boot-starter-data-jpa-test") // @DataJpaTest·@AutoConfigureTestDatabase(Boot 4 모듈 분리)
+    testImplementation("org.springframework.modulith:spring-modulith-starter-test")
+    testImplementation("org.springframework.modulith:spring-modulith-events-core")  // Jackson2BridgeTest(EventSerializer) — 실행 경로에는 starter-jpa가 이미 넣는다
+    testImplementation("com.tngtech.archunit:archunit:1.4.2")                  // ArchitectureRulesTest — Modulith가 끌고 오는 버전과 동일하게 고정(BOM 미관리)
+    // DB 통합 테스트(support.PostgresTestDatabase) — 결정 D-18(2026-10-02): 운영과 같은 TimescaleDB HA 이미지로만 검증한다.
+    //  - Docker가 있으면 Testcontainers(버전은 Boot BOM 관리), 없으면 AUTOSTOCK_TEST_DB_URL의 외부 DB, 둘 다 없으면 건너뜀
+    //  - zonky 내장 PostgreSQL(2026-09-30)은 뺐다 — TimescaleDB 확장을 올릴 수 없다
+    testImplementation("org.testcontainers:testcontainers-postgresql")          // Testcontainers 2(Boot 4 BOM)에서 모듈 이름이 바뀌었다
+}
+
+tasks.named<Test>("test") {
+    // KiwoomSmokeIT(실제 모의투자 서버 호출)용 앱키/시크릿을 테스트 JVM에 명시적으로 전달한다.
+    // KIWOOM_MOCK_G_*(신명) 우선, 없으면 구명 KIWOOM_APP_*로 폴백(하위호환) — 둘 다 없으면 빈 문자열이
+    // 전달되고, 테스트는 그 경우 assumeTrue로 스스로 스킵한다. 실전(LIVE_*)은 테스트에서 사용하지 않는다.
+    environment("KIWOOM_APP_KEY", System.getenv("KIWOOM_MOCK_G_APP_KEY") ?: System.getenv("KIWOOM_APP_KEY") ?: "")
+    environment("KIWOOM_APP_SECRET", System.getenv("KIWOOM_MOCK_G_APP_SECRET") ?: System.getenv("KIWOOM_APP_SECRET") ?: "")
+    // DartIpoSmokeIT(실제 OpenDART 서버 호출)용 키 — 없으면 빈 문자열이 전달되고, 테스트는
+    // 그 경우 assumeTrue로 스스로 스킵한다(KiwoomSmokeIT와 동일 관례, ADR-9).
+    environment("DART_API_KEY", System.getenv("DART_API_KEY") ?: "")
+    // 시험 로그를 운영 로그(app/logs/autostock.log)와 나눈다(2026-10-22) — 운영 PC에서 시험을 돌리자 시험 컨텍스트의
+    // 가짜 잔고 복원·TR 실측·거시 지표 줄이 운영 로그에 섞였다(10/21 20:38~20:48). logback-spring.xml의 LOG_FILE을
+    // 시험 JVM에서만 바꾼다 — 마스킹 패턴·롤링 설정은 그대로 쓴다.
+    systemProperty("LOG_FILE", layout.buildDirectory.file("test-logs/autostock-test.log").get().asFile.absolutePath)
+}
+
+tasks.named<org.springframework.boot.gradle.tasks.run.BootRun>("bootRun") {
+    // Windows 콘솔 한글 깨짐 방지 — 로그는 UTF-8인데 JVM stdout 인코딩이 CP949로 잡혀 '?좏겙' 식으로 출력됨.
+    // (scripts\start_autostock.bat의 chcp 65001과 한 쌍 — 둘 다 있어야 콘솔에서 바르게 보인다)
+    jvmArgs("-Dfile.encoding=UTF-8", "-Dstdout.encoding=UTF-8", "-Dstderr.encoding=UTF-8")
+    // JDK 24+ (JEP 472): JNA(절전 차단·전원 조회)의 System.load 경고를 없애고, 이후 JDK의 기본 차단에 대비한다.
+    jvmArgs("--enable-native-access=ALL-UNNAMED")
+}
+
+// Synthetic result-proof interop export path; no operating key or endpoint configuration.
+tasks.named("test") { inputs.property("stockResultProofInteropDirectory", providers.environmentVariable("AUTOSTOCK_RESULT_PROOF_INTEROP_DIR").orElse("")) }
+// Synthetic platform result-ACK fixture path; public key only.
+tasks.named("test") { inputs.property("stockResultAckInteropDirectory", providers.environmentVariable("AUTOSTOCK_RESULT_ACK_INTEROP_DIR").orElse("")) }

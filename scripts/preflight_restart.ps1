@@ -26,7 +26,7 @@ $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent $PSScriptRoot
 $migrationRel = "app/src/main/resources/db/migration"
 $migrationDir = Join-Path $repo $migrationRel
-$buildInputs = @("app/src/main", "common/src/main", "build.gradle", "settings.gradle", "app/build.gradle", "common/build.gradle", "gradle")
+$buildInputs = @("app/src/main", "common/src/main", "build.gradle.kts", "settings.gradle.kts", "app/build.gradle.kts", "common/build.gradle.kts", "gradle")
 $issues = New-Object System.Collections.Generic.List[string]
 
 function Write-Section([string]$title) { Write-Host ""; Write-Host "== $title ==" }
