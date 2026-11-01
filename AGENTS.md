@@ -1,6 +1,15 @@
 # autoStock 작업 지침
 
-autoStock은 VALUNIVO 플랫폼의 첫 번째 연동 앱이다. 플랫폼 쪽 상위 지침은 [`C:\ai\AGENTS.md`](../AGENTS.md)와 `C:\ai\VALUNIVO\AGENTS.md`이며, 이 문서는 autoStock 저장소에서만 지킬 것을 적는다(VALUNIVO 계획 4-0, D154·D213·D239). 리팩토링 근거·결정 기록은 [aiDoc](aiDoc/README.md)에 있다.
+autoStock은 VALUNIVO 플랫폼의 첫 번째 연동 앱이다. 플랫폼 쪽 상위 지침은 [`C:\ai\AGENTS.md`](../AGENTS.md)와 `C:\ai\VALUNIVO\AGENTS.md`이며, 이 문서는 autoStock 저장소에서만 지킬 것을 적는다(VALUNIVO 계획 4-0, D154·D213·D239).
+
+## 0. 먼저 읽을 것 (공통 표준 문서 구조, VALUNIVO 4-2 S2)
+
+1. [계획목록](aiDoc/00-계획목록.md): 할 일이 어디에 있는지(플랫폼 연동은 VALUNIVO 계획목록, 제품은 `PLAN.md`)
+2. [진행목록](aiDoc/00-진행목록.md): 끝난 일의 기록 위치
+3. [결정 로그](aiDoc/01-decision-log.md): ADR·사용자 결정 D-01~·autoStock에 걸리는 VALUNIVO 결정. 새 결정은 여기 3장에 이어 쓴다
+4. [상세 문서 지도](aiDoc/상세/README.md): 역할별(공통·기획·디자인·FE·BE·인프라·QA) 문서 색인
+
+기존 문서는 옮기지 않고 색인한다(D-22). `aiDoc/`에 새 문서를 만들면 상세 문서 지도에도 한 줄을 더한다.
 
 ## 1. 브랜치 (git flow, D154)
 
