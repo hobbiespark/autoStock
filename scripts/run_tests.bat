@@ -3,6 +3,10 @@ REM autoStock full test run (2026-10-21). Stop the app first: scripts\stop_autos
 REM Output: build\test-run.log (console) and app\build\test-results\test\*.xml, app\build\reports\tests\test\index.html
 REM No goto/labels in this file (line-ending safe).
 cd /d "%~dp0.."
+REM JDK 25 (toolchain 25 since VALUNIVO 4-5 U3); user JAVA_HOME may still be JDK 21
+if not defined AUTOSTOCK_JAVA_HOME set "AUTOSTOCK_JAVA_HOME=C:\ai\dev-tools\jdk-25.0.4.1+1"
+set "JAVA_HOME=%AUTOSTOCK_JAVA_HOME%"
+set "PATH=%JAVA_HOME%\bin;%PATH%"
 if not exist build mkdir build
 echo [%date% %time%] test start > build\test-run.log
 call gradlew.bat :common:test :app:test --continue --console=plain >> build\test-run.log 2>&1

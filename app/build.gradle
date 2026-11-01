@@ -63,6 +63,8 @@ tasks.named('bootRun') {
     // Windows 콘솔 한글 깨짐 방지 — 로그는 UTF-8인데 JVM stdout 인코딩이 CP949로 잡혀 '?좏겙' 식으로 출력됨.
     // (scripts\start_autostock.bat의 chcp 65001과 한 쌍 — 둘 다 있어야 콘솔에서 바르게 보인다)
     jvmArgs += ['-Dfile.encoding=UTF-8', '-Dstdout.encoding=UTF-8', '-Dstderr.encoding=UTF-8']
+    // JDK 24+ (JEP 472): JNA(절전 차단·전원 조회)의 System.load 경고를 없애고, 이후 JDK의 기본 차단에 대비한다.
+    jvmArgs += ['--enable-native-access=ALL-UNNAMED']
 }
 
 // Synthetic result-proof interop export path; no operating key or endpoint configuration.

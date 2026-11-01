@@ -39,7 +39,9 @@ if "%KIWOOM_MOCK_G_APP_KEY%"=="" (
 )
 echo [O] .env loaded
 
-if not defined JAVA_HOME set "JAVA_HOME=C:\ai\dev-tools\jdk-21.0.12.1+1"
+REM ---- JDK 25 for Gradle and the app (toolchain 25 since VALUNIVO 4-5 U3); user JAVA_HOME may still be JDK 21 ----
+if not defined AUTOSTOCK_JAVA_HOME set "AUTOSTOCK_JAVA_HOME=C:\ai\dev-tools\jdk-25.0.4.1+1"
+set "JAVA_HOME=%AUTOSTOCK_JAVA_HOME%"
 set "PATH=%JAVA_HOME%\bin;%PATH%"
 
 REM ---- log file: fixed under the project (was %TEMP%\autostock.log before 2026-09-18) ----
