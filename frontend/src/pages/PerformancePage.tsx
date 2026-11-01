@@ -104,7 +104,7 @@ export default function PerformancePage() {
                 <YAxis yAxisId="right" orientation="right" tick={{ fill: COLORS.text, fontSize: 11 }} />
                 <Tooltip
                   contentStyle={{ background: '#1a2233', border: '1px solid #2a3550', color: '#e6ebf5' }}
-                  formatter={(value: number) => value.toLocaleString()}
+                  formatter={(value) => (typeof value === 'number' ? value.toLocaleString() : String(value ?? ''))}
                 />
                 <Legend wrapperStyle={{ fontSize: 12, color: COLORS.text }} />
                 <Bar yAxisId="left" dataKey="realizedPnl" name="일별 실현손익" fill={COLORS.bar} />
@@ -128,7 +128,7 @@ export default function PerformancePage() {
                 <YAxis tick={{ fill: COLORS.text, fontSize: 11 }} />
                 <Tooltip
                   contentStyle={{ background: '#1a2233', border: '1px solid #2a3550', color: '#e6ebf5' }}
-                  formatter={(value: number) => `${value.toFixed(2)} bps`}
+                  formatter={(value) => (typeof value === 'number' ? `${value.toFixed(2)} bps` : String(value ?? ''))}
                 />
                 <Legend wrapperStyle={{ fontSize: 12, color: COLORS.text }} />
                 <ReferenceLine
