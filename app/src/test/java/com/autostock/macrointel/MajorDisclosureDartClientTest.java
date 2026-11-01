@@ -2,7 +2,7 @@ package com.autostock.macrointel;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
-import org.springframework.boot.http.client.reactive.ClientHttpConnectorSettings;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.LocalDate;
@@ -108,7 +108,7 @@ class MajorDisclosureDartClientTest {
         final List<Object> pages = new java.util.ArrayList<>();
 
         TestableClient(Map<String, Object> response) {
-            super(WebClient.builder(), ClientHttpConnectorSettings.defaults(),
+            super(WebClient.builder(), HttpClientSettings.defaults(),
                     new DisclosureBlacklistProperties(true, "test-key", 7, 180));
             this.response = response;
         }

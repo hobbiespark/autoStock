@@ -8,11 +8,11 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.boot.actuate.health.DefaultHealthContributorRegistry;
-import org.springframework.boot.actuate.health.Health;
-import org.springframework.boot.actuate.health.HealthContributor;
-import org.springframework.boot.actuate.health.HealthContributorRegistry;
-import org.springframework.boot.actuate.health.HealthIndicator;
+import org.springframework.boot.health.registry.DefaultHealthContributorRegistry;
+import org.springframework.boot.health.contributor.Health;
+import org.springframework.boot.health.contributor.HealthContributor;
+import org.springframework.boot.health.registry.HealthContributorRegistry;
+import org.springframework.boot.health.contributor.HealthIndicator;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -70,7 +70,9 @@ class MarketDayCheckTest {
     @SuppressWarnings("unchecked")
     private MarketDayCheck check(MarketCheckProperties properties) {
         ObjectProvider<HealthContributorRegistry> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(new DefaultHealthContributorRegistry(health));
+        DefaultHealthContributorRegistry registry = new DefaultHealthContributorRegistry();
+        health.forEach(registry::registerContributor);
+        when(provider.getIfAvailable()).thenReturn(registry);
         return new MarketDayCheck(properties, dispatcher, calendar, session, tradingSystem, provider, meters, true, AT_10);
     }
 

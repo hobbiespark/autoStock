@@ -3,21 +3,23 @@ apply plugin: 'io.spring.dependency-management'
 
 dependencyManagement {
     imports {
-        mavenBom "org.springframework.modulith:spring-modulith-bom:1.4.12"
+        mavenBom "org.springframework.modulith:spring-modulith-bom:2.1.2"
     }
 }
 
 dependencies {
     implementation project(':common')
 
-    implementation 'org.springframework.boot:spring-boot-starter-web'
-    implementation 'org.springframework.boot:spring-boot-starter-webflux'      // WebClient (키움 REST)
+    implementation 'org.springframework.boot:spring-boot-starter-webmvc'
+    implementation 'org.springframework.boot:spring-boot-starter-webclient'    // WebClient (키움 REST) — Boot 4에서 webflux 스타터와 분리
+    // Jackson 2 과도기(VALUNIVO 494 U4) — Boot 4 기본은 Jackson 3. 40개 파일의 com.fasterxml 코드는 U5에서 옮기고 이 줄을 뺀다
+    implementation 'org.springframework.boot:spring-boot-jackson2'
     implementation 'org.springframework.boot:spring-boot-starter-websocket'   // 키움 실시간 WS
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
     implementation 'org.springframework.boot:spring-boot-starter-validation'
     implementation 'org.springframework.boot:spring-boot-starter-actuator'    // micrometer-core 포함 — 별도 의존성 불필요
     // Swagger UI(springdoc) — 공모주 반수동 입력(/api/ipo/{id}/record·metrics) 등 수동 호출용. http://localhost:8080/swagger-ui.html
-    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.8.9'
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:3.2.0'   // 3.x가 Boot 4 대응(3.2.0 부모 Boot 4.1.2)
 
     // Caffeine 로컬 캐시 — 단일 JVM 모놀리스(PLAN ADR-1)라 Redis 없이 인메모리로 충분 (PLAN ADR-5)
     implementation 'org.springframework.boot:spring-boot-starter-cache'
@@ -26,7 +28,7 @@ dependencies {
     implementation 'org.springframework.modulith:spring-modulith-starter-core'
     implementation 'org.springframework.modulith:spring-modulith-starter-jpa' // 이벤트 발행 로그(아웃박스)
 
-    implementation 'org.flywaydb:flyway-core'
+    implementation 'org.springframework.boot:spring-boot-starter-flyway'      // Boot 4는 Flyway 자동 설정을 별도 스타터로 나눴다
     implementation 'org.flywaydb:flyway-database-postgresql'
     runtimeOnly 'org.postgresql:postgresql'
 
@@ -36,12 +38,14 @@ dependencies {
     implementation 'net.java.dev.jna:jna-platform:5.14.0'
 
     testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testImplementation 'org.springframework.boot:spring-boot-starter-data-jpa-test' // @DataJpaTest·@AutoConfigureTestDatabase(Boot 4 모듈 분리)
     testImplementation 'org.springframework.modulith:spring-modulith-starter-test'
+    testImplementation 'org.springframework.modulith:spring-modulith-events-core'  // Jackson2BridgeTest(EventSerializer) — 실행 경로에는 starter-jpa가 이미 넣는다
     testImplementation 'com.tngtech.archunit:archunit:1.4.2'                  // ArchitectureRulesTest — Modulith가 끌고 오는 버전과 동일하게 고정(BOM 미관리)
     // DB 통합 테스트(support.PostgresTestDatabase) — 결정 D-18(2026-10-02): 운영과 같은 TimescaleDB HA 이미지로만 검증한다.
     //  - Docker가 있으면 Testcontainers(버전은 Boot BOM 관리), 없으면 AUTOSTOCK_TEST_DB_URL의 외부 DB, 둘 다 없으면 건너뜀
     //  - zonky 내장 PostgreSQL(2026-09-30)은 뺐다 — TimescaleDB 확장을 올릴 수 없다
-    testImplementation 'org.testcontainers:postgresql'
+    testImplementation 'org.testcontainers:testcontainers-postgresql'          // Testcontainers 2(Boot 4 BOM)에서 모듈 이름이 바뀌었다
 }
 
 tasks.named('test') {

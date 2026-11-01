@@ -4,7 +4,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.utility.DockerImageName;
 
 /**
@@ -101,7 +101,7 @@ public final class PostgresTestDatabase {
 
     @SuppressWarnings("resource")   // 테스트 JVM이 끝날 때 Testcontainers(Ryuk)가 정리한다
     private static Connection startContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(
+        PostgreSQLContainer container = new PostgreSQLContainer(
                 DockerImageName.parse(IMAGE).asCompatibleSubstituteFor("postgres"))
                 // 운영과 같은 사전 적재 + 테스트 속도용 fsync=off(Testcontainers 기본값 유지)
                 .withCommand("postgres", "-c", "fsync=off", "-c", "shared_preload_libraries=" + PRELOAD)

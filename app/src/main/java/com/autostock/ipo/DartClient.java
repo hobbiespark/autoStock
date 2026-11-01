@@ -4,7 +4,7 @@ import com.autostock.common.util.SecretMasking;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.http.client.reactive.ClientHttpConnectorBuilder;
-import org.springframework.boot.http.client.reactive.ClientHttpConnectorSettings;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.http.client.reactive.ClientHttpConnector;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -119,7 +119,7 @@ public class DartClient {
     private final WebClient webClient;
     private final DartProperties properties;
 
-    public DartClient(WebClient.Builder webClientBuilder, ClientHttpConnectorSettings connectorSettings,
+    public DartClient(WebClient.Builder webClientBuilder, HttpClientSettings connectorSettings,
                       DartProperties properties) {
         this.webClient = webClientBuilder.baseUrl(BASE_URL).clientConnector(jdkCipherConnector(connectorSettings))
                 .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(MAX_DOCUMENT_BYTES))
@@ -136,10 +136,10 @@ public class DartClient {
      * handshake_failure. 순수 JDK SSLSocket(scripts/TlsProbe.java)은 JDK 기본 목록에 DHE가 있어 성공한다.
      * 신뢰 저장소·프로토콜 협상은 JDK 기본 그대로다.
      *
-     * <p>커넥터를 교체하면 Boot 자동구성 커넥터의 타임아웃이 빠지므로, 같은 설정(spring.http.reactiveclient.*)으로
+     * <p>커넥터를 교체하면 Boot 자동구성 커넥터의 타임아웃이 빠지므로, 같은 설정(spring.http.clients.*)으로
      * 빌드하고 TLS만 customizer로 얹는다(customizer는 설정 적용 뒤에 실행된다).
      */
-    private static ClientHttpConnector jdkCipherConnector(ClientHttpConnectorSettings settings) {
+    private static ClientHttpConnector jdkCipherConnector(HttpClientSettings settings) {
         try {
             String[] jdkCiphers = SSLContext.getDefault().getDefaultSSLParameters().getCipherSuites();
             var ssl = SslContextBuilder.forClient()

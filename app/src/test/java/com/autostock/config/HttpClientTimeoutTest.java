@@ -2,10 +2,11 @@ package com.autostock.config;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
-import org.springframework.boot.autoconfigure.http.client.reactive.ClientHttpConnectorAutoConfiguration;
-import org.springframework.boot.autoconfigure.web.reactive.function.client.WebClientAutoConfiguration;
+import org.springframework.boot.http.client.autoconfigure.HttpClientAutoConfiguration;
+import org.springframework.boot.http.client.autoconfigure.reactive.ReactiveHttpClientAutoConfiguration;
+import org.springframework.boot.webclient.autoconfigure.WebClientAutoConfiguration;
 import org.springframework.boot.http.client.reactive.ClientHttpConnectorBuilder;
-import org.springframework.boot.http.client.reactive.ClientHttpConnectorSettings;
+import org.springframework.boot.http.client.HttpClientSettings;
 import org.springframework.boot.test.context.ConfigDataApplicationContextInitializer;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.web.reactive.function.client.WebClient;
@@ -21,7 +22,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * 외부 HTTP 호출 타임아웃(application.yml {@code spring.http.reactiveclient.*})이 정해진 값으로 걸리고,
+ * 외부 HTTP 호출 타임아웃(application.yml {@code spring.http.clients.*})이 정해진 값으로 걸리고,
  * 응답 없는 서버에서 {@code block()}이 무한 대기하지 않는지 검증한다.
  */
 class HttpClientTimeoutTest {
@@ -29,12 +30,13 @@ class HttpClientTimeoutTest {
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withInitializer(new ConfigDataApplicationContextInitializer())
             .withConfiguration(AutoConfigurations.of(
-                    ClientHttpConnectorAutoConfiguration.class, WebClientAutoConfiguration.class));
+                    HttpClientAutoConfiguration.class, ReactiveHttpClientAutoConfiguration.class,
+                    WebClientAutoConfiguration.class));
 
     @Test
     void application_yml의_연결_응답_타임아웃이_커넥터_설정에_반영된다() {
         runner.run(context -> {
-            ClientHttpConnectorSettings settings = context.getBean(ClientHttpConnectorSettings.class);
+            HttpClientSettings settings = context.getBean(HttpClientSettings.class);
 
             assertThat(settings.connectTimeout()).isEqualTo(Duration.ofSeconds(5));
             assertThat(settings.readTimeout()).isEqualTo(Duration.ofSeconds(20));
@@ -44,7 +46,7 @@ class HttpClientTimeoutTest {
     @Test
     void 자동구성_WebClient는_응답없는_서버에서_읽기_타임아웃으로_실패한다() throws IOException {
         try (SilentServer server = new SilentServer()) {
-            runner.withPropertyValues("spring.http.reactiveclient.read-timeout=300ms").run(context -> {
+            runner.withPropertyValues("spring.http.clients.read-timeout=300ms").run(context -> {
                 WebClient webClient = context.getBean(WebClient.Builder.class).build();
 
                 long started = System.nanoTime();
@@ -62,7 +64,7 @@ class HttpClientTimeoutTest {
         try (SilentServer server = new SilentServer()) {
             var connector = ClientHttpConnectorBuilder.reactor()
                     .withHttpClientCustomizer(client -> client.compress(false))
-                    .build(ClientHttpConnectorSettings.defaults().withReadTimeout(Duration.ofMillis(300)));
+                    .build(HttpClientSettings.defaults().withReadTimeout(Duration.ofMillis(300)));
             WebClient webClient = WebClient.builder().clientConnector(connector).build();
 
             long started = System.nanoTime();

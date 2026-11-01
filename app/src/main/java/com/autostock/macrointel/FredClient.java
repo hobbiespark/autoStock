@@ -134,7 +134,7 @@ public class FredClient {
                         .build())
                 .retrieve()
                 .bodyToMono(String.class)
-                .block(); // 타임아웃은 공통 설정(spring.http.reactiveclient.*), 재시도는 스케줄 따라잡기가 대신한다
+                .block(); // 타임아웃은 공통 설정(spring.http.clients.*), 재시도는 스케줄 따라잡기가 대신한다
     }
 
     /** 본문이 JSON 객체면 Map으로, 아니면 {@link NonJsonResponseException}(페이지 제목 또는 앞부분을 담는다). */

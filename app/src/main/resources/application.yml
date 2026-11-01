@@ -43,8 +43,20 @@ spring:
   jackson:
     # 시간대 명시(A5) — 응답의 Instant는 원래 UTC(ISO-8601 'Z')라 결과가 같다. JVM 기본 시간대에 기대지 않게 적는다.
     time-zone: UTC
+  # Jackson 2 과도기(VALUNIVO 494 U4) — Boot 4의 spring.jackson.*은 Jackson 3 매퍼에만 붙는다.
+  # 앱 코드의 ObjectMapper(Jackson 2)는 spring.jackson2.*를 읽는다. U5에서 Jackson 3로 옮기면 이 블록을 뺀다.
+  jackson2:
+    time-zone: UTC
+  autoconfigure:
+    # Modulith 2는 Jackson 3 이벤트 직렬화를 먼저 고른다. 값 객체 모듈(JacksonConfig)은 아직 Jackson 2라
+    # 그대로 두면 event_publication의 JSON 모양이 바뀐다 — U5 전까지 Jackson 2 직렬화(Spring ObjectMapper)를 쓴다.
+    exclude: org.springframework.modulith.events.jackson.JacksonEventSerializationConfiguration
   http:
-    reactiveclient:
+    converters:
+      # MVC 응답도 같은 이유로 Jackson 2(값 객체를 스칼라로)를 쓴다(U5에서 뺀다)
+      preferred-json-mapper: jackson2
+    clients:
+      # Boot 4에서 spring.http.reactiveclient.*가 spring.http.clients.*로 바뀌었다(동기 클라이언트는 Spring 빌더를 쓰지 않는다)
       # 모든 외부 HTTP(WebClient) 호출의 공통 상한 — Reactor Netty 기본은 응답 타임아웃이 없어
       # 절전 복귀·망 단절 뒤 block()이 무한 대기한다(2026-09-22 사고 계열). DART 전용 커넥터도 이 값을 쓴다.
       # 키움 REST는 KiwoomRestClient의 15초 per-call 상한이 먼저 걸린다.
