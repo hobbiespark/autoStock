@@ -1,0 +1,180 @@
+/*
+ * valunivo-tokens 1.0.0
+ * 세 앱(VALUNIVO·writingApp·autoStock) 공통 디자인 토큰 원본(계획 1-6, D107·D182).
+ * 원본은 VALUNIVO 저장소의 이 파일 하나다. 받는 앱은 이 파일을 바이트 그대로 복사하고
+ * scripts/dev/standard_conformance.py의 토큰 일치 검사로 원본과 같은지 확인한다.
+ * 받는 앱에서 값을 고치지 않는다. 앱 고유 값은 앱 CSS에 --앱이름-* 이름으로 따로 둔다.
+ * 규칙: aiDoc/상세/공통/03-공통-표준.md 2.3절. 대비는 같은 검사기가 두 테마 모두 계산한다.
+ */
+:root {
+  color-scheme: light;
+
+  /* 글자 */
+  --vn-font-sans: system-ui, "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --vn-font-mono: ui-monospace, Consolas, "D2Coding", monospace;
+  --vn-font-display: Georgia, serif;
+  --vn-text-2xs: 10px;
+  --vn-text-xs: 11px;
+  --vn-text-sm: 12px;
+  --vn-text-md: 13px;
+  --vn-text-base: 14px;
+  --vn-text-lg: 16px;
+  --vn-text-xl: 19px;
+  --vn-text-2xl: 25px;
+  --vn-text-3xl: 30px;
+  --vn-leading: 1.6;
+  --vn-leading-tight: 1.3;
+  --vn-weight-medium: 500;
+  --vn-weight-strong: 600;
+  --vn-weight-bold: 700;
+
+  /* 간격(4px 단위) */
+  --vn-space-1: 4px;
+  --vn-space-2: 8px;
+  --vn-space-3: 12px;
+  --vn-space-4: 16px;
+  --vn-space-5: 20px;
+  --vn-space-6: 24px;
+  --vn-space-8: 32px;
+  --vn-space-10: 40px;
+
+  /* 모서리·그림자·초점·조작 크기·움직임 */
+  --vn-radius-sm: 6px;
+  --vn-radius-md: 8px;
+  --vn-radius-lg: 12px;
+  --vn-radius-pill: 999px;
+  --vn-shadow-sm: 0 1px 2px rgb(33 54 46 / 0.06);
+  --vn-shadow-md: 0 6px 28px rgb(41 68 42 / 0.05);
+  --vn-focus-width: 3px;
+  --vn-focus-offset: 3px;
+  --vn-target-min: 24px;
+  --vn-duration: 120ms;
+
+  /* 바탕 */
+  --vn-color-bg: #f8faf7;
+  --vn-color-surface: #ffffff;
+  --vn-color-surface-alt: #eef3eb;
+  --vn-color-surface-sunken: #f5f8f2;
+  --vn-color-surface-selected: #dce8d6;
+  --vn-color-surface-hover: #eef4ea;
+
+  /* 글자색(모든 바탕 위 4.5:1 이상) */
+  --vn-color-text: #21362e;
+  --vn-color-text-muted: #56694f;
+  --vn-color-link: #2b5c3f;
+  --vn-color-danger: #a03c2a;
+
+  /* 선(꾸밈 선은 대비 기준 없음, 입력 테두리·초점은 3:1 이상) */
+  --vn-color-border: #dce4d6;
+  --vn-color-border-control: #6b7d67;
+  --vn-color-focus: #2f6f4c;
+
+  /* 주 행동 */
+  --vn-color-primary: #355f40;
+  --vn-color-primary-hover: #264d31;
+  --vn-color-on-primary: #ffffff;
+
+  /* 공통 상태 6개(접수됨·진행 중·완료·실패·결과 불명·대기) + 주의·위험 패널·AI 생성 표시 */
+  --vn-status-received-fg: #38566f;
+  --vn-status-received-bg: #e6eef5;
+  --vn-status-running-fg: #1d5b8c;
+  --vn-status-running-bg: #e1edf8;
+  --vn-status-done-fg: #2f6427;
+  --vn-status-done-bg: #e4eedb;
+  --vn-status-failed-fg: #9b3d31;
+  --vn-status-failed-bg: #f9e9e3;
+  --vn-status-unknown-fg: #68478a;
+  --vn-status-unknown-bg: #f0e9f7;
+  --vn-status-waiting-fg: #4f5e4c;
+  --vn-status-waiting-bg: #eef1e8;
+  --vn-color-warning-fg: #7a5a0c;
+  --vn-color-warning-bg: #fbf2d9;
+  --vn-color-danger-bg: #fff1ec;
+  --vn-color-ai-fg: #4b4f8f;
+  --vn-color-ai-bg: #ecedf8;
+}
+
+/* 어둡게: 시스템 설정을 따르고, data-theme="light"|"dark"로 앱이 고정할 수 있다 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --vn-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+    --vn-shadow-md: 0 6px 28px rgb(0 0 0 / 0.35);
+    --vn-color-bg: #111814;
+    --vn-color-surface: #18221c;
+    --vn-color-surface-alt: #141d18;
+    --vn-color-surface-sunken: #0d1410;
+    --vn-color-surface-selected: #233a2c;
+    --vn-color-surface-hover: #1f2c24;
+    --vn-color-text: #e2ebe4;
+    --vn-color-text-muted: #a9b9ac;
+    --vn-color-link: #9fd3b2;
+    --vn-color-danger: #ff9d8c;
+    --vn-color-border: #2c3b33;
+    --vn-color-border-control: #71877a;
+    --vn-color-focus: #8fd0a8;
+    --vn-color-primary: #7cc497;
+    --vn-color-primary-hover: #98d4ae;
+    --vn-color-on-primary: #0c1a11;
+    --vn-status-received-fg: #a9c8e4;
+    --vn-status-received-bg: #1b2a37;
+    --vn-status-running-fg: #9fcaf0;
+    --vn-status-running-bg: #16293b;
+    --vn-status-done-fg: #a8d99a;
+    --vn-status-done-bg: #1b2e1a;
+    --vn-status-failed-fg: #ffaa9b;
+    --vn-status-failed-bg: #3a1d18;
+    --vn-status-unknown-fg: #d2b8f0;
+    --vn-status-unknown-bg: #2b2138;
+    --vn-status-waiting-fg: #c0cbbd;
+    --vn-status-waiting-bg: #232b23;
+    --vn-color-warning-fg: #f2d27a;
+    --vn-color-warning-bg: #352a0f;
+    --vn-color-danger-bg: #3a1d18;
+    --vn-color-ai-fg: #c3c6f5;
+    --vn-color-ai-bg: #22243d;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --vn-shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --vn-shadow-md: 0 6px 28px rgb(0 0 0 / 0.35);
+  --vn-color-bg: #111814;
+  --vn-color-surface: #18221c;
+  --vn-color-surface-alt: #141d18;
+  --vn-color-surface-sunken: #0d1410;
+  --vn-color-surface-selected: #233a2c;
+  --vn-color-surface-hover: #1f2c24;
+  --vn-color-text: #e2ebe4;
+  --vn-color-text-muted: #a9b9ac;
+  --vn-color-link: #9fd3b2;
+  --vn-color-danger: #ff9d8c;
+  --vn-color-border: #2c3b33;
+  --vn-color-border-control: #71877a;
+  --vn-color-focus: #8fd0a8;
+  --vn-color-primary: #7cc497;
+  --vn-color-primary-hover: #98d4ae;
+  --vn-color-on-primary: #0c1a11;
+  --vn-status-received-fg: #a9c8e4;
+  --vn-status-received-bg: #1b2a37;
+  --vn-status-running-fg: #9fcaf0;
+  --vn-status-running-bg: #16293b;
+  --vn-status-done-fg: #a8d99a;
+  --vn-status-done-bg: #1b2e1a;
+  --vn-status-failed-fg: #ffaa9b;
+  --vn-status-failed-bg: #3a1d18;
+  --vn-status-unknown-fg: #d2b8f0;
+  --vn-status-unknown-bg: #2b2138;
+  --vn-status-waiting-fg: #c0cbbd;
+  --vn-status-waiting-bg: #232b23;
+  --vn-color-warning-fg: #f2d27a;
+  --vn-color-warning-bg: #352a0f;
+  --vn-color-danger-bg: #3a1d18;
+  --vn-color-ai-fg: #c3c6f5;
+  --vn-color-ai-bg: #22243d;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root { --vn-duration: 0ms; }
+}

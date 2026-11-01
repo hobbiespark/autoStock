@@ -1,4 +1,8 @@
-/* 기존 vanilla index.html의 다크 테마 디자인 토큰을 그대로 유지한다(ADR-10). */
+/* VALUNIVO 공통 토큰(valunivo-tokens 1.0.0) 바이트 복사본. 값은 여기서 고치지 않는다(VALUNIVO 4-2 S3). */
+@import './valunivo-tokens.css';
+
+/* 기존 vanilla index.html의 다크 테마 디자인 토큰을 그대로 유지한다(ADR-10).
+   S3는 화면을 바꾸지 않으므로 아래 값은 그대로 두고, 공통 토큰 별칭으로 바꾸는 일은 S6에서 한다. */
 :root {
   --bg: #0f1420;
   --card: #1a2233;
