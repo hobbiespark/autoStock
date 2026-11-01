@@ -27,6 +27,16 @@ Get-Content $envFile -Encoding UTF8 | ForEach-Object {
 # 생성 앱 설정(VALUNIVO 4-0/env, D213·D256): AUTOSTOCK_APP_CONFIG=<VALUNIVO-runtime\app-config\<환경>\autostock.env 절대 경로>
 #   VALUNIVO Initialize-ServerEnvironmentFiles.ps1이 입력 파일에서 만든 DB_* 값을 읽어 .env의 같은 키보다 우선한다.
 #   손으로 고치지 않는 파일이다. 경로가 있는데 파일이 없으면 기본값으로 붙지 않게 멈춘다.
+# D6 전환 뒤(VALUNIVO 1-1 autoStock D6 단계 C, 구현 514): 상태 파일(autoStock-runtime\database.json)의 app_config가 기준이다.
+#   .env에 다른 AUTOSTOCK_APP_CONFIG가 있으면 어느 DB에 붙을지 모호하므로 멈춘다. 상태 파일이 없으면 지금과 같다.
+. (Join-Path $PSScriptRoot 'Get-AutoStockDatabase.ps1')
+try { $database = Get-AutoStockDatabase (Get-AutoStockRuntimeRoot $root) } catch { Write-Host "[X] DB 대상 해석 실패: $($_.Exception.Message)"; exit 1 }
+if ($database.Mode -eq 'docker') {
+    if ($vars.Contains('AUTOSTOCK_APP_CONFIG') -and $vars['AUTOSTOCK_APP_CONFIG'] -and $vars['AUTOSTOCK_APP_CONFIG'] -ne $database.AppConfig) {
+        Write-Host "[X] .env AUTOSTOCK_APP_CONFIG가 database.json app_config와 다르다 — .env 줄을 지우거나 같게 맞춘다"; exit 1
+    }
+    $vars['AUTOSTOCK_APP_CONFIG'] = $database.AppConfig
+}
 if ($vars.Contains('AUTOSTOCK_APP_CONFIG') -and $vars['AUTOSTOCK_APP_CONFIG']) {
     $configPath = $vars['AUTOSTOCK_APP_CONFIG']
     if (-not [System.IO.Path]::IsPathRooted($configPath)) { $configPath = Join-Path $root $configPath }

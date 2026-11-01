@@ -30,7 +30,7 @@ autoStock은 VALUNIVO 플랫폼의 첫 번째 연동 앱이다. 플랫폼 쪽 �
 
 - id·pw·키의 원본은 Git 밖 `C:\ai\VALUNIVO-runtime\env-input\{development,production}.input.env`다.
 - **DB 접속(4-0/env, VALUNIVO 491·D256):** `develop`부터 `application.yml`에 DB 계정·암호·포트·DB 이름 기본값이 없다. 값이 없으면 앱이 Spring 전에 키 이름을 알리고 멈춘다(`DatabaseEnvironment`). 값은 VALUNIVO 생성기가 만든 `VALUNIVO-runtime\app-config\<환경>\autostock.env`를 `.env`의 `AUTOSTOCK_APP_CONFIG=<경로>`로 읽는다(`load_env.ps1`, `.env`의 `DB_*`보다 우선). 이 파일은 손으로 고치지 않는다.
-- 지금 운영(`main`)은 아직 옛 기본값(`autostock`)으로 돈다. `develop`을 `main`에 올리기 전에 운영 `.env`에 `AUTOSTOCK_APP_CONFIG`(또는 `DB_*`)를 넣어야 한다. 새 DB(56434)로 옮기는 일과 compose·백업·복원 스크립트의 `-U autostock`은 VALUNIVO 1-1 autoStock D6에서 한다.
+- 지금 운영(`main`)은 아직 옛 기본값(`autostock`)으로 돈다. `develop`을 `main`에 올리기 전에 운영 `.env`에 `AUTOSTOCK_APP_CONFIG`(또는 `DB_*`)를 넣어야 한다. 새 DB(56434)로 옮기는 일은 VALUNIVO 1-1 autoStock D6에서 한다. 백업(`backup_db.ps1`)·DB 기동(`start_database.ps1`)·`load_env.ps1`은 `scripts\Get-AutoStockDatabase.ps1`로 대상을 정한다(VALUNIVO 514): `C:\ai\autoStock-runtime\database.json`이 없으면 지금과 같은 `autostock-db`·`autostock`, D6 전환이 그 파일을 쓰면 VALUNIVO 생성 env의 컨테이너·DB와 그 `app_config`(이때 `.env`의 다른 `AUTOSTOCK_APP_CONFIG`는 기동을 멈춘다).
 - `.env`·키 파일·DB 덤프는 커밋하지 않는다(`.gitignore`).
 
 ## 4. 그 밖

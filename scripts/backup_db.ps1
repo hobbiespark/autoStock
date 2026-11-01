@@ -16,8 +16,14 @@ param(
     [int]$KeepDaily = 14,
     [int]$KeepMonthly = 12,
     [string]$OffsiteDir = "",
-    [string]$Container = "autostock-db"
+    [string]$Container = "",
+    [string]$RuntimeRoot = ""
 )
+# 대상 DB(VALUNIVO 1-1 autoStock D6 단계 C, 구현 514): Get-AutoStockDatabase가 정한다. 상태 파일(<RuntimeRoot>\database.json)이 없으면
+#   지금과 같은 autostock-db·autostock, D6 전환 뒤에는 생성 env의 컨테이너·DB·관리자 계정. -Container는 옛 판 예약 인수와의 호환용 덮어쓰기다.
+$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+. (Join-Path $scriptRoot 'Get-AutoStockDatabase.ps1')
+if (-not $RuntimeRoot) { $RuntimeRoot = Get-AutoStockRuntimeRoot (Split-Path -Parent $scriptRoot) }
 
 # 오류 처리: 네이티브 명령(docker)은 종료 코드($LASTEXITCODE)로 판정한다. $ErrorActionPreference를 "Stop"으로 두지 않는다 —
 # Windows PowerShell 5.1은 네이티브 명령의 stderr를 리다이렉트(2>$null)하면 오류 레코드로 바꿔 "Stop"에서 스크립트를 멈춘다
@@ -36,8 +42,11 @@ function Log([string]$message) {
 $inContainer = "/tmp/autostock_$stamp.dump"
 $target = Join-Path $BackupDir "autostock_$stamp.dump"
 try {
+    $database = Get-AutoStockDatabase $RuntimeRoot
+    if (-not $Container) { $Container = $database.Container }
+    $dbUser = $database.AdminUser; $dbName = $database.Database
     # TimescaleDB DB의 덤프는 "circular foreign-key constraints … continuous_agg" 경고를 늘 낸다 — 공식 문서상 정상이라 걸러 낸다
-    $dumpOutput = @(docker exec $Container pg_dump -U autostock -d autostock -Fc -f $inContainer 2>&1 | ForEach-Object { "$_" })
+    $dumpOutput = @(docker exec $Container pg_dump -U $dbUser -d $dbName -Fc -f $inContainer 2>&1 | ForEach-Object { "$_" })
     $dumpExit = $LASTEXITCODE
     $dumpOutput | Where-Object { $_ -and $_ -notmatch "circular foreign-key|continuous_agg|--disable-triggers|data-only dump" } |
             ForEach-Object { Write-Host "    $_" }
@@ -51,18 +60,19 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "docker cp 실패(exit $LASTEXITCODE)" }
     $size = (Get-Item $target -ErrorAction Stop).Length
     if ($size -le 0) { throw "백업 파일 크기 0: $target" }
-    Log ("[O] 백업 완료 {0} ({1:N0} bytes, 목차 {2}개)" -f $target, $size, $entries.Count)
+    # db·container·mode를 남긴다 — VALUNIVO Test-BackupTargets.ps1이 앱 DB와 대조한다(RM-45)
+    Log ("[O] 백업 완료 {0} ({1:N0} bytes, 목차 {2}개) db={3}, container={4}, mode={5}" -f $target, $size, $entries.Count, $dbName, $Container, $database.Mode)
 
     # 버전 기록 — 실패해도 백업 자체는 유효하므로 경고만 남긴다
     $versionFile = $target -replace '\.dump$', '.versions.txt'
     $image = (docker inspect -f "{{.Config.Image}}" $Container) -join ""
     $imageId = (docker inspect -f "{{.Image}}" $Container) -join ""
-    $versions = @(docker exec $Container psql -X -U autostock -d autostock -tA `
+    $versions = @(docker exec $Container psql -X -U $dbUser -d $dbName -tA `
             -c "select 'server ' || current_setting('server_version')" `
             -c "select 'extension ' || extname || ' ' || extversion from pg_extension order by extname")
     if ($LASTEXITCODE -eq 0) {
         $content = @("# autoStock 백업 버전 기록 — 복원은 같은 PostgreSQL 메이저·TimescaleDB 버전의 이미지로 한다",
-                     "dump $(Split-Path -Leaf $target)", "image $image", "image_id $imageId") + $versions
+                     "dump $(Split-Path -Leaf $target)", "database $dbName", "container $Container", "image $image", "image_id $imageId") + $versions
         Set-Content -Path $versionFile -Value $content -Encoding UTF8 -ErrorAction Stop
         Log ("[O] 버전 기록 {0} ({1})" -f (Split-Path -Leaf $versionFile), (($versions | Where-Object { $_ -like "extension timescaledb *" }) -join ", "))
     } else {

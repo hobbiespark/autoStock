@@ -58,7 +58,13 @@ if errorlevel 1 (
   exit /b 1
 )
 echo [O] Docker ready
-docker compose -f infra\docker-compose.yml up -d postgres
+REM ---- DB: legacy autostock-db, or the VALUNIVO D6 container when autoStock-runtime\database.json exists (scripts\start_database.ps1) ----
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\start_database.ps1
+if errorlevel 1 (
+  echo [X] database not ready - see start_database.ps1 output above
+  pause
+  exit /b 1
+)
 
 REM ---- telegram alerts + remote commands (Phase 0.7, D-09): on only when both keys are in .env ----
 set "TG_ARGS="
