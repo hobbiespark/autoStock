@@ -104,6 +104,38 @@ class TelegramNotifierTest {
         assertDoesNotThrow(() -> notifier.notify(NoticeLevel.CRITICAL, "킬스위치 작동: 테스트"));
     }
 
+    // ── VALUNIVO 4-3(556): 플랫폼 알림 사본 ───────────────────────────────────────────
+
+    @Test
+    void 플랫폼_사본이_켜져_있으면_발송_성공은_sent로_맡긴다() {
+        WebClient webClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
+        when(webClient.post().uri(anyString(), any(Object[].class)).bodyValue(any())
+                .retrieve().toBodilessEntity())
+                .thenReturn(Mono.just(ResponseEntity.ok().build()));
+        TelegramNotifier notifier = new TelegramNotifier(builderReturning(webClient), properties, CLOCK);
+        PlatformNotificationCopy copy = mock(PlatformNotificationCopy.class);
+        notifier.setPlatformCopy(copy);
+
+        notifier.notify(NoticeLevel.INFO, "체결 완료");
+
+        verify(copy).copy(NoticeLevel.INFO, "체결 완료", "sent");
+    }
+
+    @Test
+    void 플랫폼_사본은_발송_실패면_unknown이고_사본_오류는_삼킨다() {
+        WebClient webClient = mock(WebClient.class, RETURNS_DEEP_STUBS);
+        when(webClient.post().uri(anyString(), any(Object[].class)).bodyValue(any())
+                .retrieve().toBodilessEntity().block())
+                .thenThrow(new RuntimeException("네트워크 오류(모의)"));
+        TelegramNotifier notifier = new TelegramNotifier(builderReturning(webClient), properties, CLOCK);
+        PlatformNotificationCopy copy = mock(PlatformNotificationCopy.class);
+        org.mockito.Mockito.doThrow(new IllegalStateException("사본 오류(모의)")).when(copy).copy(any(), anyString(), anyString());
+        notifier.setPlatformCopy(copy);
+
+        assertDoesNotThrow(() -> notifier.notify(NoticeLevel.CRITICAL, "킬스위치 작동: 테스트"));
+        verify(copy).copy(NoticeLevel.CRITICAL, "킬스위치 작동: 테스트", "unknown");
+    }
+
     // ── 발송 제한(429) — 2026-10-01, aiDoc/alert-digest.md ──────────────────────────────
 
     /** 텔레그램 429 응답 — 본문 parameters.retry_after(초)에 대기 시간이 온다. */

@@ -97,11 +97,34 @@ public class TelegramNotifier implements Notifier {
         this.resender = resender;
     }
 
+    /** VALUNIVO 4-3(556, D286): 켜져 있으면 보낸 뒤 플랫폼에 사본을 맡긴다. 없으면(기본) 아무것도 하지 않는다. */
+    private PlatformNotificationCopy platformCopy;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setPlatformCopy(PlatformNotificationCopy platformCopy) {
+        this.platformCopy = platformCopy;
+    }
+
     @Override
     public void notify(NoticeLevel level, String message) {
+        boolean sent = false;
+        try {
+            sent = deliver(level, message);
+        } finally {
+            if (platformCopy != null) {
+                // 첫 발송이 실패하면 재전송 결과는 아직 모른다 → unknown. 사본 쪽 문제는 알림 흐름에 올리지 않는다.
+                try { platformCopy.copy(level, message, sent ? "sent" : "unknown"); }
+                catch (RuntimeException e) { log.warn("플랫폼 알림 사본 맡기기 실패 — {}", e.getClass().getSimpleName()); }
+            }
+        }
+    }
+
+    /** 실제 발송. 첫 시도가 성공하면 true, 실패는 재시도·재전송 예약·기록을 한 뒤 false(결과 미정). */
+    private boolean deliver(NoticeLevel level, String message) {
         String text = "[%s] %s".formatted(level, message);
         try {
             send(text);
+            return true;
         } catch (WebClientResponseException e) {
             if (e.getStatusCode().value() == 429) {
                 retryOnceAfterLimit(level, message, text, e);
@@ -117,6 +140,7 @@ public class TelegramNotifier implements Notifier {
                 logFailure(level, message, e);
             }
         }
+        return false;
     }
 
     private void send(String text) {

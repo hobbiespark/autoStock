@@ -213,6 +213,8 @@ autostock:
   platform:
     stock-control:                # 플랫폼 주식 제어 입구(P2-2d, VALUNIVO 159 §5) — 기본 꺼짐. 꺼져 있으면 포트 바인드·키 파일 읽기 0
       enabled: false              # 켤 때는 port·bot-ref·space-id·actor-ref·키 4종(platform-request/ack 공개키, app-result 개인키, store) 명시
+    notification-copy:            # VALUNIVO 4-3(556, D286): 알림 봇 발송 뒤 플랫폼에 사본(copy) — 기본 꺼짐. 켜면 token-file(app:autostock 토큰) 필요
+      enabled: false              # url 기본 http://127.0.0.1:18080(루프백만), app-id 기본 autostock
 
 monitor:
   telegram:
