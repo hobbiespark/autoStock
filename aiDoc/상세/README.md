@@ -98,6 +98,8 @@
 | [telegram-operator-atomic-stop-link.md](../telegram-operator-atomic-stop-link.md) | 원자적 정지 연결 |
 | [telegram-receiver-handover-operator-and-key-design.md](../telegram-receiver-handover-operator-and-key-design.md) | 수신 인계·키 설계 |
 | [telegram-receiver-stop-signal-design.md](../telegram-receiver-stop-signal-design.md) | 수신 정지 신호 설계 |
+| [telegram-operator-listener.md](../telegram-operator-listener.md) | 운영자 정지 신호 수신기(R16 P2-1, 기본 꺼짐) |
+| [platform-stock-control-entry.md](../platform-stock-control-entry.md) | 플랫폼 주식 제어 입구·로컬 재개(R16 P2-2d, 기본 꺼짐, 원장 V32) |
 
 ## 인프라
 

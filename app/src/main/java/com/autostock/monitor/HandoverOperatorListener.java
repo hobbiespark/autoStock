@@ -2,8 +2,8 @@ package com.autostock.monitor;
 
 import com.autostock.monitor.control.HandoverOperatorGate;
 import com.autostock.monitor.control.HandoverOperatorSigner;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import org.slf4j.Logger;

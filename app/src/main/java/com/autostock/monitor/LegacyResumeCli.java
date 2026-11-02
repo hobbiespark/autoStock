@@ -2,8 +2,8 @@ package com.autostock.monitor;
 
 import com.autostock.monitor.control.HandoverOperatorKeyFile;
 import com.autostock.monitor.control.LegacyResumeGate;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -132,8 +132,8 @@ public final class LegacyResumeCli {
 
     private static String text(JsonNode node) {
         if (node.isMissingNode() || node.isNull()) return null;
-        if (!node.isTextual()) throw new IllegalArgumentException();
-        return node.textValue();
+        if (!node.isString()) throw new IllegalArgumentException();
+        return node.stringValue();
     }
 
     private static UUID uuid(JsonNode node) {

@@ -4,8 +4,8 @@ import com.autostock.monitor.control.*;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.KillSwitch;
 import com.autostock.support.PostgresDataJpaTest;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import javax.sql.DataSource;
 import java.io.*;
 import java.net.*;
@@ -58,7 +58,7 @@ class HandoverOperatorListenerDbTest extends PostgresDataJpaTest {
    var out=socket.getOutputStream();out.write(head.toString().getBytes(StandardCharsets.US_ASCII));out.write(body);out.flush();
    String text=new String(socket.getInputStream().readAllBytes(),StandardCharsets.UTF_8);
    String payload=text.substring(text.indexOf("\r\n\r\n")+4);
-   return new Reply(Integer.parseInt(text.substring(9,12)),payload.startsWith("{")?new ObjectMapper().readTree(payload):com.fasterxml.jackson.databind.node.NullNode.getInstance());
+   return new Reply(Integer.parseInt(text.substring(9,12)),payload.startsWith("{")?new ObjectMapper().readTree(payload):tools.jackson.databind.node.NullNode.getInstance());
   }
  }
 
@@ -67,10 +67,10 @@ class HandoverOperatorListenerDbTest extends PostgresDataJpaTest {
   // Host/Forwarded strings are not authentication inputs: only the real socket and the HMAC gate decide.
   headers.put("Forwarded","for=203.0.113.9");headers.put("X-Forwarded-For","203.0.113.9");
   var first=raw("POST "+request.path()+" HTTP/1.1",headers,request.body());
-  assertEquals(200,first.status());assertEquals("stopped",first.body().get("result").asText());assertEquals(request.id().toString(),first.body().get("request_id").asText());
-  assertEquals(stops.active().orElseThrow().stopId().toString(),first.body().get("stop").get("stop_id").asText());assertEquals(0,first.body().get("stop").get("confirmed_next_offset").asLong());assertEquals(1,urls.size());
+  assertEquals(200,first.status());assertEquals("stopped",first.body().get("result").asString());assertEquals(request.id().toString(),first.body().get("request_id").asString());
+  assertEquals(stops.active().orElseThrow().stopId().toString(),first.body().get("stop").get("stop_id").asString());assertEquals(0,first.body().get("stop").get("confirmed_next_offset").asLong());assertEquals(1,urls.size());
   var replay=post(request);assertEquals(409,replay.status());assertEquals("operator-receiver-already-stopped",replay.error());assertEquals(1,urls.size());
-  var observed=post(observe(request.id()));assertEquals(200,observed.status());assertEquals("stopped",observed.body().get("state").asText());assertTrue(observed.body().get("stop").get("active").asBoolean());
+  var observed=post(observe(request.id()));assertEquals(200,observed.status());assertEquals("stopped",observed.body().get("state").asString());assertTrue(observed.body().get("stop").get("active").asBoolean());
   assertEquals(first.body().get("stop").get("stop_id"),observed.body().get("stop").get("stop_id"));assertEquals(1,urls.size());
  }
  @Test void unconfirmedStopIsObservedAsUnknownAndReplayOrConflictNeverRetries()throws Exception{
@@ -79,7 +79,7 @@ class HandoverOperatorListenerDbTest extends PostgresDataJpaTest {
   var replay=post(request);assertEquals(409,replay.status());assertEquals("operator-request-already-received-use-observe",replay.error());
   var changed=signed(HandoverOperatorGate.Action.stop,request.id(),null,clock.now,clock.now.plusSeconds(25));var conflict=post(changed);assertEquals(409,conflict.status());assertEquals("operator-request-id-conflict",conflict.error());
   assertEquals(1,urls.size());clock.now=clock.now.plusSeconds(40);
-  var observed=post(observe(request.id()));assertEquals(200,observed.status());assertEquals("unknown",observed.body().get("state").asText());assertTrue(observed.body().get("stop").isNull());assertEquals(1,urls.size());
+  var observed=post(observe(request.id()));assertEquals(200,observed.status());assertEquals("unknown",observed.body().get("state").asString());assertTrue(observed.body().get("stop").isNull());assertEquals(1,urls.size());
  }
  @Test void lostResponseIsRecoveredByObserveWithoutSecondExecution()throws Exception{
   start(url->json());var request=stop();var h=headers(request);
@@ -89,7 +89,7 @@ class HandoverOperatorListenerDbTest extends PostgresDataJpaTest {
   } // closed without reading: the caller never sees the answer
   long deadline=System.nanoTime()+Duration.ofSeconds(20).toNanos();while(stops.active().isEmpty()&&System.nanoTime()<deadline)Thread.sleep(50);
   var active=stops.active().orElseThrow();
-  var observed=post(observe(request.id()));assertEquals(200,observed.status());assertEquals("stopped",observed.body().get("state").asText());assertEquals(active.stopId().toString(),observed.body().get("stop").get("stop_id").asText());
+  var observed=post(observe(request.id()));assertEquals(200,observed.status());assertEquals("stopped",observed.body().get("state").asString());assertEquals(active.stopId().toString(),observed.body().get("stop").get("stop_id").asString());
   assertEquals(1,urls.size());assertEquals(409,post(request).status());assertEquals(1,urls.size());
  }
  @Test void observeOfUnknownTargetIsNotFound()throws Exception{

@@ -1,7 +1,7 @@
 package com.autostock.monitor;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import java.io.*;
 import java.net.URI;
 import java.net.http.*;
@@ -64,28 +64,28 @@ final class PlatformStockControlReplica {
     Result verify(byte[] envelope, String expectedUpdate, String expectedFingerprint, Instant now) throws Exception {
         JsonNode root = JSON.readTree(envelope);
         fields(root, Set.of("contract_version", "key_id", "issued_at", "expires_at", "statement_base64", "signature"));
-        require(root.get("contract_version").textValue().equals("1.0") && root.get("key_id").textValue().equals(RESULT_KID));
-        String issuedText = root.get("issued_at").textValue(), expiresText = root.get("expires_at").textValue();
+        require(root.get("contract_version").stringValue().equals("1.0") && root.get("key_id").stringValue().equals(RESULT_KID));
+        String issuedText = root.get("issued_at").stringValue(), expiresText = root.get("expires_at").stringValue();
         Instant issued = Instant.parse(issuedText), expires = Instant.parse(expiresText);
         require(issued.toString().equals(issuedText) && expires.toString().equals(expiresText) && expires.isAfter(issued)
                 && !expires.isAfter(issued.plusSeconds(30)) && !issued.isAfter(now) && now.isBefore(expires));
-        String encoded = root.get("statement_base64").textValue();
+        String encoded = root.get("statement_base64").stringValue();
         var check = Signature.getInstance("Ed25519"); check.initVerify(resultPair.getPublic());
         check.update(frame("autostock-telegram-control-result-proof-v1", RESULT_KID, issuedText, expiresText, encoded));
-        require(check.verify(Base64.getDecoder().decode(root.get("signature").textValue())));
+        require(check.verify(Base64.getDecoder().decode(root.get("signature").stringValue())));
         JsonNode s = JSON.readTree(Base64.getDecoder().decode(encoded));
         fields(s, Set.of("contract_version", "app_id", "bot_ref", "space_id", "actor_ref", "source_update_id", "attempt_id", "request_sha256", "outcome", "result_sha256", "content_base64"));
-        require(s.get("app_id").textValue().equals("autostock") && s.get("bot_ref").textValue().equals(bot) && s.get("space_id").textValue().equals(SPACE)
-                && s.get("actor_ref").textValue().equals(ACTOR) && s.get("source_update_id").textValue().equals(expectedUpdate)
-                && s.get("request_sha256").textValue().equals(expectedFingerprint));
-        byte[] content = Base64.getDecoder().decode(s.get("content_base64").textValue());
-        require(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content)).equals(s.get("result_sha256").textValue()));
+        require(s.get("app_id").stringValue().equals("autostock") && s.get("bot_ref").stringValue().equals(bot) && s.get("space_id").stringValue().equals(SPACE)
+                && s.get("actor_ref").stringValue().equals(ACTOR) && s.get("source_update_id").stringValue().equals(expectedUpdate)
+                && s.get("request_sha256").stringValue().equals(expectedFingerprint));
+        byte[] content = Base64.getDecoder().decode(s.get("content_base64").stringValue());
+        require(HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(content)).equals(s.get("result_sha256").stringValue()));
         JsonNode c = JSON.readTree(content);
         fields(c, Set.of("outcome", "code", "reply"));
-        require(c.get("outcome").textValue().equals(s.get("outcome").textValue()) && Set.of("succeeded", "failed").contains(c.get("outcome").textValue())
-                && c.get("code").textValue().matches("[a-z][a-z0-9-]{0,63}") && !c.get("reply").textValue().isBlank());
-        return new Result(UUID.fromString(s.get("attempt_id").textValue()), c.get("outcome").textValue(), c.get("code").textValue(), c.get("reply").textValue(),
-                s.get("result_sha256").textValue(), s.get("request_sha256").textValue());
+        require(c.get("outcome").stringValue().equals(s.get("outcome").stringValue()) && Set.of("succeeded", "failed").contains(c.get("outcome").stringValue())
+                && c.get("code").stringValue().matches("[a-z][a-z0-9-]{0,63}") && !c.get("reply").stringValue().isBlank());
+        return new Result(UUID.fromString(s.get("attempt_id").stringValue()), c.get("outcome").stringValue(), c.get("code").stringValue(), c.get("reply").stringValue(),
+                s.get("result_sha256").stringValue(), s.get("request_sha256").stringValue());
     }
 
     /** StockControlResultAckIssuer.issue for a platform-durable result. */
@@ -127,7 +127,7 @@ final class PlatformStockControlReplica {
     }
 
     private static void fields(JsonNode node, Set<String> expected) {
-        var actual = new HashSet<String>(); node.fieldNames().forEachRemaining(actual::add);
+        var actual = new HashSet<String>(); node.propertyNames().forEach(actual::add);
         require(actual.equals(expected));
     }
 

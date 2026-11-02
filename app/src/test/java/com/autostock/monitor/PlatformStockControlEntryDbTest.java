@@ -6,7 +6,7 @@ import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.KillSwitch;
 import com.autostock.risk.RiskStateStore;
 import com.autostock.support.PostgresDataJpaTest;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import javax.sql.DataSource;
 import java.io.IOException;
 import java.net.*;
@@ -116,7 +116,7 @@ class PlatformStockControlEntryDbTest extends PostgresDataJpaTest {
   var otherKey=platform.post(port,"requests",platform.proof(wire(403,5,"stop",null),clock.now,clock.now.plusSeconds(30),PlatformStockControlReplica.keys().getPrivate()));assertEquals(403,otherKey.status());
   var tooLong=platform.post(port,"requests",platform.proof(wire(403,5,"stop",null),clock.now,clock.now.plusSeconds(31),platform.requestPair.getPrivate()));assertEquals(403,tooLong.status());
   byte[] late=platform.proof(wire(403,5,"stop",null),clock.now);clock.now=clock.now.plusSeconds(30);assertEquals(403,platform.post(port,"requests",late).status());
-  var tampered=(com.fasterxml.jackson.databind.node.ObjectNode)json.readTree(platform.proof(wire(403,5,"stop",null),clock.now));tampered.put("request_base64",Base64.getEncoder().encodeToString(platform.wire(wire(403,5,"status",null))));
+  var tampered=(tools.jackson.databind.node.ObjectNode)json.readTree(platform.proof(wire(403,5,"stop",null),clock.now));tampered.put("request_base64",Base64.getEncoder().encodeToString(platform.wire(wire(403,5,"status",null))));
   assertEquals(403,platform.post(port,"requests",json.writeValueAsBytes(tampered)).status());
   for(String bad:new String[]{"{}","not json","{\"contract_version\":\"1.0\"}",new String(platform.proof(wire(403,5,"stop",null),clock.now),StandardCharsets.UTF_8).replace("{","{\"extra\":\"x\",")}){
    var r=platform.post(port,"requests",bad.getBytes(StandardCharsets.UTF_8));assertEquals(400,r.status(),bad);assertEquals("stock-control-malformed",error(r));

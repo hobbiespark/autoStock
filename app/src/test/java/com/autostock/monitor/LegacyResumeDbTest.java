@@ -4,7 +4,7 @@ import com.autostock.monitor.control.*;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.risk.KillSwitch;
 import com.autostock.support.PostgresDataJpaTest;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.databind.ObjectMapper;
 import javax.sql.DataSource;
 import java.io.*;
 import java.net.*;
@@ -57,7 +57,7 @@ class LegacyResumeDbTest extends PostgresDataJpaTest {
   poller.poll();assertTrue(urls.getLast().contains("offset=0"));
   UUID id=UUID.randomUUID();String path=HandoverOperatorSigner.path(HandoverOperatorGate.Action.stop);byte[] body=HandoverOperatorSigner.body(id,HandoverOperatorGate.Action.stop,INSTANCE,null,clock.now,clock.now.plusSeconds(20));
   var reply=post(operatorListener.port(),path,KID,HandoverOperatorSigner.signature(KID,KEY,path,body),body);assertEquals(200,reply.status,reply.body);
-  var stop=json.readTree(reply.body).get("stop");return new Stopped(id,UUID.fromString(stop.get("stop_id").asText()),stop.get("confirmed_next_offset").asLong());
+  var stop=json.readTree(reply.body).get("stop");return new Stopped(id,UUID.fromString(stop.get("stop_id").asString()),stop.get("confirmed_next_offset").asLong());
  }
  /** The platform release answer (161 §3, TelegramReceiverHandoverController.release) as the operator would save it. */
  Path release(Stopped s,boolean returned,long nextOffset,long fence,String state,UUID stopId,UUID stopRequestId)throws Exception{

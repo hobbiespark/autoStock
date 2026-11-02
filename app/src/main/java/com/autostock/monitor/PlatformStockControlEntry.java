@@ -1,12 +1,12 @@
 package com.autostock.monitor;
 
 import com.autostock.monitor.control.*;
-import com.fasterxml.jackson.core.JsonFactory;
-import com.fasterxml.jackson.core.StreamReadConstraints;
-import com.fasterxml.jackson.core.StreamReadFeature;
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import tools.jackson.core.json.JsonFactory;
+import tools.jackson.core.StreamReadConstraints;
+import tools.jackson.core.StreamReadFeature;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,9 +30,9 @@ public final class PlatformStockControlEntry {
     static final int MAX_BODY = 8192;
     private static final Set<String> PROOF_FIELDS = Set.of("contract_version", "key_id", "issued_at", "expires_at", "request_base64", "signature");
     private static final Set<String> ACK_FIELDS = Set.of("contract_version", "key_id", "issued_at", "expires_at", "statement_base64", "signature");
-    private static final ObjectMapper JSON = new ObjectMapper(JsonFactory.builder()
+    private static final ObjectMapper JSON = tools.jackson.databind.json.JsonMapper.builder(JsonFactory.builder()
             .streamReadConstraints(StreamReadConstraints.builder().maxNestingDepth(2).maxStringLength(6000).maxNumberLength(20).build())
-            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build()).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+            .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION).build()).enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build();
 
     /** {@code body} is the 137 result proof for 200 on requests/observe, otherwise a small JSON status. */
     public record Answer(int status, String code, byte[] body) {
@@ -225,9 +225,9 @@ public final class PlatformStockControlEntry {
                     .onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(body)).toString());
             if (root == null || !root.isObject()) return false;
             var names = new HashSet<String>();
-            root.fieldNames().forEachRemaining(names::add);
+            root.propertyNames().forEach(names::add);
             if (!names.equals(fields)) return false;
-            for (String name : fields) if (!root.get(name).isTextual()) return false;
+            for (String name : fields) if (!root.get(name).isString()) return false;
             return true;
         } catch (Exception malformed) {
             return false;
