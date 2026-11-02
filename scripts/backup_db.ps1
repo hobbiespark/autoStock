@@ -79,6 +79,28 @@ try {
         Log "[!] 버전 기록 실패(psql exit $LASTEXITCODE) — 백업 파일은 유효"
     }
 
+    # VALUNIVO 1-8 A-4(554, 플랫폼 401·글쓰기 529와 같음): 역할 정의(암호 제외)와 덤프·역할의 SHA-256. 실패하면 백업을 실패로 본다.
+    $globals = $target -replace '\.dump$', '.globals.sql'; $hashFile = $target -replace '\.dump$', '.sha256'
+    $globalsInContainer = "/tmp/autostock_$stamp.globals.sql"
+    docker exec $Container pg_dumpall -U $dbUser -l $dbName --globals-only --no-role-passwords -f $globalsInContainer
+    if ($LASTEXITCODE -ne 0) { throw "역할 덤프 실패(exit $LASTEXITCODE)" }
+    docker cp "${Container}:$globalsInContainer" $globals
+    $cpExit = $LASTEXITCODE
+    docker exec -u root $Container rm -f $globalsInContainer | Out-Null
+    if ($cpExit -ne 0) { throw "역할 덤프 docker cp 실패(exit $cpExit)" }
+    $globalLines = [IO.File]::ReadAllLines($globals)
+    $passwordLines = @($globalLines | Where-Object { $_ -match "PASSWORD\s+'|SCRAM-SHA-256\$|md5[0-9a-f]{32}" }).Count
+    if ($passwordLines -ne 0) { throw "역할 덤프에 암호로 보이는 줄 $passwordLines" }
+    $roleLines = @($globalLines | Where-Object { $_ -match '^CREATE ROLE ' }).Count
+    if ($roleLines -eq 0) { throw '역할 덤프에 CREATE ROLE 줄이 없다' }
+    $hashes = foreach ($path in @($target, $globals)) { [pscustomobject]@{ Name = (Split-Path -Leaf $path); Hash = (Get-FileHash -LiteralPath $path -Algorithm SHA256 -ErrorAction Stop).Hash.ToLowerInvariant() } }
+    # sha256sum 형식(BOM 없음·LF): Git Bash `sha256sum -c`로 그대로 확인한다
+    [IO.File]::WriteAllText($hashFile, ((($hashes | ForEach-Object { "$($_.Hash)  $($_.Name)" }) -join "`n") + "`n"), [Text.UTF8Encoding]::new($false))
+    $readBack = @([IO.File]::ReadAllLines($hashFile) | Where-Object { $_ })
+    if ($readBack.Count -ne 2) { throw 'SHA-256 파일 다시 읽기 실패' }
+    if (Test-Path $versionFile) { Add-Content -Path $versionFile -Value ("# integrity: sha256sum -c $(Split-Path -Leaf $hashFile)  (roles in $(Split-Path -Leaf $globals), passwords excluded)") -Encoding UTF8 }
+    Log ("[O] 역할·SHA-256 기록 {0} (CREATE ROLE {1}, 암호 줄 0, dump sha256={2})" -f (Split-Path -Leaf $hashFile), $roleLines, $hashes[0].Hash)
+
     if ($OffsiteDir) {
         New-Item -ItemType Directory -Force -Path $OffsiteDir -ErrorAction Stop | Out-Null
         Copy-Item -Path $target -Destination $OffsiteDir -Force -ErrorAction Stop
@@ -104,8 +126,10 @@ $removed = 0
 foreach ($file in $all) {
     if (-not $keep.Contains($file.Name)) {
         Remove-Item -Path $file.FullName -Force -ErrorAction Stop
-        $versionFile = $file.FullName -replace '\.dump$', '.versions.txt'
-        if (Test-Path $versionFile) { Remove-Item -Path $versionFile -Force -ErrorAction Stop }
+        foreach ($suffix in @('.versions.txt', '.globals.sql', '.sha256')) {
+            $side = $file.FullName -replace '\.dump$', $suffix
+            if (Test-Path $side) { Remove-Item -Path $side -Force -ErrorAction Stop }
+        }
         $removed++
     }
 }
