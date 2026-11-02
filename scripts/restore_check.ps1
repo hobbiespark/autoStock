@@ -16,7 +16,7 @@
 param(
     [string]$BackupDir = "C:\ai\backups\autostock",
     [string]$DumpFile = "",
-    [string]$LiveContainer = "autostock-db",
+    [string]$LiveContainer = "",
     [string]$Image = "",
     [switch]$Lab
 )
@@ -28,6 +28,11 @@ $ErrorActionPreference = "Continue"
 $name = "autostock-restore-check"
 if ($Lab) { $name = "autostock-lab" }
 # public 스키마의 일반·파티션 테이블 이름 — 큰따옴표 없는 SQL만 인자로 넘긴다(PowerShell 5.1 인자 전달 함정)
+# D6 뒤(VALUNIVO 514·545): 비교 상대 운영 DB는 상태 파일(autoStock-runtime\database.json)을 따른다. 없으면 옛 autostock-db·autostock.
+. (Join-Path $PSScriptRoot 'Get-AutoStockDatabase.ps1')
+$liveTarget = Get-AutoStockDatabase (Get-AutoStockRuntimeRoot (Split-Path $PSScriptRoot -Parent))
+if (-not $LiveContainer) { $LiveContainer = $liveTarget.Container }
+if ($LiveContainer -eq $liveTarget.Container) { $liveUser = $liveTarget.AdminUser; $liveDb = $liveTarget.Database } else { $liveUser = "autostock"; $liveDb = "autostock" }
 $tableSql = "select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind in ('r', 'p') order by 1"
 
 if (-not $DumpFile) {
@@ -81,6 +86,9 @@ try {
 
     $timescale = (docker exec $name psql -X -U autostock -d autostock -tAc "select count(*) from pg_extension where extname = 'timescaledb'") -join ""
     $useTimescale = ($timescale -eq "1")
+    # D6 뒤 덤프는 Timescale 작업 카탈로그(bgw_job.owner)가 소유 역할을 regrole로 담는다. 고정 ID(D267)의 로그인 없는 역할을 먼저 만든다(513과 같음).
+    docker exec $name psql -X -q -U autostock -d autostock -v ON_ERROR_STOP=1 -c "do `$`$ begin if not exists (select 1 from pg_roles where rolname = 'autostock_owner') then create role autostock_owner nologin; end if; if not exists (select 1 from pg_roles where rolname = 'autostock_app') then create role autostock_app nologin; end if; end `$`$" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "복원용 역할 준비 실패" }
     if ($useTimescale) {
         docker exec $name psql -X -q -U autostock -d autostock -tAc "select timescaledb_pre_restore()" | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "timescaledb_pre_restore 실패" }
@@ -94,7 +102,7 @@ try {
     if ($restoreExit -ne 0) { throw "pg_restore 실패(exit $restoreExit)" }
     if ($useTimescale) { Write-Host "[O] pg_restore 완료(TimescaleDB pre/post restore 포함)" } else { Write-Host "[O] pg_restore 완료" }
 
-    $tables = @(docker exec $LiveContainer psql -X -U autostock -d autostock -tAc $tableSql 2>$null | Where-Object { $_ })
+    $tables = @(docker exec $LiveContainer psql -X -U $liveUser -d $liveDb -tAc $tableSql 2>$null | Where-Object { $_ })
     if ($LASTEXITCODE -ne 0 -or $tables.Count -eq 0) {
         Write-Host "[!] 운영 DB 테이블 목록을 읽지 못했다 — 복원본 기준으로 센다"
         $tables = @(docker exec $name psql -X -U autostock -d autostock -tAc $tableSql | Where-Object { $_ })
@@ -103,7 +111,7 @@ try {
     foreach ($t in $tables) {
         $restored = (docker exec $name psql -X -U autostock -d autostock -tAc "select count(*) from public.$t" 2>$null) -join ""
         if ($LASTEXITCODE -ne 0) { $restored = "없음"; $failed = $true }
-        $live = (docker exec $LiveContainer psql -X -U autostock -d autostock -tAc "select count(*) from public.$t" 2>$null) -join ""
+        $live = (docker exec $LiveContainer psql -X -U $liveUser -d $liveDb -tAc "select count(*) from public.$t" 2>$null) -join ""
         if ($LASTEXITCODE -ne 0) { $live = "-" }
         $verdict = if ($restored -eq "없음") { "실패(테이블 없음)" } elseif ("$restored" -eq "$live") { "일치" } else { "차이(백업 뒤 변경분이면 정상)" }
         Write-Host ("{0,-24} {1,12} {2,12}  {3}" -f $t, $restored, $live, $verdict)
