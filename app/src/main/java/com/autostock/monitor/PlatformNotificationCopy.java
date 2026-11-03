@@ -72,6 +72,14 @@ public class PlatformNotificationCopy {
             t.setDaemon(true);
             return t;
         }, (task, executor) -> log.warn("플랫폼 알림 사본 큐가 가득 — 이 사본은 버림"));
+        log.info("플랫폼 알림 사본 켜짐 — {}", endpoint);
+    }
+
+    /** 플랫폼 응답 {"status":"accepted"|"duplicate"}의 값. 그 밖은 unknown(응답 본문은 기록하지 않는다). */
+    static String result(String responseBody) {
+        if (responseBody == null) return "unknown";
+        var m = java.util.regex.Pattern.compile("\"status\"\\s*:\\s*\"(accepted|duplicate)\"").matcher(responseBody);
+        return m.find() ? m.group(1) : "unknown";
     }
 
     /** 알림 봇 발송 결과(sent·failed·unknown)와 함께 사본을 맡긴다. 호출 스레드를 막지 않는다. */
@@ -80,26 +88,32 @@ public class PlatformNotificationCopy {
         if (text.length() > MAX_TEXT) text = text.substring(0, MAX_TEXT - 1) + "…";
         byte[] id = new byte[12];
         RANDOM.nextBytes(id);
-        String body = json.writeValueAsString(Map.of("notificationId", "as-" + HexFormat.of().formatHex(id), "mode", "copy",
+        String notificationId = "as-" + HexFormat.of().formatHex(id);
+        String body = json.writeValueAsString(Map.of("notificationId", notificationId, "mode", "copy",
                 "text", text, "appSend", appSend));
-        worker.execute(() -> deliver(body));
+        worker.execute(() -> deliver(notificationId, appSend, body));
     }
 
-    private void deliver(String body) {
+    /** 결과는 ID·플랫폼 처리 결과·앱 발송 결과만 기록한다(VALUNIVO 562: 사본 도착을 로그로 확인). 본문·토큰은 남기지 않는다. */
+    private void deliver(String notificationId, String appSend, String body) {
         for (int attempt = 1; attempt <= 2; attempt++) {
             try {
                 var request = HttpRequest.newBuilder(endpoint).timeout(Duration.ofSeconds(5))
                         .header("Content-Type", "application/json").header("Authorization", "Bearer " + token)
                         .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8)).build();
-                int status = client.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
-                if (status == 200) return;
-                if (status < 500) { log.warn("플랫폼 알림 사본 거절 — HTTP {}", status); return; }
-                log.warn("플랫폼 알림 사본 실패 — HTTP {} ({}/2)", status, attempt);
+                var response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                int status = response.statusCode();
+                if (status == 200) {
+                    log.info("플랫폼 알림 사본 접수 — id={} 결과={} 앱발송={}", notificationId, result(response.body()), appSend);
+                    return;
+                }
+                if (status < 500) { log.warn("플랫폼 알림 사본 거절 — id={} HTTP {}", notificationId, status); return; }
+                log.warn("플랫폼 알림 사본 실패 — id={} HTTP {} ({}/2)", notificationId, status, attempt);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
             } catch (Exception e) {
-                log.warn("플랫폼 알림 사본 실패 — {} ({}/2)", e.getClass().getSimpleName(), attempt);
+                log.warn("플랫폼 알림 사본 실패 — id={} {} ({}/2)", notificationId, e.getClass().getSimpleName(), attempt);
             }
             if (attempt == 1) {
                 try { Thread.sleep(retryDelay.toMillis()); } catch (InterruptedException e) { Thread.currentThread().interrupt(); return; }

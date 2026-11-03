@@ -67,6 +67,35 @@ class PlatformNotificationCopyTest {
         assertEquals("Bearer app_synthetic_token_1234", auth.get(0));
     }
 
+    /** VALUNIVO 562: 접수되면 ID·결과·앱 발송 결과를 한 줄 남긴다. 본문·토큰은 남기지 않는다. */
+    @Test
+    void logsAcceptedCopyWithoutTextOrToken() throws Exception {
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(PlatformNotificationCopy.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            var copy = copy();
+            copy.copy(NoticeLevel.INFO, "비밀 아닌 본문", "sent");
+            assertTrue(copy.awaitIdle(Duration.ofSeconds(5)));
+            String id = JsonMapper.builder().build().readTree(bodies.get(0)).path("notificationId").asString();
+            var lines = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+            assertTrue(lines.stream().anyMatch(l -> l.startsWith("플랫폼 알림 사본 켜짐")), lines.toString());
+            assertTrue(lines.contains("플랫폼 알림 사본 접수 — id=" + id + " 결과=accepted 앱발송=sent"), lines.toString());
+            assertTrue(lines.stream().noneMatch(l -> l.contains("본문") || l.contains("app_synthetic_token")), lines.toString());
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void resultReadsOnlyTheStatusValue() {
+        assertEquals("accepted", PlatformNotificationCopy.result("{\"status\":\"accepted\"}"));
+        assertEquals("duplicate", PlatformNotificationCopy.result("{\"status\" : \"duplicate\"}"));
+        assertEquals("unknown", PlatformNotificationCopy.result("{\"status\":\"other\"}"));
+        assertEquals("unknown", PlatformNotificationCopy.result(null));
+    }
+
     @Test
     void retriesOnceOnServerErrorWithTheSameNotificationId() throws Exception {
         failuresLeft.set(1);
