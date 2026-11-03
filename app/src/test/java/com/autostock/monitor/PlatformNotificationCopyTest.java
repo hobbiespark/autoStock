@@ -88,6 +88,20 @@ class PlatformNotificationCopyTest {
         }
     }
 
+    /** VALUNIVO 567: 켜면 Spring이 실제로 빈을 만든다(운영 기동 실패 재발 방지), 끄면 만들지 않는다. */
+    @Test
+    void springCreatesTheBeanOnlyWhenEnabled() {
+        var runner = new org.springframework.boot.test.context.runner.ApplicationContextRunner()
+                .withUserConfiguration(PlatformNotificationCopy.class)
+                .withPropertyValues("autostock.platform.notification-copy.url=http://127.0.0.1:" + server.getAddress().getPort(),
+                        "autostock.platform.notification-copy.token-file=" + token);
+        runner.withPropertyValues("autostock.platform.notification-copy.enabled=true").run(context -> {
+            assertEquals(null, context.getStartupFailure());
+            assertEquals(1, context.getBeansOfType(PlatformNotificationCopy.class).size());
+        });
+        runner.run(context -> assertTrue(context.getBeansOfType(PlatformNotificationCopy.class).isEmpty()));
+    }
+
     @Test
     void resultReadsOnlyTheStatusValue() {
         assertEquals("accepted", PlatformNotificationCopy.result("{\"status\":\"accepted\"}"));

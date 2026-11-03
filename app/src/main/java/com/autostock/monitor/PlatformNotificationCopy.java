@@ -17,6 +17,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
@@ -47,6 +48,8 @@ public class PlatformNotificationCopy {
     private final JsonMapper json = JsonMapper.builder().build();
     private final Duration retryDelay;
 
+    // VALUNIVO 567: 시험용 생성자가 하나 더 있어 Spring이 고를 생성자를 밝힌다(없으면 기본 생성자를 찾다 기동 실패).
+    @Autowired
     public PlatformNotificationCopy(@Value("${autostock.platform.notification-copy.url:http://127.0.0.1:18080}") String baseUrl,
                                     @Value("${autostock.platform.notification-copy.app-id:autostock}") String appId,
                                     @Value("${autostock.platform.notification-copy.token-file}") String tokenFile) throws java.io.IOException {
