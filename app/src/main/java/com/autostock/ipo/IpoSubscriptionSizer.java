@@ -109,6 +109,10 @@ final class IpoSubscriptionSizer {
         this.properties = properties;
     }
 
+    IpoSubscriptionProperties properties() {
+        return properties;
+    }
+
     /**
      * @param target 계산할 딜
      * @param others 다른 추천·스팩 딜 전부(겹치는지는 여기서 본다 — target 자신이 섞여 있어도 코드로 뺀다)

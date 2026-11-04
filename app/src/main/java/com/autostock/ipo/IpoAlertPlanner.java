@@ -148,6 +148,25 @@ final class IpoAlertPlanner {
         return new Plan(List.copyOf(newDeals), List.copyOf(alerts));
     }
 
+    /**
+     * 청약 재판단(/ipo, 2026-11-05)용 회사 요약 — 알림과 같은 묶음·같은 청약 금액 계산(겹치는 추천 딜끼리)을 쓴다.
+     *
+     * @param sizing 오늘 청약 금액 추천(추천·스팩 딜이고 청약이 끝나지 않았을 때만)
+     */
+    record CorpView(String code, String name, String label, String adviceGrade, LocalDate start, LocalDate end,
+                    BigDecimal offerPrice, boolean open, Optional<IpoSubscriptionSizer.Sizing> sizing) {
+    }
+
+    static List<CorpView> corpViews(List<IpoDealEntity> deals, LocalDate today, IpoSubscriptionSizer sizer) {
+        List<Corp> corps = corps(deals);
+        Sizings sizings = Sizings.of(corps, today, sizer);
+        List<IpoSubscriptionSizer.Deal> all = List.copyOf(sizings.deals().values());
+        return corps.stream().map(corp -> new CorpView(corp.code, corp.name, corp.label(), corp.rep.getAdviceGrade(),
+                corp.start, corp.end, corp.offerPrice(),
+                subscriptionOpen(corp.end, corp.listing, corp.rep.getMetricsRceptNo(), today),
+                Optional.ofNullable(sizings.deals().get(corp.code)).map(deal -> sizer.size(deal, all)))).toList();
+    }
+
     private static List<Corp> corps(List<IpoDealEntity> deals) {
         Map<String, List<IpoDealEntity>> byCorp = deals.stream()
                 .filter(deal -> !deal.isRightsOffering())

@@ -29,6 +29,14 @@ class TelegramCommandPollerTest {
     }
 
     @Test
+    void ipo_재판단_명령은_등록된_채팅에서만_받는다() {
+        assertEquals(Command.IPO_RECHECK, TelegramCommandPoller.parseCommand(ALLOWED, "/ipo 브릴스 1500 120000 600000", ALLOWED));
+        assertEquals(Command.IPO_RECHECK, TelegramCommandPoller.parseCommand(ALLOWED, " /ipo ", ALLOWED));
+        assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand(ALLOWED, "/iposomething", ALLOWED));
+        assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand("999", "/ipo 브릴스 1500", ALLOWED));
+    }
+
+    @Test
     void 무관한_텍스트는_IGNORED() {
         assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand(ALLOWED, "안녕", ALLOWED));
     }
