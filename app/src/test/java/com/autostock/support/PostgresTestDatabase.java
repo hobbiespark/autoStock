@@ -101,8 +101,14 @@ public final class PostgresTestDatabase {
 
     @SuppressWarnings("resource")   // 테스트 JVM이 끝날 때 Testcontainers(Ryuk)가 정리한다
     private static Connection startContainer() {
+        // DB 판 올림 리허설에서만 후보 이미지를 지정한다. 생략하면 운영 기준 IMAGE를 유지한다.
+        String candidate = System.getenv("AUTOSTOCK_TEST_DB_IMAGE");
+        String testImage = candidate == null || candidate.isBlank() ? IMAGE : candidate;
+        if (!testImage.matches("timescale/timescaledb-ha@sha256:[0-9a-f]{64}")) {
+            throw new IllegalArgumentException("AUTOSTOCK_TEST_DB_IMAGE must be a pinned timescaledb-ha digest");
+        }
         PostgreSQLContainer container = new PostgreSQLContainer(
-                DockerImageName.parse(IMAGE).asCompatibleSubstituteFor("postgres"))
+                DockerImageName.parse(testImage).asCompatibleSubstituteFor("postgres"))
                 // 운영과 같은 사전 적재 + 테스트 속도용 fsync=off(Testcontainers 기본값 유지)
                 .withCommand("postgres", "-c", "fsync=off", "-c", "shared_preload_libraries=" + PRELOAD)
                 .withEnv("TIMESCALEDB_TELEMETRY", "off")
@@ -110,7 +116,7 @@ public final class PostgresTestDatabase {
                 .withEnv("TS_TUNE_MEMORY", "1GB")
                 .withEnv("TS_TUNE_MAX_CONNS", "100");
         container.start();
-        return new Connection("docker " + IMAGE, container.getJdbcUrl(), container.getUsername(), container.getPassword());
+        return new Connection("docker " + testImage, container.getJdbcUrl(), container.getUsername(), container.getPassword());
     }
 
     private record Connection(String kind, String url, String username, String password) {
