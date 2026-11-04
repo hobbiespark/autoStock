@@ -300,7 +300,9 @@ class TelegramNotifierTest {
         assertEquals(List.of(Duration.ofSeconds(30)), resendDelays);
         resendTasks.get(0).run();
         assertEquals(2, bodies.size());
-        assertTrue(bodies.get(1).contains("[WARN] (지연 발송 — 18:05:20 발생) 절전 복귀 감지 — 장중 6시간 45분 멈춤"), bodies.get(1));
+        assertTrue(java.util.regex.Pattern.compile("\\[autoStock\\] \\[주의\\] 18:05:20 · 사건 [0-9A-HJKMNP-TV-Z]{6} \\(지연 발송\\)\\\\n절전 복귀 감지 — 장중 6시간 45분 멈춤").matcher(bodies.get(1)).find(), bodies.get(1));
+        // 582(S5): 처음 보낸 것과 지연 재전송은 같은 사건 ID를 쓴다.
+        assertEquals(eventId(bodies.get(0)), eventId(bodies.get(1)));
         assertEquals(1, resendTasks.size(), "보냈으면 더 예약하지 않는다");
     }
 
@@ -356,5 +358,27 @@ class TelegramNotifierTest {
         assertFalse(TelegramNotifier.resendable(WebClientResponseException.create(
                 HttpStatusCode.valueOf(403), "Forbidden", HttpHeaders.EMPTY, new byte[0], StandardCharsets.UTF_8, null)));
         assertFalse(TelegramNotifier.resendable(new IllegalStateException("모르는 실패")));
+    }
+    /** VALUNIVO 4-2 S5(582, UI-M2): 첫 줄은 발송 주체·등급·발생 시각(KST)·사건 ID, 둘째 줄부터 본문. */
+    @Test
+    void 알림_첫_줄에_발송_주체_등급_시각_사건_ID를_둔다() {
+        List<String> bodies = new ArrayList<>();
+        TelegramNotifier notifier = new TelegramNotifier(exchanging(bodies, n -> Mono.just(ClientResponse.create(HttpStatus.OK).build())),
+                properties, d -> { }, CLOCK, resender);
+
+        notifier.notify(NoticeLevel.CRITICAL, "킬스위치 작동");
+
+        assertEquals(1, bodies.size());
+        assertTrue(java.util.regex.Pattern.compile("\\[autoStock\\] \\[긴급\\] 18:05:20 · 사건 [0-9A-HJKMNP-TV-Z]{6}\\\\n킬스위치 작동").matcher(bodies.get(0)).find(), bodies.get(0));
+        assertEquals("긴급", TelegramNotifier.label(NoticeLevel.CRITICAL));
+        assertEquals("주의", TelegramNotifier.label(NoticeLevel.WARN));
+        assertEquals("일반", TelegramNotifier.label(NoticeLevel.INFO));
+        assertTrue(TelegramNotifier.newEventId().matches("[0-9A-HJKMNP-TV-Z]{6}"));
+    }
+
+    private static String eventId(String body) {
+        var m = java.util.regex.Pattern.compile("사건 ([0-9A-HJKMNP-TV-Z]{6})").matcher(body);
+        assertTrue(m.find(), body);
+        return m.group(1);
     }
 }
