@@ -48,6 +48,34 @@ class PlatformAppCommandControllerTest {
         assertEquals(HttpStatus.NOT_FOUND, c.run("transfer_money", AUTH, null, from("127.0.0.1")).getStatusCode());
     }
 
+    @Test void readOnlyCommandsReuseTheScreenBeansAndCheckArguments() throws Exception {
+        // VALUNIVO 611: 시세·판단·주문 요청·일일 리포트는 화면용 빈을 그대로 쓴다. 인자는 직접 확인하고 실패는 failed로 답한다.
+        var facade = mock(DashboardFacade.class);
+        var c = controller(mock(TelegramStockCommands.class), mock(KillSwitch.class), facade);
+        var dashboard = mock(DashboardController.class); var decisions = mock(DecisionController.class);
+        var orders = mock(OrderHistoryController.class); var report = mock(DailyReportScheduler.class);
+        c.dashboard(dashboard); c.decisions(decisions); c.orderHistory(orders); c.dailyReport(report);
+        assertEquals("refused", c.readOnly("quote_view", "시세 알려줘").status(), "no symbol");
+        when(dashboard.quote("005930")).thenReturn(new DashboardController.QuoteView("005930", "삼성전자", new java.math.BigDecimal("71000"), null, null, null, null, null));
+        var quote = c.readOnly("quote_view", "005930 시세 어때?");
+        assertEquals("ok", quote.status()); assertTrue(quote.text().contains("71000"), quote.text());
+        when(dashboard.quote("000660")).thenReturn(new DashboardController.QuoteView("000660", null, null, null, null, null, null, null));
+        assertEquals("failed", c.readOnly("quote_view", "000660").status(), "empty quote is not invented");
+        when(decisions.decisions(java.time.LocalDate.of(2026, 11, 4))).thenReturn(java.util.List.of());
+        assertEquals(new PlatformAppCommandController.Result("ok", "2026-11-04 판단 기록이 없습니다."), c.readOnly("decisions_view", "2026-11-04 판단 보여줘"));
+        assertEquals("refused", c.readOnly("decisions_view", "2026-13-30").status(), "date-shaped but invalid");
+        when(orders.orders(7)).thenReturn(new com.autostock.monitor.view.OrderHistoryView(java.util.List.of()));
+        assertEquals("최근 7일 매매 요청이 없습니다.", c.readOnly("request_history_view", "").text());
+        when(report.strategyLines()).thenReturn(java.util.List.of("운영 상태: 정상"));
+        when(report.cumulativeLines()).thenReturn(java.util.List.of("누적 손익: 0"));
+        var daily = c.readOnly("daily_report_view", "");
+        assertTrue(daily.text().startsWith("일일 리포트(지금 값으로 다시 만든 것"), daily.text());
+        assertTrue(daily.text().endsWith("운영 상태: 정상\n누적 손익: 0"), daily.text());
+        verify(report, never()).sendDailyReport();
+        when(dashboard.quote("035720")).thenThrow(new IllegalStateException("broker down"));
+        assertEquals("failed", c.readOnly("quote_view", "035720").status());
+    }
+
     @Test void onlyLoopbackWithTheRightTokenIsServed() throws Exception {
         var commands = mock(TelegramStockCommands.class);
         var c = controller(commands, mock(KillSwitch.class), mock(DashboardFacade.class));
