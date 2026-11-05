@@ -72,30 +72,39 @@ public class TelegramStockCommands {
                 : new Reply(true, "kill-switch-engaged", "킬스위치를 작동했습니다 — 신규 주문을 차단합니다.", null);
     }
 
-    /** 해제 확인 코드를 발급한다(해제는 아직 안 한다). */
-    public Reply requestResume() {
+    /** 해제 확인 코드를 발급한다(해제는 아직 안 한다). 안내 문구의 명령은 이 앱 봇의 /resume이다. */
+    public Reply requestResume() { return requestResume("/resume"); }
+
+    /**
+     * VALUNIVO 610(D300): 안내 문구에 쓸 재개 명령 이름을 받는다. 니보(플랫폼) 경로는 /nivo_autostock_trading_resume을 쓴다.
+     * 코드·유효 시간·한 번 쓰기 규칙은 같다.
+     */
+    public Reply requestResume(String resumeCommand) {
         if (!killSwitch.isEngaged()) {
             pendingResume.set(null);
             return new Reply(false, "kill-switch-not-engaged", "킬스위치는 이미 해제 상태입니다(주문 허용).", NoticeLevel.INFO);
         }
         String code = "%04d".formatted(random.nextInt(10_000));
         pendingResume.set(new PendingResume(code, clock.instant().plus(RESUME_CONFIRM_WINDOW)));
-        return new Reply(true, "resume-code-issued", ("킬스위치 해제 확인 — %d초 안에 /resume %s 를 보내면 해제합니다. "
+        return new Reply(true, "resume-code-issued", ("킬스위치 해제 확인 — %d초 안에 %s %s 를 보내면 해제합니다. "
                 + "해제하면 신규 주문이 다시 허용됩니다. 작동 원인을 확인했나요?")
-                .formatted(RESUME_CONFIRM_WINDOW.toSeconds(), code), NoticeLevel.WARN);
+                .formatted(RESUME_CONFIRM_WINDOW.toSeconds(), resumeCommand, code), NoticeLevel.WARN);
     }
 
     /** 코드가 맞고 만료 전이면 해제한다. 코드는 한 번 쓰면 버린다(맞든 틀리든 — 추측 반복 차단). */
-    public Reply confirmResume(String code) {
+    public Reply confirmResume(String code) { return confirmResume(code, "/resume"); }
+
+    /** VALUNIVO 610: 다시 시작 안내에 쓸 재개 명령 이름을 받는다. */
+    public Reply confirmResume(String code, String resumeCommand) {
         PendingResume pending = pendingResume.getAndSet(null);
         if (pending == null || clock.instant().isAfter(pending.expiresAt())) {
             return new Reply(false, "resume-code-missing-or-expired",
-                    "해제 확인 코드가 없거나 만료됐습니다 — /resume 부터 다시 보내세요. (해제하지 않았음)", NoticeLevel.WARN);
+                    "해제 확인 코드가 없거나 만료됐습니다 — " + resumeCommand + " 부터 다시 보내세요. (해제하지 않았음)", NoticeLevel.WARN);
         }
         if (!pending.code().equals(code)) {
             log.warn("텔레그램 /resume 확인 코드 불일치 — 해제하지 않음");
             return new Reply(false, "resume-code-mismatch",
-                    "확인 코드가 맞지 않습니다 — 해제하지 않았습니다. /resume 부터 다시 보내세요.", NoticeLevel.WARN);
+                    "확인 코드가 맞지 않습니다 — 해제하지 않았습니다. " + resumeCommand + " 부터 다시 보내세요.", NoticeLevel.WARN);
         }
         killSwitch.release("telegram");
         return new Reply(true, "kill-switch-released", "킬스위치를 해제했습니다 — 신규 주문이 다시 허용됩니다.", null);

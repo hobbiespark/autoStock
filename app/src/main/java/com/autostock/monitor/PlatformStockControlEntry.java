@@ -46,6 +46,7 @@ public final class PlatformStockControlEntry {
     private final StockControlResultAckVerifier ackVerifier;
     private final StockControlResultAckStore acks;
     private final TelegramStockCommands commands;
+    static final String PLATFORM_RESUME_COMMAND = "/nivo_autostock_trading_resume";
     private final DataSource source;
     /** Commands run one at a time: a /resume confirmation never races its own code request. */
     private final ReentrantLock lock = new ReentrantLock();
@@ -122,8 +123,9 @@ public final class PlatformStockControlEntry {
         try {
             reply = switch (request.command()) {
                 case stop -> commands.stop();
-                case resume_request -> commands.requestResume();
-                case resume_confirm -> commands.confirmResume(request.confirmationCode());
+                // VALUNIVO 610(D300): 니보 경로의 안내 문구는 /nivo_autostock_trading_resume 이름을 쓴다.
+                case resume_request -> commands.requestResume(PLATFORM_RESUME_COMMAND);
+                case resume_confirm -> commands.confirmResume(request.confirmationCode(), PLATFORM_RESUME_COMMAND);
                 case status -> commands.status();
             };
         } catch (RuntimeException failed) {

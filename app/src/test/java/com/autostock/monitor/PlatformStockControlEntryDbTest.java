@@ -34,8 +34,8 @@ class PlatformStockControlEntryDbTest extends PostgresDataJpaTest {
   final AtomicInteger executed=new AtomicInteger();volatile boolean fail;
   Counting(KillSwitch k,Clock c){super(k,new PositionBook(),c);}
   @Override public Reply stop(){executed.incrementAndGet();if(fail)throw new IllegalStateException("synthetic-failure");return super.stop();}
-  @Override public Reply requestResume(){executed.incrementAndGet();return super.requestResume();}
-  @Override public Reply confirmResume(String code){executed.incrementAndGet();return super.confirmResume(code);}
+  @Override public Reply requestResume(String command){executed.incrementAndGet();return super.requestResume(command);}
+  @Override public Reply confirmResume(String code,String command){executed.incrementAndGet();return super.confirmResume(code,command);}
   @Override public Reply status(){executed.incrementAndGet();return super.status();}
  }
  final Time clock=new Time();final PlatformStockControlReplica platform=new PlatformStockControlReplica();final ObjectMapper json=new ObjectMapper();
@@ -84,14 +84,14 @@ class PlatformStockControlEntryDbTest extends PostgresDataJpaTest {
  @Test void resumeKeepsTheSixtySecondSingleUseCodeAndReleasesOnlyOnExactMatch()throws Exception{
   killSwitch.engage("synthetic");
   var issued=answered(send("requests",wire(201,1,"resume_request",null)),wire(201,1,"resume_request",null));
-  assertEquals("resume-code-issued",issued.code());String code=issued.reply().replaceAll("(?s).*/resume ([0-9]{4}) .*","$1");assertTrue(code.matches("[0-9]{4}"));
+  assertEquals("resume-code-issued",issued.code());assertTrue(issued.reply().contains("/nivo_autostock_trading_resume "),"VALUNIVO 610: platform path names the Nivo command");String code=issued.reply().replaceAll("(?s).*/nivo_autostock_trading_resume ([0-9]{4}) .*","$1");assertTrue(code.matches("[0-9]{4}"));
   String wrong=code.equals("0000")?"0001":"0000";
   var mismatch=answered(send("requests",wire(202,1,"resume_confirm",wrong)),wire(202,1,"resume_confirm",wrong));assertEquals("failed",mismatch.outcome());assertEquals("resume-code-mismatch",mismatch.code());assertTrue(killSwitch.isEngaged());
   var used=answered(send("requests",wire(203,1,"resume_confirm",code)),wire(203,1,"resume_confirm",code));assertEquals("resume-code-missing-or-expired",used.code());assertTrue(killSwitch.isEngaged());
-  var later=answered(send("requests",wire(204,1,"resume_request",null)),wire(204,1,"resume_request",null));String late=later.reply().replaceAll("(?s).*/resume ([0-9]{4}) .*","$1");
+  var later=answered(send("requests",wire(204,1,"resume_request",null)),wire(204,1,"resume_request",null));String late=later.reply().replaceAll("(?s).*/nivo_autostock_trading_resume ([0-9]{4}) .*","$1");
   clock.now=clock.now.plusSeconds(61);
   var expired=answered(send("requests",wire(205,1,"resume_confirm",late)),wire(205,1,"resume_confirm",late));assertEquals("resume-code-missing-or-expired",expired.code());assertTrue(killSwitch.isEngaged());
-  var fresh=answered(send("requests",wire(206,1,"resume_request",null)),wire(206,1,"resume_request",null));String ok=fresh.reply().replaceAll("(?s).*/resume ([0-9]{4}) .*","$1");
+  var fresh=answered(send("requests",wire(206,1,"resume_request",null)),wire(206,1,"resume_request",null));String ok=fresh.reply().replaceAll("(?s).*/nivo_autostock_trading_resume ([0-9]{4}) .*","$1");
   var released=answered(send("requests",wire(207,1,"resume_confirm",ok)),wire(207,1,"resume_confirm",ok));assertEquals("succeeded",released.outcome());assertEquals("kill-switch-released",released.code());assertFalse(killSwitch.isEngaged());
   var notEngaged=answered(send("requests",wire(208,1,"resume_request",null)),wire(208,1,"resume_request",null));assertEquals("failed",notEngaged.outcome());assertEquals("kill-switch-not-engaged",notEngaged.code());
   var status=answered(send("requests",wire(209,1,"status",null)),wire(209,1,"status",null));assertEquals("status",status.code());assertTrue(status.reply().startsWith("킬스위치: 정상"));
