@@ -4,6 +4,7 @@ import { fetchDashboard } from './api';
 import Header from './components/Header';
 import OperationCard from './components/OperationCard';
 import KillSwitchCard from './components/KillSwitchCard';
+import ModeSwitchCard from './components/ModeSwitchCard';
 import PerformanceCard from './components/PerformanceCard';
 import SlippageCard from './components/SlippageCard';
 import SystemCard from './components/SystemCard';
@@ -53,6 +54,7 @@ export default function App() {
           <div className="grid">
             <OperationCard status={view?.trading.status} executionMode={view?.system.executionMode} />
             <KillSwitchCard killSwitchEngaged={view?.trading.killSwitchEngaged} />
+            <ModeSwitchCard />
             <PerformanceCard trading={view?.trading} />
             <SlippageCard slippage={view?.slippage} />
             <SystemCard system={view?.system} />

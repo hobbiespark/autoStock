@@ -148,3 +148,15 @@ export async function sendTestSignal(symbol: string, side: Side, price: string, 
 // 주문 취소(운영 1일차 ⑤, kt10003 실측 확정) — 비동기 처리라 잠시 후 이력 재조회 필요.
 export const cancelOrder = (clientOrderId: string) =>
   postJson(`/api/dashboard/orders/${clientOrderId}/cancel`);
+
+// VALUNIVO 612(D301): 모의(paper)↔실전(live) 전환. 화면 버튼과 확인 문구로만 한다. 앱이 안전 종료 뒤 다시 뜬다.
+export interface ModeView { mode: 'paper' | 'live'; switchable: boolean }
+export async function fetchMode(): Promise<ModeView> {
+  const res = await fetch('/api/dashboard/mode');
+  if (!res.ok) throw await toApiError(res);
+  return res.json();
+}
+export async function switchMode(target: 'paper' | 'live', confirm: string): Promise<{ accepted: boolean; message: string }> {
+  const res = await postJson('/api/dashboard/mode', { target, confirm });
+  return res.json();
+}
