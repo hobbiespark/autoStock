@@ -181,6 +181,10 @@ ipo:
     margin-rate: 0.5                            # 청약 증거금률(주관사마다 다름 — 알림에 "주관사 공고 확인")
     min-qty: 10                                 # 최소 청약 수량(주, 균등 최소 단위)
     unit-qty: 10                                # 청약 단위(주, 비례 수량은 이 단위로 내림)
+  live-sell:                                    # 공모주 상장일 실거래 매도(2026-11-05, aiDoc/ipo-automation.md 8절, D-24) — 이 기능만 실전 서버로 주문
+    enabled: false                              # 스위치(기본 꺼짐). 실전 키가 있어도 true여야 주문한다. 켜는 절차는 문서 8절
+    app-key: ${KIWOOM_LIVE_APP_KEY:}            # 실전 키 — 비면 기능만 꺼진 채 기동(앱 기동 실패 아님). 모의 키 폴백 없음. 커밋 금지
+    app-secret: ${KIWOOM_LIVE_APP_SECRET:}
 
 autostock:
   minute-archive:

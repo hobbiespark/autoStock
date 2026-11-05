@@ -63,6 +63,26 @@ class ArchitectureRulesTest {
     }
 
     @Test
+    void 공모주_실전_매도_클라이언트에는_매수_정정_취소_경로가_없다() {
+        // 2026-11-05 공모주 상장일 실거래 매도(aiDoc/ipo-automation.md 8절) — 실전 서버는 매도·잔고·미체결만
+        noClasses().that().haveSimpleName("KiwoomLiveSellClient")
+                .should().accessField(com.autostock.kiwoom.TrId.class, "ORDER_BUY")
+                .orShould().accessField(com.autostock.kiwoom.TrId.class, "ORDER_MODIFY")
+                .orShould().accessField(com.autostock.kiwoom.TrId.class, "ORDER_CANCEL")
+                .check(classes);
+    }
+
+    @Test
+    void ipo는_모의_주문_경로와_키움_일반_호출을_모른다() {
+        // ipo의 실전 주문은 KiwoomLiveSellClient 하나뿐 — 모의 브로커·RiskGate·일반 REST 호출·TR 직접 지정을 쓰지 않는다
+        noClasses().that().resideInAPackage("com.autostock.ipo..")
+                .should().dependOnClassesThat().resideInAnyPackage("com.autostock.execution..", "com.autostock.trading..")
+                .orShould().dependOnClassesThat().belongToAnyOf(com.autostock.kiwoom.KiwoomRestClient.class,
+                        com.autostock.kiwoom.TokenManager.class, com.autostock.kiwoom.TrId.class, OrderRequest.class)
+                .check(classes);
+    }
+
+    @Test
     void market에서_브로커_모듈을_아는_것은_어댑터뿐이다() {
         // 설계 규칙 5·7: Kiwoom은 Adapter로만 — 시세는 MarketDataPort, 실시간은 WS 클라이언트가 번역한다
         noClasses().that().resideInAPackage("com.autostock.market..")

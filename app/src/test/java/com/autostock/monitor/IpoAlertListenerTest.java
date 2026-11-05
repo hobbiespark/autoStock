@@ -27,4 +27,14 @@ class IpoAlertListenerTest {
 
         verify(notifier).notify(eq(NoticeLevel.INFO), eq("[청약 D-1] 한울반도체 — 공모가 5030원"));
     }
+
+    @Test
+    void 실거래_매도_기록은_급하면_WARN_아니면_INFO() {
+        listener.onIpoLiveSell(new com.autostock.common.event.IpoLiveSellRecord("브릴스", "123450", "ORDER", "FIRST", 5,
+                null, null, "UNKNOWN", "결과 불명", true, Instant.now()));
+        listener.onIpoLiveSell(new com.autostock.common.event.IpoLiveSellRecord("브릴스", "123450", "ORDER", "FIRST", 5,
+                null, "0101", "ACCEPTED", "접수", false, Instant.now()));
+        verify(notifier).notify(eq(NoticeLevel.WARN), eq("결과 불명"));
+        verify(notifier).notify(eq(NoticeLevel.INFO), eq("접수"));
+    }
 }

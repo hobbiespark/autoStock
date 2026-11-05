@@ -73,7 +73,7 @@ class EventAuditListenerTest {
                 .map(params -> params[0].getSimpleName())
                 .toList();
 
-        assertEquals(7, audited.size(), audited.toString());
+        assertEquals(8, audited.size(), audited.toString());   // 2026-11-05 IpoLiveSellRecord 추가
         assertTrue(EventAuditListener.SCHEMA_VERSIONS.keySet().containsAll(audited),
                 "버전 표에 없는 감사 대상: " + audited);
     }

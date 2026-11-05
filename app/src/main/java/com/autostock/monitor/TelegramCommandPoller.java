@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import com.autostock.ipo.IpoDealTelegramCommands;
 import com.autostock.ipo.IpoRecheckService;
 import com.autostock.risk.KillSwitch;
 import com.autostock.portfolio.PositionBook;
@@ -45,6 +46,8 @@ import java.util.regex.Pattern;
  *   <li>{@code /status} — 포지션·킬스위치 상태 요약을 다시 알림으로 보냄</li>
  *   <li>{@code /ipo <회사> <경쟁률> [청약건수] [일반물량]} — 공모주 청약일 재판단(2026-11-05, ipo.IpoRecheckService). 읽기만 하고
  *       답을 알림으로 보낸다. 매매에는 영향이 없다.</li>
+ *   <li>{@code /ipo 청약|배정|매도 …} — 공모주 청약·배정 기록과 상장일 실거래 매도 확인(2026-11-05, ipo.IpoDealTelegramCommands,
+ *       aiDoc/ipo-automation.md 8절). 매도 확인은 08:30 안내의 4자리 코드를 08:55까지 받아야 하고 코드는 한 번 쓰면 끝이다.</li>
  * </ul>
  *
  * <p>TODO 실측(자택망): {@code getUpdates} 응답의 정확한 JSON 구조(특히 message가 아닌
@@ -67,6 +70,8 @@ public class TelegramCommandPoller {
         STATUS,
         /** {@code /ipo …} — 공모주 청약 재판단(읽기 전용). */
         IPO_RECHECK,
+        /** {@code /ipo 청약|배정|매도 …} — 공모주 기록·상장일 실거래 매도 확인. */
+        IPO_DEAL,
         /** chat_id 불일치, 미지원 텍스트, 빈 메시지 등 — 아무 동작도 하지 않는다. */
         IGNORED
     }
@@ -108,6 +113,10 @@ public class TelegramCommandPoller {
     private IpoRecheckService ipoRecheck;
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     void ipoRecheck(IpoRecheckService service){this.ipoRecheck=service;}
+    /** 공모주 청약·배정 기록과 상장일 매도 확인(/ipo 청약|배정|매도) — 빈이 없으면 명령을 무시한다. */
+    private IpoDealTelegramCommands ipoDeal;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    void ipoDeal(IpoDealTelegramCommands service){this.ipoDeal=service;}
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     void stockCommands(TelegramStockCommands shared){this.commands=Objects.requireNonNull(shared);}
 
@@ -428,6 +437,7 @@ public class TelegramCommandPoller {
             case RESUME_CONFIRM -> notifyLegacy(commands.confirmResume(confirmCodeOf(text)));
             case STATUS -> notifyLegacy(commands.status());
             case IPO_RECHECK -> recheckIpo(text);
+            case IPO_DEAL -> ipoDeal(text);
             case IGNORED -> {
                 if(platformBridge!=null)platformBridge.accept(update);
                 if (chatId != null && !chatId.equals(properties.chatId())) {
@@ -456,6 +466,9 @@ public class TelegramCommandPoller {
         String stripped = text.strip();
         if (RESUME_CONFIRM_PATTERN.matcher(stripped).matches()) {
             return Command.RESUME_CONFIRM;
+        }
+        if (IpoDealTelegramCommands.matches(stripped)) {
+            return Command.IPO_DEAL;
         }
         if (stripped.equals("/ipo") || stripped.startsWith("/ipo ")) {
             return Command.IPO_RECHECK;
@@ -488,6 +501,20 @@ public class TelegramCommandPoller {
         } catch (RuntimeException e) {
             log.warn("공모주 재판단(/ipo) 실패", e);
             notifier.notify(NoticeLevel.WARN, "[청약 재판단] 계산 실패 — 로그 확인 필요(" + e.getClass().getSimpleName() + ")");
+        }
+    }
+
+    /** /ipo 청약|배정|매도 — 답을 INFO 알림으로 보낸다. 실패해도 폴링은 계속된다. */
+    private void ipoDeal(String text) {
+        if (ipoDeal == null) {
+            log.info("공모주 기록·매도 확인 명령 무시 — IpoDealTelegramCommands 없음");
+            return;
+        }
+        try {
+            notifier.notify(NoticeLevel.INFO, ipoDeal.reply(text));
+        } catch (RuntimeException e) {
+            log.warn("공모주 기록·매도 확인(/ipo) 실패", e);
+            notifier.notify(NoticeLevel.WARN, "[공모주] 명령 처리 실패 — 로그 확인 필요(" + e.getClass().getSimpleName() + ")");
         }
     }
 

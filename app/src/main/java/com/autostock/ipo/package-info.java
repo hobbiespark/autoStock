@@ -20,6 +20,12 @@
  * 직접 참조한다 — monitor가 이미 trading.OrderRepository를 직접 참조하는 기존 패턴과 동일하다
  * (monitor/OrderHistoryController Javadoc 참고). 수동 입력(POST /api/ipo/{id}/record,
  * POST /api/ipo/{id}/metrics)은 {@link com.autostock.ipo.IpoDealCommandService}를 거친다.
+ *
+ * <p>2026-11-05(aiDoc/ipo-automation.md 8절, D-24): <b>상장일 실거래 매도</b> — {@link com.autostock.ipo.IpoLiveSellService}가 상장일
+ * 08:30 확인 코드 → 08:55 확인 → 3분할 지정가 매도를 실전 전용 클라이언트({@code kiwoom.KiwoomLiveSellClient}, 매도·잔고·미체결만)로
+ * 한다. 이 때문에 ipo는 kiwoom(실전 클라이언트)·market(실시간 체결 구독)·risk(호가 단위)를 참조한다 — 세 모듈 모두 ipo를 모르므로
+ * 순환은 없다. 기록·안내는 {@link com.autostock.common.event.IpoLiveSellRecord} 이벤트로 monitor(텔레그램)·audit(event_store)에 간다.
+ * 봇 명령 {@code /ipo 청약|배정|매도}는 {@link com.autostock.ipo.IpoDealTelegramCommands}가 처리한다.
  */
 @org.springframework.modulith.ApplicationModule(displayName = "ipo")
 package com.autostock.ipo;

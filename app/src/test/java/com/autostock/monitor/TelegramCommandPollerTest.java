@@ -37,6 +37,16 @@ class TelegramCommandPollerTest {
     }
 
     @Test
+    void ipo_기록과_매도_확인은_IPO_DEAL이다() {
+        assertEquals(Command.IPO_DEAL, TelegramCommandPoller.parseCommand(ALLOWED, "/ipo 청약 브릴스 20 165000", ALLOWED));
+        assertEquals(Command.IPO_DEAL, TelegramCommandPoller.parseCommand(ALLOWED, "/ipo 배정 브릴스 3", ALLOWED));
+        assertEquals(Command.IPO_DEAL, TelegramCommandPoller.parseCommand(ALLOWED, "/ipo 매도 1234", ALLOWED));
+        assertEquals(Command.IPO_RECHECK, TelegramCommandPoller.parseCommand(ALLOWED, "/ipo 브릴스 1500", ALLOWED));
+        assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand("999", "/ipo 매도 1234", ALLOWED),
+                "등록되지 않은 채팅의 매도 확인은 무시");
+    }
+
+    @Test
     void 무관한_텍스트는_IGNORED() {
         assertEquals(Command.IGNORED, TelegramCommandPoller.parseCommand(ALLOWED, "안녕", ALLOWED));
     }

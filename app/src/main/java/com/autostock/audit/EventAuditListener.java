@@ -1,6 +1,7 @@
 package com.autostock.audit;
 
 import com.autostock.common.event.Fill;
+import com.autostock.common.event.IpoLiveSellRecord;
 import com.autostock.common.event.MacroIndicator;
 import com.autostock.common.event.MarketTick;
 import com.autostock.common.event.NewsSentiment;
@@ -58,7 +59,8 @@ public class EventAuditListener {
             "OrderRequest", 2,      // v2 benchmarkPrice(2026-10-22)
             "Fill", 1,
             "MacroIndicator", 1,
-            "NewsSentiment", 1);
+            "NewsSentiment", 1,
+            "IpoLiveSellRecord", 1); // 2026-11-05 공모주 상장일 실거래 매도(계획·확인·주문·체결·거부)
 
     /** 시세 감사 기록 조건(SpEL) — 기본 꺼짐. 테스트가 같은 식을 실제 컨텍스트에서 평가해 본다. */
     static final String MARKET_TICK_CONDITION =
@@ -103,6 +105,10 @@ public class EventAuditListener {
 
     @EventListener
     public void on(NewsSentiment e) { store("NewsSentiment", e, e.timestamp()); }
+
+    /** 공모주 상장일 실거래 매도 — 실전 주문의 감사 추적(aiDoc/ipo-automation.md 8절). */
+    @EventListener
+    public void on(IpoLiveSellRecord e) { store("IpoLiveSellRecord", e, e.at()); }
 
     /**
      * 직렬화·저장 실패를 여기서 삼킨다(로그 후 skip). 예전에는 {@code IllegalStateException}을

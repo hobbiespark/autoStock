@@ -1,6 +1,7 @@
 package com.autostock.monitor;
 
 import com.autostock.common.event.IpoAlert;
+import com.autostock.common.event.IpoLiveSellRecord;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
@@ -22,5 +23,13 @@ public class IpoAlertListener {
     @EventListener
     public void onIpoAlert(IpoAlert event) {
         notifier.notify(NoticeLevel.INFO, event.message());
+    }
+
+    /**
+     * 공모주 상장일 실거래 매도 기록(2026-11-05, aiDoc/ipo-automation.md 8절) — 계획·확인·주문·체결은 INFO, 거부·결과 불명·중단은 WARN.
+     */
+    @EventListener
+    public void onIpoLiveSell(IpoLiveSellRecord event) {
+        notifier.notify(event.urgent() ? NoticeLevel.WARN : NoticeLevel.INFO, event.message());
     }
 }
