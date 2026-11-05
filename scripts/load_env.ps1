@@ -66,6 +66,22 @@ foreach ($name in @($vars.Keys)) {
     }
 }
 
+# 3차 처리(VALUNIVO 612, D301): 거래 모드. 화면 전환 버튼이 autoStock-runtime\config\trading-mode.json {"mode":"paper|live"}를 쓴다.
+#   파일이 없으면 모의(paper). 실전(live)은 실전 키 두 개가 다 있어야 하고, 기록이 섞이지 않게 실전 전용 DB(DB_NAME_live)를 쓴다.
+$modeFile = Join-Path (Get-AutoStockRuntimeRoot $root) 'config\trading-mode.json'
+$tradingMode = 'paper'
+if (Test-Path $modeFile) {
+    try { $tradingMode = [string]((Get-Content $modeFile -Raw -Encoding UTF8 | ConvertFrom-Json).mode) } catch { Write-Host "[X] trading-mode.json 해석 실패 — 기동하지 않는다"; exit 1 }
+}
+if ($tradingMode -ne 'paper' -and $tradingMode -ne 'live') { Write-Host "[X] trading-mode.json mode는 paper 또는 live만 받는다 — 기동하지 않는다"; exit 1 }
+$vars['SPRING_PROFILES_ACTIVE'] = $tradingMode
+if ($tradingMode -eq 'live') {
+    if (-not $vars['KIWOOM_LIVE_APP_KEY'] -or -not $vars['KIWOOM_LIVE_APP_SECRET']) { Write-Host "[X] 실전 모드인데 실전 키가 없다(KIWOOM_LIVE_APP_KEY_FILE·KIWOOM_LIVE_APP_SECRET_FILE) — 기동하지 않는다"; exit 1 }
+    if (-not $vars['DB_NAME']) { Write-Host "[X] DB_NAME이 없다 — 기동하지 않는다"; exit 1 }
+    $vars['DB_NAME'] = $vars['DB_NAME'] + '_live'
+}
+Write-Host "[O] trading mode: $tradingMode"
+
 foreach ($kv in $vars.GetEnumerator()) {
     if ($kv.Key -like '*_FILE') { continue }   # 참조용 경로 변수 자체는 내보내지 않음
     Set-Item -Path ("Env:" + $kv.Key) -Value $kv.Value
