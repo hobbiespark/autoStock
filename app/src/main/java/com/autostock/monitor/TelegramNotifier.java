@@ -46,6 +46,10 @@ import java.util.regex.Pattern;
  * 서버 오류(5xx)는 {@link #RESEND_DELAYS} 간격(30초·2분·5분·15분·30분·60분)으로 최대 6번 더 보낸다. PC가 대기에서 깨어난 직후에는 망이 늦게 붙어,
  * 그 순간 보내는 절전 복귀·장중 점검 경고가 정작 전부 사라졌다(10/12 11:19·18:05 실측). 재전송은 전용 데몬 스레드
  * 하나에서 돌고 호출 스레드를 붙잡지 않는다. 다시 보내는 알림 앞에는 처음 발생 시각을 붙인다.
+ *
+ * <p><b>알림 머리</b>(VALUNIVO 4-2 S5, 구현 582, 공통 표준 UI-M2): 첫 줄에 발송 주체 {@code [autoStock]}, 등급(긴급·주의·일반),
+ * 발생 시각(KST), 사건 ID를 두고 둘째 줄부터 본문을 쓴다. 지연 재전송도 처음과 같은 머리(같은 시각·사건 ID)에 "(지연 발송)"만 붙인다.
+ * 플랫폼 사본({@link PlatformNotificationCopy})에는 지금처럼 본문만 넘긴다.
  * 기다리는 알림은 {@link #MAX_PENDING_RESENDS}건까지만 붙든다 — 망이 오래 끊기면 그 뒤 알림은 기록만 하고 버린다.
  * 응답을 받은 다른 실패(400 잘못된 chat_id, 401·403 봇 토큰·차단)는 다시 보내도 같으므로 재전송하지 않는다.
  */
@@ -121,7 +125,8 @@ public class TelegramNotifier implements Notifier {
 
     /** 실제 발송. 첫 시도가 성공하면 true, 실패는 재시도·재전송 예약·기록을 한 뒤 false(결과 미정). */
     private boolean deliver(NoticeLevel level, String message) {
-        String text = "[%s] %s".formatted(level, message);
+        String head = head(level, occurredAt(), newEventId());
+        String text = head + "\n" + message;
         try {
             send(text);
             return true;
@@ -129,13 +134,13 @@ public class TelegramNotifier implements Notifier {
             if (e.getStatusCode().value() == 429) {
                 retryOnceAfterLimit(level, message, text, e);
             } else if (resendable(e)) {
-                resendLater(level, message, occurredAt(), e);
+                resendLater(level, message, head, e);
             } else {
                 logFailure(level, message, e);
             }
         } catch (Exception e) {
             if (resendable(e)) {
-                resendLater(level, message, occurredAt(), e);
+                resendLater(level, message, head, e);
             } else {
                 logFailure(level, message, e);
             }
@@ -189,24 +194,24 @@ public class TelegramNotifier implements Notifier {
     }
 
     /** 처음 실패 — 재전송 대기열에 넣는다. 대기열이 가득하면 버린다. */
-    private void resendLater(NoticeLevel level, String message, String occurredAt, Exception cause) {
+    private void resendLater(NoticeLevel level, String message, String head, Exception cause) {
         if (pendingResends.incrementAndGet() > MAX_PENDING_RESENDS) {
             pendingResends.decrementAndGet();
             log.error("텔레그램 재전송 대기 {}건이 가득 — 이 알림은 버림: level={} message={}",
                     MAX_PENDING_RESENDS, level, message, SecretMasking.sanitizeForLogging(cause));
             return;
         }
-        schedule(level, message, occurredAt, 0, cause);
+        schedule(level, message, head, 0, cause);
     }
 
     /** {@code done}번 재전송한 뒤 실패 — 남은 횟수가 있으면 다음 재전송을 예약한다. */
-    private void schedule(NoticeLevel level, String message, String occurredAt, int done, Exception cause) {
+    private void schedule(NoticeLevel level, String message, String head, int done, Exception cause) {
         Duration delay = RESEND_DELAYS.get(done);
         log.warn("텔레그램 알림 발송 실패({}) — {}초 뒤 다시 보낸다({}/{}): level={} message={}",
                 SecretMasking.mask(cause.getClass().getSimpleName() + ": " + cause.getMessage()),
                 delay.toSeconds(), done + 1, RESEND_DELAYS.size(), level, message);
         try {
-            resender.schedule(() -> resend(level, message, occurredAt, done + 1), delay);
+            resender.schedule(() -> resend(level, message, head, done + 1), delay);
         } catch (RuntimeException e) {
             // 종료 중(실행기 닫힘) 등 — 더 기다리지 않는다
             pendingResends.decrementAndGet();
@@ -214,14 +219,14 @@ public class TelegramNotifier implements Notifier {
         }
     }
 
-    private void resend(NoticeLevel level, String message, String occurredAt, int attempt) {
+    private void resend(NoticeLevel level, String message, String head, int attempt) {
         try {
-            send("[%s] (지연 발송 — %s 발생) %s".formatted(level, occurredAt, message));
+            send(head + " (지연 발송)\n" + message);
             pendingResends.decrementAndGet();
             log.info("텔레그램 알림 지연 발송 성공({}번째 재전송): level={}", attempt, level);
         } catch (Exception e) {
             if (resendable(e) && attempt < RESEND_DELAYS.size()) {
-                schedule(level, message, occurredAt, attempt, e);
+                schedule(level, message, head, attempt, e);
             } else {
                 pendingResends.decrementAndGet();
                 logFailure(level, message, e);
@@ -240,6 +245,30 @@ public class TelegramNotifier implements Notifier {
             return Duration.ofSeconds(Long.parseLong(header.trim()));
         }
         return Duration.ofSeconds(1);
+    }
+
+    /** 알림 첫 줄(UI-M2): 발송 주체·등급·발생 시각(KST)·사건 ID. */
+    static String head(NoticeLevel level, String occurredAt, String eventId) {
+        return "[autoStock] [" + label(level) + "] " + occurredAt + " · 사건 " + eventId;
+    }
+
+    /** 등급 표시. 긴급은 지금 행동이 필요한 것, 주의는 알아 두면 되는 상태 변화, 일반은 정상 흐름이다(UI-M2의 긴급·일반 구분). */
+    static String label(NoticeLevel level) {
+        return switch (level) {
+            case CRITICAL -> "긴급";
+            case WARN -> "주의";
+            case INFO -> "일반";
+        };
+    }
+
+    private static final char[] EVENT_ID_CHARS = "0123456789ABCDEFGHJKMNPQRSTVWXYZ".toCharArray();
+
+    /** 사건 ID: 헷갈리는 글자(I·L·O·U)를 뺀 6자. 같은 알림의 지연 재전송·로그와 맞춰 보는 용도라 전역 고유일 필요는 없다. */
+    static String newEventId() {
+        var random = java.util.concurrent.ThreadLocalRandom.current();
+        var id = new StringBuilder(6);
+        for (int i = 0; i < 6; i++) id.append(EVENT_ID_CHARS[random.nextInt(EVENT_ID_CHARS.length)]);
+        return id.toString();
     }
 
     private String occurredAt() {

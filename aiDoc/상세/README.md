@@ -6,6 +6,8 @@
 
 ## 공통
 
+PG18 후보 DB 검증: [PG18 리허설](../pg18-rehearsal.md)(VALUNIVO 4-5 U6, 운영 전환 전).
+
 | 문서 | 내용 |
 |---|---|
 | [aiDoc/README.md](../README.md) | 문서 목록(작성 순)과 인계 메모 |

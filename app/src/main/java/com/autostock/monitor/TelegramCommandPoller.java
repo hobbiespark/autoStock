@@ -1,5 +1,6 @@
 package com.autostock.monitor;
 
+import com.autostock.ipo.IpoRecheckService;
 import com.autostock.risk.KillSwitch;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.common.util.SecretMasking;
@@ -42,6 +43,8 @@ import java.util.regex.Pattern;
  *       보내고, {@link #RESUME_CONFIRM_WINDOW}(60초) 안에 {@code /resume 1234}가 오면 killSwitch.release("telegram").
  *       코드는 한 번 쓰면 끝(맞든 틀리든) — 잘못 누른 /resume 한 번으로 비상 정지가 풀리지 않게 한다(PLAN A3 "위험 명령 2단계 확인").</li>
  *   <li>{@code /status} — 포지션·킬스위치 상태 요약을 다시 알림으로 보냄</li>
+ *   <li>{@code /ipo <회사> <경쟁률> [청약건수] [일반물량]} — 공모주 청약일 재판단(2026-11-05, ipo.IpoRecheckService). 읽기만 하고
+ *       답을 알림으로 보낸다. 매매에는 영향이 없다.</li>
  * </ul>
  *
  * <p>TODO 실측(자택망): {@code getUpdates} 응답의 정확한 JSON 구조(특히 message가 아닌
@@ -62,6 +65,8 @@ public class TelegramCommandPoller {
         /** {@code /resume 1234} — 확인 코드로 해제를 확정한다. */
         RESUME_CONFIRM,
         STATUS,
+        /** {@code /ipo …} — 공모주 청약 재판단(읽기 전용). */
+        IPO_RECHECK,
         /** chat_id 불일치, 미지원 텍스트, 빈 메시지 등 — 아무 동작도 하지 않는다. */
         IGNORED
     }
@@ -98,6 +103,11 @@ public class TelegramCommandPoller {
      * 빈이 없는 직접 생성(테스트)에서는 자기 인스턴스를 쓴다.
      */
     private TelegramStockCommands commands;
+
+    /** 공모주 청약 재판단(/ipo) — 빈이 없으면(시험 직접 생성 등) 명령을 무시한다. */
+    private IpoRecheckService ipoRecheck;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    void ipoRecheck(IpoRecheckService service){this.ipoRecheck=service;}
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     void stockCommands(TelegramStockCommands shared){this.commands=Objects.requireNonNull(shared);}
 
@@ -417,6 +427,7 @@ public class TelegramCommandPoller {
             case RESUME -> notifyLegacy(commands.requestResume());
             case RESUME_CONFIRM -> notifyLegacy(commands.confirmResume(confirmCodeOf(text)));
             case STATUS -> notifyLegacy(commands.status());
+            case IPO_RECHECK -> recheckIpo(text);
             case IGNORED -> {
                 if(platformBridge!=null)platformBridge.accept(update);
                 if (chatId != null && !chatId.equals(properties.chatId())) {
@@ -446,6 +457,9 @@ public class TelegramCommandPoller {
         if (RESUME_CONFIRM_PATTERN.matcher(stripped).matches()) {
             return Command.RESUME_CONFIRM;
         }
+        if (stripped.equals("/ipo") || stripped.startsWith("/ipo ")) {
+            return Command.IPO_RECHECK;
+        }
         return switch (stripped) {
             case "/stop" -> Command.STOP;
             case "/resume" -> Command.RESUME;
@@ -461,6 +475,20 @@ public class TelegramCommandPoller {
         }
         Matcher matcher = RESUME_CONFIRM_PATTERN.matcher(text.strip());
         return matcher.matches() ? matcher.group(1) : null;
+    }
+
+    /** /ipo — 답을 INFO 알림으로 보낸다. 실패해도 폴링은 계속된다(명령 하나의 오류가 /stop 처리를 막지 않게). */
+    private void recheckIpo(String text) {
+        if (ipoRecheck == null) {
+            log.info("공모주 재판단 명령 무시 — IpoRecheckService 없음");
+            return;
+        }
+        try {
+            notifier.notify(NoticeLevel.INFO, ipoRecheck.reply(text));
+        } catch (RuntimeException e) {
+            log.warn("공모주 재판단(/ipo) 실패", e);
+            notifier.notify(NoticeLevel.WARN, "[청약 재판단] 계산 실패 — 로그 확인 필요(" + e.getClass().getSimpleName() + ")");
+        }
     }
 
     /** 기존 poller 경로의 직접 알림 — 이전과 같은 수준·문구. 작동·해제는 KillSwitchChanged 알림이 대신해 따로 보내지 않는다. */

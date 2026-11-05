@@ -72,7 +72,31 @@ if not "%TELEGRAM_BOT_TOKEN%"=="" if not "%TELEGRAM_CHAT_ID%"=="" set "TG_ARGS= 
 if defined TG_ARGS (echo [O] telegram on) else (echo [.] telegram off - set TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env to enable)
 if "%MONITOR_HEARTBEAT_URL%"=="" (echo [.] heartbeat off - set MONITOR_HEARTBEAT_URL in .env to enable) else (echo [O] heartbeat on)
 
+REM ---- release mode (VALUNIVO 4-2 S8): ..\autoStock-runtime\release.json -> pinned jar, otherwise gradle bootRun from source ----
+REM resolve_release.ps1 checks the jar SHA-256 and stops on any problem; it never falls back to bootRun when release.json exists
+set "AUTOSTOCK_RELEASE_JAR="
+set "AUTOSTOCK_RELEASE_NAME="
+set "RELCMD=%TEMP%\autostock_release.cmd"
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts\resolve_release.ps1 -OutCmd "%RELCMD%"
+if errorlevel 1 (
+  echo [X] release check failed - see resolve_release.ps1 output above. Not starting.
+  pause
+  exit /b 1
+)
+if exist "%RELCMD%" call "%RELCMD%"
+if exist "%RELCMD%" del "%RELCMD%" >nul 2>&1
+
 echo [O] starting autoStock (stop = Ctrl+C or scripts\stop_autostock.bat)
 REM flags: LIVE(mock) mode, C3 + multi-strategy paper trial (VB-DAY, ON-CLOSE, TA-H1..H5 - aiDoc/multi-strategy-paper-2026-10-16.md), WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync + new-listing check (+ telegram when keys exist)
-call gradlew.bat :app:bootRun --args="--execution.mode=LIVE --strategy.c3.enabled=true --strategy.vb.enabled=true --strategy.on.enabled=true --strategy.ta.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true --autostock.listing-watch.enabled=true%TG_ARGS%"
+set "AUTOSTOCK_ARGS=--execution.mode=LIVE --strategy.c3.enabled=true --strategy.vb.enabled=true --strategy.on.enabled=true --strategy.ta.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true --autostock.listing-watch.enabled=true%TG_ARGS%"
+REM release jar: same working folder (app\, the bootRun default) and the same JVM flags as app\build.gradle.kts bootRun
+if defined AUTOSTOCK_RELEASE_JAR (
+  echo [O] release %AUTOSTOCK_RELEASE_NAME% - java -jar %AUTOSTOCK_RELEASE_JAR%
+  pushd app
+  "%JAVA_HOME%\bin\java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 --enable-native-access=ALL-UNNAMED -jar "%AUTOSTOCK_RELEASE_JAR%" %AUTOSTOCK_ARGS%
+  popd
+) else (
+  echo [.] source mode - gradle bootRun
+  call gradlew.bat :app:bootRun --args="%AUTOSTOCK_ARGS%"
+)
 pause
