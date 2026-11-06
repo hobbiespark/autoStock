@@ -746,3 +746,19 @@ select {
   color: var(--dim);
   font-variant-numeric: tabular-nums;
 }
+
+/* 공모주 목록 줄의 내 기록(2026-11-06) — 이미 입력한 청약·배정을 펼치지 않고 본다 */
+.ipo-my-record {
+  font-size: 0.85em;
+  padding: 1px 6px;
+  border: 1px solid var(--vn-color-border);
+  border-radius: 4px;
+}
+
+/* 판단 근거 화면 맨 위 C3 국면 요약(2026-11-06) */
+.regime-banner {
+  margin: 4px 0 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--vn-color-border);
+  border-radius: 6px;
+}

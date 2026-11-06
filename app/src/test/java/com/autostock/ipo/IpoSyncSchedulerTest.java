@@ -632,7 +632,7 @@ class IpoSyncSchedulerTest {
     }
 
     @Test
-    void 새로_잡힌_공모주는_한_통으로_모아_알리고_유상증자와_판정_전_딜은_뺀다() {
+    void 새로_잡힌_공모주는_추천_딜만_한_통으로_알리고_유상증자와_판정_전_딜은_뺀다() {
         LocalDate today = LocalDate.of(2026, 10, 14);
         Instant created = today.atTime(8, 20).atZone(KST).toInstant();
         IpoDealEntity melcon = new IpoDealEntity("01111111", "멜콘", "20261013000001", "DART", created);
@@ -653,9 +653,10 @@ class IpoSyncSchedulerTest {
         var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
         verify(publisher, times(1)).publishEvent(captor.capture());
         assertEquals("NEW", captor.getValue().phase());
-        assertEquals("[공모주 신규] 2건 — 멜콘(청약 10/27(화)~10/28(수), 대신증권, 희망가 하단 10,700원) · "
-                + "한화플러스제6호기업인수목적(청약 일정 미정). 수요예측 결과가 나오면 권고와 함께 다시 알린다.", captor.getValue().message());
-        assertEquals(2, alertRows.size());
+        // 2026-11-06: 추천 판단 전(멜콘)은 신규 알림도 없다 — 스팩은 동기화 때 '스팩' 등급(추천)이라 남는다
+        assertEquals("[공모주 신규] 1건 — 한화플러스제6호기업인수목적(청약 일정 미정). 수요예측 결과가 나오면 권고와 함께 다시 알린다.",
+                captor.getValue().message());
+        assertEquals(1, alertRows.size());
     }
 
     @Test
