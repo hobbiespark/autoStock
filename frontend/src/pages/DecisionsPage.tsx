@@ -29,6 +29,55 @@ function todayKst(): string {
  * 샀나"를 지평(단타/스윙/중기/장기) 탭과 날짜로 조회한다. 대시보드와 달리 폴링하지 않고
  * (주문 이력·성과 화면과 동일 관례) 날짜가 바뀌면 쿼리 키가 바뀌어 자동 재조회된다.
  */
+// C3 국면 요약(2026-11-06, 사용자 "국면 on/off 사라짐?") — 다전략(10/16) 뒤로 '전체' 탭에 단타·스윙 판단이 하루 90줄 넘게 쌓여
+// C3의 국면 줄이 아래로 밀렸다. 그날 C3 기록 중 가장 늦은 국면 판정(regimeStatus·지수 종가·SMA)을 화면 맨 위에 한 줄로 보인다.
+interface RegimeSummary {
+  status: string;
+  indexSymbol: string;
+  indexClose: string;
+  sma: string;
+  decidedAt: string;
+}
+
+function regimeOf(items: DecisionItem[]): RegimeSummary | null {
+  let latest: DecisionItem | null = null;
+  for (const d of items) {
+    if (d.metrics?.regimeStatus && (latest === null || d.decidedAt > latest.decidedAt)) {
+      latest = d;
+    }
+  }
+  if (latest === null) return null;
+  const m = latest.metrics;
+  return {
+    status: m.regimeStatus,
+    indexSymbol: m.regimeIndexSymbol ?? '-',
+    indexClose: m.regimeIndexClose ?? '-',
+    sma: m.regimeSma ?? '-',
+    decidedAt: latest.decidedAt,
+  };
+}
+
+function wonText(v: string): string {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.round(n).toLocaleString('ko-KR') : v;
+}
+
+function RegimeBanner({ regime, loading }: { regime: RegimeSummary | null; loading: boolean }) {
+  if (loading) return null;
+  if (regime === null) {
+    return <p className="regime-banner muted">C3 국면: 이 날 판정 기록 없음(휴장일·C3 꺼짐·09:05 판정 전)</p>;
+  }
+  const on = regime.status === 'ON';
+  const time = new Date(regime.decidedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  return (
+    <p className="regime-banner">
+      C3 국면: <span className={on ? 'ks-off' : 'ks-on'}>{on ? 'ON' : 'OFF'}</span> — {regime.indexSymbol} 종가{' '}
+      {wonText(regime.indexClose)} / SMA200 {wonText(regime.sma)} · {time} 판정 ·{' '}
+      {on ? '모멘텀 신규 판단 진행' : '신규 진입 판단 보류(보유분만 정리)'}
+    </p>
+  );
+}
+
 export default function DecisionsPage() {
   const [date, setDate] = useState<string>(todayKst());
   const [horizonTab, setHorizonTab] = useState<string>(ALL_TAB);
@@ -40,6 +89,7 @@ export default function DecisionsPage() {
   });
 
   const items = query.data ?? [];
+  const regime = useMemo(() => regimeOf(items), [items]);
 
   // 데이터가 실제로 있는 지평만 탭으로 노출한다(요구사항: "데이터 있는 지평만 탭 활성화").
   const availableHorizons = useMemo(() => {
@@ -70,6 +120,8 @@ export default function DecisionsPage() {
           </button>
         </div>
       </div>
+
+      <RegimeBanner regime={regime} loading={query.isLoading} />
 
       <nav className="horizon-sub-nav">
         <button
