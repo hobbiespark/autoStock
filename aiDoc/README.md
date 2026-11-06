@@ -66,3 +66,4 @@
 - [restart-preflight.md](restart-preflight.md) — 2026-10-26 재기동 전 점검 `scripts\preflight_restart.ps1`(미커밋 소스·새로 적용될 마이그레이션·적용분 파일/Flyway 체크섬 대조, 읽기 전용), 재기동 시 V21~V29 적용(V29 미커밋) 사고 경위, stop 스크립트 비대화형 대기·종료 코드
 - [split-buy-swing-carry-2026-10-30.md](split-buy-swing-carry-2026-10-30.md) — 2026-10-30 운용 자금 200만 원(고정 기준), 최소 유의미 수량(수수료 제외 1% 수익 500원 초과), 단타 3분할 1차 진입·청산 시각 비용 후 수익 아니면 스윙 이월(V31)·09:02 2·3차 추가 매수와 스윙/중기 청산, 단타 실측 성과, 새 trial
 - [ipo-automation.md 7절](ipo-automation.md#7-2026-11-05-바뀜--청약일-재판단-텔레그램-명령-ipo-d-23) — 2026-11-05 청약일 재판단 텔레그램 명령 `/ipo <회사> <경쟁률> [청약건수] [일반물량]`: 균등·비례 예상 배정과 청약 금액 재계산(등급은 그대로, D-23)
+- [strategy-change-performance.md](strategy-change-performance.md) — 2026-11-06 전략 변경 전후 성과 비교: `monitor.performance.periods` 변경 구간(10/16·10/23·10/27·10/31), `GET /api/performance/periods`(운용 자금 대비·거래일당·승률·거래당 수익률), 성과 추이 화면 비교 표·변경 세로선·일별 수익률 차트(D-25)

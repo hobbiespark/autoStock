@@ -17,4 +17,7 @@ public interface DailyPerformanceRepository extends JpaRepository<DailyPerforman
 
     /** 기간 필터 조회 — GET /api/performance/daily?days=N이 날짜 오름차순으로 반환한다. */
     List<DailyPerformanceEntity> findByTradeDateGreaterThanEqualOrderByTradeDateAsc(LocalDate since);
+
+    /** 구간 거래일 수(일별 성과 기록이 있는 날) — 전략 변경 구간 비교(2026-11-06). */
+    long countByTradeDateBetween(LocalDate from, LocalDate toInclusive);
 }

@@ -155,6 +155,34 @@ export interface DailyPerformance {
   killSwitchEngaged: boolean;
 }
 
+// 전략 변경 전후 비교(2026-11-06) — GET /api/performance/periods 응답 원소. 비율은 이미 % 단위(1.23 = 1.23%), 셀 수 없으면 null.
+export interface PerformancePeriodStrategy {
+  strategyId: string;
+  exits: number;
+  wins: number;
+  winRatePct: string | number | null;
+  realizedPnl: string | number;
+  capitalReturnPct: string | number | null;
+  tradeReturnPct: string | number | null;
+}
+
+export interface PerformancePeriod {
+  label: string;
+  from: string;
+  to: string;
+  current: boolean;
+  capitalKrw: number;
+  tradingDays: number;
+  realizedPnl: string | number;
+  capitalReturnPct: string | number | null;
+  dailyAvgReturnPct: string | number | null;
+  exits: number;
+  wins: number;
+  winRatePct: string | number | null;
+  tradeReturnPct: string | number | null;
+  strategies: PerformancePeriodStrategy[];
+}
+
 // 보유기간 지평(ADR-11). TEST는 아직 지평 프레임에 편입되지 않은 전략(테스트 시그널 등)의
 // RiskGate 거부 기록에 쓰인다 — 백엔드 RiskGate.horizonFor() 매핑과 1:1 대응.
 export type Horizon = 'MID' | 'DAY' | 'SWING' | 'LONG' | 'TEST' | string;
