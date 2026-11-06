@@ -1,5 +1,6 @@
 import type {
   DailyPerformance,
+  PerformancePeriod,
   DashboardView,
   DecisionItem,
   IpoDeal,
@@ -79,6 +80,15 @@ export async function fetchDailyPerformance(days: number): Promise<DailyPerforma
   const res = await fetch(`/api/performance/daily?days=${days}`);
   if (!res.ok) {
     throw new Error(`성과 추이 조회 실패: HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+// 전략 변경 전후 비교(2026-11-06).
+export async function fetchPerformancePeriods(): Promise<PerformancePeriod[]> {
+  const res = await fetch('/api/performance/periods');
+  if (!res.ok) {
+    throw new Error(`전략 변경 구간 조회 실패: HTTP ${res.status}`);
   }
   return res.json();
 }

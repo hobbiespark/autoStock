@@ -48,6 +48,22 @@ class PerformanceControllerTest {
     }
 
     @Test
+    void 전략_변경_구간이_있으면_첫_구간부터_보여_준다() {
+        // 2026-11-06: 변경 전후를 함께 보려고 성과 측정 시작일(10/23)이 아니라 첫 구간(10/16)부터
+        when(repository.findByTradeDateGreaterThanEqualOrderByTradeDateAsc(any())).thenReturn(List.of());
+        Clock nov = Clock.fixed(Instant.parse("2026-11-06T00:30:00Z"), ZoneOffset.UTC);
+        PerformanceController withPeriods = new PerformanceController(repository, nov, new PerformanceProperties(
+                LocalDate.of(2026, 10, 23), List.of(
+                        new PerformanceProperties.Period(LocalDate.of(2026, 10, 31), "200만 원", 2_000_000),
+                        new PerformanceProperties.Period(LocalDate.of(2026, 10, 16), "다전략 시작", 486_000_000))));
+
+        withPeriods.daily(90);
+
+        verify(repository).findByTradeDateGreaterThanEqualOrderByTradeDateAsc(LocalDate.of(2026, 10, 16));
+        assertEquals(List.of(), withPeriods.periods(), "구간 비교 빈이 없으면 빈 목록");
+    }
+
+    @Test
     void days_90_초과_요청은_90일로_보정한다() {
         when(repository.findByTradeDateGreaterThanEqualOrderByTradeDateAsc(any())).thenReturn(List.of());
 
