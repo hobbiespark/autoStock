@@ -754,3 +754,11 @@ select {
   border: 1px solid var(--vn-color-border);
   border-radius: 4px;
 }
+
+/* 판단 근거 화면 맨 위 C3 국면 요약(2026-11-06) */
+.regime-banner {
+  margin: 4px 0 10px;
+  padding: 6px 10px;
+  border: 1px solid var(--vn-color-border);
+  border-radius: 6px;
+}
