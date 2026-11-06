@@ -130,6 +130,15 @@ export default function IpoPage() {
   );
 }
 
+// 이미 입력한 내 기록(2026-11-06) — 봇이나 이 화면으로 넣은 청약·배정을 펼치지 않아도 목록 줄에서 본다. 없으면 빈 문자열.
+function recordText(deal: IpoDeal): string {
+  const parts: string[] = [];
+  if (deal.appliedQty != null) parts.push(`청약 ${deal.appliedQty.toLocaleString()}주`);
+  if (deal.allocatedQty != null) parts.push(`배정 ${deal.allocatedQty.toLocaleString()}주`);
+  if (deal.sellPrice != null) parts.push(`매도 ${formatPrice(deal.sellPrice)}`);
+  return parts.length === 0 ? '' : `내 기록: ${parts.join(' · ')}`;
+}
+
 function IpoRow({ deal, expanded, onToggle }: { deal: IpoDeal; expanded: boolean; onToggle: () => void }) {
   return (
     <div className="decision-row ipo-row">
@@ -139,6 +148,7 @@ function IpoRow({ deal, expanded, onToggle }: { deal: IpoDeal; expanded: boolean
         <IpoRecommendationBadge recommendation={deal.recommendation} />
         <span className="muted">{formatBand(deal)}</span>
         <span className="muted">{deal.leadManager ?? '주관사 미확정'}</span>
+        {recordText(deal) && <span className="ipo-my-record">{recordText(deal)}</span>}
         <span className="muted" style={{ marginLeft: 'auto' }}>
           {expanded ? '접기 ▲' : '상세 ▼'}
         </span>

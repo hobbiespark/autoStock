@@ -45,11 +45,20 @@ public class IpoController {
 
     @GetMapping
     public List<IpoDealView> deals(@RequestParam(required = false) String status) {
-        List<IpoDealEntity> entities = status == null || status.isBlank()
-                ? repository.findAllByOrderBySubscriptionStartDesc()
-                : repository.findByStatusOrderBySubscriptionStartAsc(parseStatus(status));
+        // 2026-11-06: 회사마다 한 줄(IpoCorpViews) — 정정 신고서 행이 여럿이라 한 회사가 예정·진행 두 탭에 보였다.
+        // 상태 필터는 회사로 묶은 뒤의 최종 상태로 건다(옛 행 상태로 걸면 다시 두 탭에 보인다).
+        IpoStatus wanted = status == null || status.isBlank() ? null : parseStatus(status);
         // 상장사 유상증자로 판정된 딜은 공모주가 아니다 — 행은 남기고 목록에서만 뺀다(2026-10-02, aiDoc/ipo-demand-forecast.md)
-        return entities.stream().filter(e -> !e.isRightsOffering()).map(IpoController::toView).toList();
+        List<IpoDealEntity> entities = repository.findAllByOrderBySubscriptionStartDesc().stream()
+                .filter(e -> !e.isRightsOffering()).toList();
+        List<IpoDealView> views = IpoCorpViews.byCorp(entities);
+        if (wanted == null) {
+            return views;
+        }
+        return views.stream().filter(v -> v.status().equals(wanted.name()))
+                .sorted(java.util.Comparator.comparing(IpoDealView::subscriptionStart,
+                        java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                .toList();
     }
 
     /** 내 청약/배정/매도 기록 upsert — 부분 갱신(null 필드는 기존 값 유지). */

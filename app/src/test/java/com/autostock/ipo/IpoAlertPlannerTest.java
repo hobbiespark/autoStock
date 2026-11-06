@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -187,6 +188,37 @@ class IpoAlertPlannerTest {
         assertTrue(eve.alerts().get(1).message().contains("추천 청약: 100주 · 증거금 약 975,000원(예산 200만 원 중)"),
                 eve.alerts().get(1).message());
         assertEquals(List.of("START"), phases(planAt(List.of(spac), LocalDate.of(2026, 10, 20), LocalTime.of(8, 20), Set.of())));
+    }
+
+    /** 패스 딜(DART 수요예측 결과 있음, 청약 10/20~10/21) — 2026-11-06부터 어떤 알림도 없다. */
+    private static IpoDealEntity passDeal() {
+        IpoDealEntity pass = new IpoDealEntity("01700000", "패스회사", "20261001000999", "DART", OLD);
+        pass.applyOfferingDetail(new DartClient.OfferingDetail("20261001000999", LocalDate.of(2026, 10, 20),
+                LocalDate.of(2026, 10, 21), null, "대신증권", new BigDecimal("10000"), null), OLD);
+        pass.classifyOffering(OfferingKind.IPO, OLD);
+        pass.applyDemandForecast(new BigDecimal("120.5"), new BigDecimal("0.01"), "20261016000999", OLD);
+        pass.applyRecommendation(IpoRecommendation.SKIP, "패스(점수 -3)", OLD);
+        pass.applyAdvice("PASS", -3, OLD);
+        return pass;
+    }
+
+    @Test
+    void 추천되지_않은_딜은_신규_추천결과_주간_알림을_보내지_않는다() {
+        // 2026-11-06 사용자 "청약 추천되지 않는 정보는 알림 필요 없다"
+        IpoDealEntity pass = passDeal();
+        IpoAlertPlanner.Plan plan = planAt(List.of(pass), LocalDate.of(2026, 10, 16), LocalTime.of(9, 0), Set.of());
+        assertTrue(plan.newDeals().isEmpty(), "신규 알림 없음");
+        assertTrue(plan.alerts().isEmpty(), "패스 METRICS 없음: " + phases(plan));
+
+        LocalDate monday = LocalDate.of(2026, 10, 19);
+        String weekly = IpoAlertPlanner.weekly(List.of(pass), monday, LocalTime.of(8, 0), Set.of(), SIZER).orElseThrow().message();
+        assertFalse(weekly.contains("패스회사"), weekly);
+        assertTrue(weekly.contains("일정 없음"), weekly);
+
+        IpoDealEntity brils = brils();
+        recommend(brils);
+        assertEquals(List.of("METRICS"), phases(planAt(List.of(brils, pass), LocalDate.of(2026, 10, 16), LocalTime.of(9, 0),
+                Set.of())), "추천 딜은 그대로");
     }
 
     @Test
