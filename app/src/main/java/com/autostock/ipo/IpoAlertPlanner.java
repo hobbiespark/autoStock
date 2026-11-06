@@ -26,9 +26,10 @@ import java.util.stream.Collectors;
  *
  * <p>단계(회사마다, 기준값마다 한 번 — {@code ipo_alert_log} V18). 형식: 단계 — 언제 / 대상 / 기준값.
  * <ul>
- *   <li>NEW — 회사의 첫 딜이 생긴 지 {@value #NEW_WINDOW_DAYS}일 안이고 공모주로 판정됨 / 청약이 끝나지 않은 공모주 / -</li>
+ *   <li>NEW — 회사의 첫 딜이 생긴 지 {@value #NEW_WINDOW_DAYS}일 안이고 공모주로 판정됨 / 청약이 끝나지 않은 <b>추천</b> 공모주(2026-11-06 —
+ *       판단 전·패스는 보내지 않는다) / -</li>
  *   <li>METRICS — 수요예측 결과를 DART에서 자동으로 읽어 <b>청약 추천</b>(비례까지·균등만·패스, 2026-10-15)이 정해짐 / 청약이 끝나지 않은
- *       공모주 / [발행조건확정] 접수번호. 문구는 "[청약 추천] …" — 등급·점수·근거·청약 방법을 싣는다</li>
+ *       공모주 / [발행조건확정] 접수번호. 문구는 "[청약 추천] …" — 등급·점수·근거·청약 방법을 싣는다 <b>2026-11-06부터 추천(비례까지·균등만·스팩) 딜만</b> — 패스는 보내지 않는다(사용자 "청약 추천되지 않는 정보는 알림 필요 없다")</li>
  *   <li>D-1·START — 청약 시작 전날·당일 / <b>청약 권고(RECOMMEND — 비례까지·균등만) 딜만</b>(2026-10-22 사용자 "공모주 청약권고인
  *       것만 청약 시작일에 메시지 전송" — 예전엔 패스·판단 보류 딜에도 나갔다) / 청약 시작일</li>
  *   <li>END — 청약 마지막 날(시작일과 다를 때) / 관심 딜 / 청약 마감일</li>
@@ -42,7 +43,7 @@ import java.util.stream.Collectors;
  *   <li>LISTING-AM — 상장일 {@value #MORNING_TEXT} 이후 / 관심 딜 / 상장일. 공모가와 참고 매도 기준(시초가 매도 기본, 공모가 대비 수익률 표).</li>
  *   <li>LISTING-OPEN — 상장일 09:05 시초가 확인(market 모듈 {@code ListingOpenPrices}) / 관심 딜 / 상장일
  *       ({@link #openingAlerts}).</li>
- *   <li>WEEKLY — 월요일 {@value #WEEKLY_TEXT} 이후 / 이번 주 청약·상장 일정 한 통 / 그 주 월요일({@link #weekly}).</li>
+ *   <li>WEEKLY — 월요일 {@value #WEEKLY_TEXT} 이후 / 이번 주 관심 딜(추천·청약/배정 기록, 2026-11-06)의 청약·상장 일정 한 통 / 그 주 월요일({@link #weekly}).</li>
  *   <li>청약 금액 추천({@link IpoSubscriptionSizer}) — METRICS(추천)·D-1·시작·마감·END-AM·주간 요약에
  *       "추천 청약: N주 · 증거금 약 M원(예산 200만 원 중)"을 붙인다.</li>
  * </ul>
@@ -219,6 +220,9 @@ final class IpoAlertPlanner {
         int subscriptions = 0;
         int listings = 0;
         for (Corp corp : corps) {
+            if (!corp.interested) {
+                continue;   // 2026-11-06: 추천이거나 청약·배정 기록이 있는 딜만 — 비추천 딜은 알림 필요 없음(사용자)
+            }
             if (corp.start != null) {
                 LocalDate end = corp.end == null ? corp.start : corp.end;
                 if (!corp.start.isAfter(sunday) && !end.isBefore(today)) {
@@ -261,12 +265,15 @@ final class IpoAlertPlanner {
         String sizing = sizings.text(corp).map(t -> " " + t).orElse("");
         boolean morning = !now.isBefore(MORNING);
         boolean open = subscriptionOpen(corp.end, corp.listing, corp.rep.getMetricsRceptNo(), today);
-        if (corp.kind == OfferingKind.IPO && open && !corp.firstCreated.isBefore(today.minusDays(NEW_WINDOW_DAYS))
+        // 2026-11-06 사용자 "청약 추천되지 않는 정보는 알림 필요 없다" — 신규·추천 결과 알림도 추천(비례까지·균등만·스팩) 딜만.
+        // 판단 전(PENDING)·패스(SKIP) 딜은 보내지 않는다. 판단이 나오면 METRICS가 첫 알림이 된다
+        boolean recommended = corp.rep.getRecommendation() == IpoRecommendation.RECOMMEND;
+        if (recommended && corp.kind == OfferingKind.IPO && open && !corp.firstCreated.isBefore(today.minusDays(NEW_WINDOW_DAYS))
                 && !corp.firstCreated.isAfter(today)) {
             add(newDeals, sent, corp, PHASE_NEW, NEW_KEY, newDealLine(corp));
         }
         if (corp.rep.getMetricsSource() == IpoDealEntity.MetricsSource.DART && corp.rep.getMetricsRceptNo() != null
-                && corp.rep.getRecommendation() != IpoRecommendation.PENDING && open) {
+                && recommended && open) {
             add(alerts, sent, corp, PHASE_METRICS, corp.rep.getMetricsRceptNo(), metricsMessage(corp) + sizing);
         }
         // 청약 D-1·시작은 청약 권고 딜만(2026-10-22) — 패스 딜은 [청약 추천] 알림에서 이미 "패스"로 알렸다

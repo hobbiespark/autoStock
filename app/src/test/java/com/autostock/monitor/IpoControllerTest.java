@@ -72,13 +72,36 @@ class IpoControllerTest {
         assertEquals("20260916000234", result.get(0).metricsRceptNo());
     }
 
+    /**
+     * 옵토닉스 꼴(2026-11-06) — 같은 회사의 옛 신고서 행(일정 없음, 예정)과 최신 행(일정 있음, 청약 중). 회사마다 한 줄, 최종 상태 탭에만,
+     * 옛 행에 저장된 배정 기록도 보인다.
+     */
+    private List<IpoDealEntity> optonicsRows() {
+        Instant now = Instant.now();
+        IpoDealEntity old = new IpoDealEntity("01555555", "옵토닉스", "20261020000100", "DART", now);
+        old.applyRecord(20, new BigDecimal("120000"), 2, null, null, null, now);
+        IpoDealEntity latest = new IpoDealEntity("01555555", "옵토닉스", "20261028000200", "DART", now);
+        latest.applyOfferingDetail(new com.autostock.ipo.DartClient.OfferingDetail("20261028000200",
+                java.time.LocalDate.of(2026, 11, 5), java.time.LocalDate.of(2026, 11, 6), java.time.LocalDate.of(2026, 11, 10),
+                "한국투자증권", new BigDecimal("12000"), null), now);
+        latest.updateStatus(IpoStatus.SUBSCRIBING, now);
+        return List.of(latest, old);
+    }
+
     @Test
-    void status_지정시_해당_상태만_조회한다() {
-        when(repository.findByStatusOrderBySubscriptionStartAsc(IpoStatus.SUBSCRIBING)).thenReturn(List.of());
+    void 같은_회사의_신고서_여러_행은_최종_상태_한_줄로_보인다() {
+        when(repository.findAllByOrderBySubscriptionStartDesc()).thenReturn(optonicsRows());
 
-        controller.deals("SUBSCRIBING");
+        var all = controller.deals(null);
+        assertEquals(1, all.size());
+        assertEquals("SUBSCRIBING", all.get(0).status());
+        assertEquals("20261028000200", all.get(0).rceptNo(), "대표 행 = 일정이 있는 최신 신고서 — 입력도 이 행에 저장된다");
+        assertEquals(java.time.LocalDate.of(2026, 11, 5), all.get(0).subscriptionStart());
+        assertEquals(Integer.valueOf(20), all.get(0).appliedQty(), "옛 행에 넣은 청약 기록도 보인다");
+        assertEquals(Integer.valueOf(2), all.get(0).allocatedQty());
 
-        verify(repository).findByStatusOrderBySubscriptionStartAsc(IpoStatus.SUBSCRIBING);
+        assertEquals(1, controller.deals("SUBSCRIBING").size());
+        assertEquals(0, controller.deals("UPCOMING").size(), "옛 행의 예정 상태로는 보이지 않는다");
     }
 
     @Test
