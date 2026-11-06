@@ -372,6 +372,54 @@ public class StrategyBook {
         return out;
     }
 
+    /**
+     * 구간 전략별 청산 성과(2026-11-06, 전략 변경 전후 비교 — aiDoc/strategy-change-performance.md).
+     *
+     * @param exits       청산 수 — 종목·매도일마다 1건(부분 체결을 합친다, {@link DaySummary}의 승패 기준과 같다)
+     * @param wins        실현손익 합이 0보다 큰 청산 수
+     * @param realizedPnl 매도 실현손익 합(추정 비용 차감)
+     * @param exitCost    매도 원가 합(매도 전 평단 × 수량) — 거래당 수익률 = realizedPnl ÷ exitCost. 평단을 모르는 매도는 뺀다
+     */
+    public record PeriodStat(String strategyId, int exits, int wins, BigDecimal realizedPnl, BigDecimal exitCost) {
+    }
+
+    /** {@code fromDay}~{@code toDayInclusive}(KST) 매도 체결의 전략별 청산 성과. 매도가 없는 전략은 없다. */
+    public List<PeriodStat> periodStats(LocalDate fromDay, LocalDate toDayInclusive) {
+        Instant from = fromDay.atStartOfDay(MarketConstants.KST).toInstant();
+        Instant to = toDayInclusive.plusDays(1).atStartOfDay(MarketConstants.KST).toInstant();
+        return periodStats(fillRepository.findByFilledAtGreaterThanEqualAndFilledAtLessThan(from, to));
+    }
+
+    static List<PeriodStat> periodStats(List<StrategyFillEntity> rows) {
+        Map<String, Map<String, BigDecimal[]>> exits = new TreeMap<>();   // 전략 → (종목|매도일) → [손익, 원가]
+        for (StrategyFillEntity row : rows) {
+            if (!"SELL".equals(row.getSide()) || row.getRealizedPnl() == null || row.getAvgPriceBefore() == null) {
+                continue;
+            }
+            String exitDay = row.getFilledAt() == null ? ""
+                    : LocalDate.ofInstant(row.getFilledAt(), MarketConstants.KST).toString();
+            BigDecimal[] acc = exits.computeIfAbsent(row.getStrategyId(), k -> new LinkedHashMap<>())
+                    .computeIfAbsent(row.getSymbol() + "|" + exitDay, k -> new BigDecimal[]{BigDecimal.ZERO, BigDecimal.ZERO});
+            acc[0] = acc[0].add(row.getRealizedPnl());
+            acc[1] = acc[1].add(row.getAvgPriceBefore().multiply(BigDecimal.valueOf(row.getQuantity())));
+        }
+        List<PeriodStat> out = new ArrayList<>();
+        exits.forEach((strategy, bySymbol) -> {
+            BigDecimal pnl = BigDecimal.ZERO;
+            BigDecimal cost = BigDecimal.ZERO;
+            int wins = 0;
+            for (BigDecimal[] acc : bySymbol.values()) {
+                pnl = pnl.add(acc[0]);
+                cost = cost.add(acc[1]);
+                if (acc[0].signum() > 0) {
+                    wins++;
+                }
+            }
+            out.add(new PeriodStat(strategy, bySymbol.size(), wins, pnl, cost));
+        });
+        return out;
+    }
+
     private static String describe(Map<String, Map<StockCode, Holding>> books) {
         Map<String, String> parts = new LinkedHashMap<>();
         new TreeMap<>(books).forEach((strategy, book) -> {

@@ -34,6 +34,7 @@ PG18 후보 DB 검증: [PG18 리허설](../pg18-rehearsal.md)(VALUNIVO 4-5 U6, �
 | [ipo-subscription-strategy.md](../ipo-subscription-strategy.md) | 공모주 청약 추천 전략 |
 | [ipo-demand-forecast.md](../ipo-demand-forecast.md) | 공모주 수요예측 자동 입력 |
 | [ipo-automation.md](../ipo-automation.md) | 공모주 자동화·알림 강화 |
+| [strategy-change-performance.md](../strategy-change-performance.md) | 전략 변경 전후 성과 비교(구간 설정·비교 지표) |
 
 ## 디자인
 

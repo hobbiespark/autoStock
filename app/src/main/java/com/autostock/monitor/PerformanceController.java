@@ -2,6 +2,7 @@ package com.autostock.monitor;
 
 import com.autostock.common.util.MarketConstants;
 import com.autostock.monitor.view.DailyPerformanceView;
+import com.autostock.monitor.view.PerformancePeriodView;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -28,6 +29,12 @@ public class PerformanceController {
     private final Clock clock;
     /** 성과 측정 시작일(2026-10-22) — 운용 자금 2,000만 원 전 기록은 추이에 넣지 않는다. */
     private final PerformanceProperties performance;
+    /** 전략 변경 구간 비교 — 빈이 없으면(시험 직접 생성) 빈 목록. */
+    private PerformancePeriods periods;
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void periods(PerformancePeriods periods) {
+        this.periods = periods;
+    }
 
     /** 시작일 없는 생성자 — 시험용(예전 동작). */
     public PerformanceController(DailyPerformanceRepository repository, Clock clock) {
@@ -44,10 +51,20 @@ public class PerformanceController {
     @GetMapping("/daily")
     public List<DailyPerformanceView> daily(@RequestParam(required = false) Integer days) {
         int effectiveDays = clampDays(days);
-        LocalDate since = performance.clamp(LocalDate.now(clock.withZone(MarketConstants.KST)).minusDays(effectiveDays));
+        // 2026-11-06: 전략 변경 구간이 있으면 첫 구간부터(변경 전후를 함께 본다), 없으면 성과 측정 시작일부터
+        LocalDate since = performance.trendClamp(LocalDate.now(clock.withZone(MarketConstants.KST)).minusDays(effectiveDays));
         return repository.findByTradeDateGreaterThanEqualOrderByTradeDateAsc(since).stream()
                 .map(PerformanceController::toView)
                 .toList();
+    }
+
+    /**
+     * 전략 변경 구간 비교(2026-11-06) — {@code GET /api/performance/periods}. 구간 설정({@code monitor.performance.periods})이
+     * 없으면 빈 목록.
+     */
+    @GetMapping("/periods")
+    public List<PerformancePeriodView> periods() {
+        return periods == null ? List.of() : periods.periods();
     }
 
     private static int clampDays(Integer days) {
