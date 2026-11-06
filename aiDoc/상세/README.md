@@ -142,3 +142,16 @@ PG18 후보 DB 검증: [PG18 리허설](../pg18-rehearsal.md)(VALUNIVO 4-5 U6, �
 | [upgrade-2026-10/20-log-review-2026-10-21.md](../upgrade-2026-10/20-log-review-2026-10-21.md) | 10/21 |
 | [upgrade-2026-10/21-log-review-2026-10-22.md](../upgrade-2026-10/21-log-review-2026-10-22.md) | 10/22 |
 | [upgrade-2026-10/22-log-review-2026-10-23.md](../upgrade-2026-10/22-log-review-2026-10-23.md) | 10/23 |
+
+## VALUNIVO 2단계 연결 (VALUNIVO 18·19, 2026-11-06)
+
+VALUNIVO 2단계의 반복 개발·배포 방식은 [VALUNIVO 18](../../../VALUNIVO/aiDoc/상세/공통/18-2단계-애자일-개발-배포-운영.md)을 참고하되, 이 저장소의 `AGENTS.md`(거래 안전·운영 시간 창·모의 서버 우선)가 우선한다. [VALUNIVO 19 4장](../../../VALUNIVO/aiDoc/상세/공통/19-2단계-AI-작업-역량과-지식-고도화.md)이 낸 autoStock 후보 C-1~C-6을 이 저장소 문서와 대조한 결과다(VALUNIVO 구현 639). 판단과 실행의 기준은 이 저장소의 계획·결정 로그이며, 아래는 문서 대조이고 코드 동작을 새로 시험하지 않았다.
+
+| 19 후보 | 이 저장소에 이미 있는 것 | 남는 것 |
+|---|---|---|
+| C-1 시도한 전략 수 기록·과적합 지표(PBO·DSR) | [PLAN.md](../../PLAN.md) 공통 규율(walk-forward+CPCV·DSR·MDD·trial 기록), [PROGRESS.md](../../PROGRESS.md) 3단계 완료(walk-forward + DSR/PBO 검증 파이프라인), [BACKTEST_REPORT.md](../../BACKTEST_REPORT.md)(trial 전수 기록, Hansen SPA_c 판정), [전략 변경 전후 비교](../strategy-change-performance.md)(결과를 본 뒤 규칙을 바꾸면 새 trial, 표본이 작으면 판정에 쓰지 않음) | 없음 |
+| C-2 학습·검증 분할의 제거(purge)·완충(embargo) | walk-forward와 CPCV 이중 검증(PLAN.md, BACKTEST_REPORT.md) | CPCV의 제거·완충 설정값은 이번에 확인하지 않음 |
+| C-3 LLM 신호는 모델 지식 기준일 뒤 구간으로만 평가 | [08 전략 조사](../upgrade-2026-10/08-research-trading-strategy.md) 6-1(LLM 시그널 룩어헤드 오염), [05 기획 조사](../upgrade-2026-10/05-research-planning.md)(LLM 시그널 필터는 섀도 기록만), PLAN.md 신호 시점 규칙(룩어헤드 방지) | LLM 신호를 매매 판단에 쓰기 전에 평가 구간 규칙을 이 저장소 결정으로 남길지 |
+| C-4 비용 모델(거래세·호가 단위 등)을 기준일 있는 설정으로 | PROGRESS.md 3단계 비용 모델 | 규정 값의 기준일과 원문(KRX·국세청) 대조 |
+| C-5 주문 멱등 키와 재기동 때 체결·잔고 대조 | `ClientOrderId` 값 객체(PLAN.md, 주문 이력 화면), 주문 실행 멱등성(PLAN.md 모듈 표), [잔고↔장부 대사](../position-reconcile.md) | 키움 API가 클라이언트 주문 ID를 받는지는 확인하지 않음 |
+| C-6 국면 판정은 단순 구간부터 | BACKTEST_REPORT.md C1~C4(SMA200 국면 필터, 국면 OFF 인버스 기각) | 없음 |
