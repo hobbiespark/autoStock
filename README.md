@@ -68,3 +68,7 @@ C3(시계열 모멘텀 + KODEX200 SMA200 국면필터 + 변동성 타게팅) —
 ```bash
 ./gradlew test   # 단위 테스트 + Modulith 모듈 경계 검증
 ```
+
+품질 관문은 `py -3.13 scripts/quality_gate.py`입니다(VALUNIVO 0-7 S11, D336). `:common:test`·`:app:test`와 프런트 타입 검사(`tsc --noEmit`, 공용 Node로 `npm ci` 뒤)를 실행하고, VALUNIVO·writingApp 관문과 같은 형식(`[gate] 항목: ok|FAIL`, 모듈별 시험 건수 줄, 마지막 `[gate] PASS|FAIL`, 종료 0·1)으로 출력합니다. DB 통합 시험은 `AUTOSTOCK_TEST_DB_REQUIRED=true`로 돌려 DB가 없으면 건너뛰지 않고 실패합니다(D-18: Docker가 있으면 Testcontainers로 운영 이미지). `--no-db`일 때만 `AUTOSTOCK_TEST_DB_DISABLED=true`로 일부러 빼고 그 사실을 출력하며, 운영 포트를 가리키는 `AUTOSTOCK_TEST_DB_URL`은 거절합니다.
+
+커밋 전 훅(`.githooks/pre-commit`)은 같은 관문을 `--staged`로 부릅니다. 클론마다 `git config core.hooksPath .githooks`로 한 번 켭니다. 스테이징한 파일이 닿는 영역만 빠르게 검사합니다(`common/`·`app/`·Gradle 파일이면 컴파일과 계층 규칙 `ArchitectureRulesTest`, `frontend/`이면 타입 검사, 관문 스크립트이면 그 단위 시험). 시험 전체는 병합 전에 `--staged` 없이 실행합니다. 형식 검사·새 린트는 두지 않고 지금 규칙을 유지합니다.

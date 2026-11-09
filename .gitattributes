@@ -3,3 +3,5 @@ data/** -text
 backup/** -text
 *.dump binary
 *.gz binary
+# VALUNIVO D336: the pre-commit hook must keep LF for /bin/sh on Windows checkouts.
+.githooks/* text eol=lf
