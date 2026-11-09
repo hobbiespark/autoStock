@@ -13,6 +13,11 @@
 
 사용: FRED_API_KEY 환경변수(값은 출력하지 않는다).
   py -3.13 scripts/fetch_macro_event_data.py [--out data] [--start 2014-01-01]
+
+운영 일정 표(E1 적용, 계획 4장 — 연 1회 갱신):
+  py -3.13 scripts/fetch_macro_event_data.py --schedule 2026 2027
+  → app/src/main/resources/macro/us-event-schedule.csv. 앞으로의 발표일은 FRED 예정 공표일
+    (CPI release 10, 고용 release 50, include_release_dates_with_no_data=true)과 연준 일정에서 받는다.
 """
 from __future__ import annotations
 
@@ -105,6 +110,42 @@ def nfp_dates(start: str) -> list[date]:
     return [date.fromisoformat(x["date"]) for x in d["release_dates"]]
 
 
+def scheduled_dates(release_id: str, year: int) -> list[date]:
+    d = fred("release/dates", release_id=release_id, realtime_start=f"{year}-01-01", realtime_end="9999-12-31",
+             include_release_dates_with_no_data="true", limit="10000", sort_order="asc")
+    return [x for x in (date.fromisoformat(r["date"]) for r in d["release_dates"]) if x.year == year]
+
+
+def write_schedule(years: list[int], path: Path) -> None:
+    fomc = fomc_dates(min(years))
+    rows: list[tuple[date, str]] = []
+    covered: list[int] = []
+    for year in years:
+        part = [(x, "FOMC") for x in fomc if x.year == year]
+        part += [(x, "CPI") for x in scheduled_dates("10", year)]
+        part += [(x, "NFP") for x in scheduled_dates("50", year)]
+        counts = {k: sum(1 for _, kk in part if kk == k) for k in ("FOMC", "CPI", "NFP")}
+        # 세 종류가 다 공표 예정에 올라온 해만 넣는다(일부만 있으면 그 해의 사건 밤을 놓친다).
+        if counts["FOMC"] < 7 or counts["CPI"] < 10 or counts["NFP"] < 10:
+            print(year, counts, "- 예정 공표일이 아직 다 없어 뺀다")
+            continue
+        covered.append(year)
+        rows += part
+    if not covered:
+        sys.exit("덮을 수 있는 연도가 없다")
+    years = covered
+    rows.sort()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lines = ["# 미국 예정 발표일(미국 날짜). 생성: scripts/fetch_macro_event_data.py --schedule — 손으로 고치지 말고 다시 생성한다.",
+             "# 덮는 연도: " + ",".join(str(y) for y in years),
+             "date,kind"]
+    lines += [f"{x.isoformat()},{k}" for x, k in rows]
+    path.write_bytes(("\n".join(lines) + "\n").encode("utf-8"))
+    for year in years:
+        counts = {k: sum(1 for x, kk in rows if kk == k and x.year == year) for k in ("FOMC", "CPI", "NFP")}
+        print(year, counts)
+
+
 def series(series_id: str, start: str) -> list[tuple[str, str]]:
     d = fred("series/observations", series_id=series_id, observation_start=start)
     return [(o["date"], o["value"]) for o in d["observations"] if o["value"] not in (".", "")]
@@ -114,7 +155,12 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data")
     ap.add_argument("--start", default="2014-01-01")
+    ap.add_argument("--schedule", type=int, nargs="+", help="운영 일정 표를 만들 연도들")
+    ap.add_argument("--schedule-out", default="app/src/main/resources/macro/us-event-schedule.csv")
     a = ap.parse_args()
+    if a.schedule:
+        write_schedule(sorted(a.schedule), Path(a.schedule_out))
+        return
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     start_year = int(a.start[:4])

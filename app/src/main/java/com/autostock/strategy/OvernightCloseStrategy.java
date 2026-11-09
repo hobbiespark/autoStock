@@ -39,6 +39,9 @@ import java.util.stream.Collectors;
  * </ol>
  * 정규장 안에서만 한다(NXT·시간외는 미실측 — D-21).
  *
+ * <p><b>미국 발표 밤 건너뛰기(E1, 2026-11-10, aiDoc/global-event-filter-plan.md 6-2)</b>: 오늘 밤 FOMC·CPI·고용 보고서
+ * 발표가 있으면({@link UsEventNights}) 15:15 후보를 고르지 않아 15:26 매수도 없다. 아침 매도·재시도·스윙 이월은 그대로다.
+ *
  * <p><b>3분할·스윙 이월(2026-10-30, {@link SwingCarryManager})</b>: 이월이 켜져 있으면 15:26 매수는 1차 분할(종목 예산의 1/3)이다.
  * 09:00:30에는 비용 후 수익인 보유만 판다. 갭 하락 등으로 수익이 아니면 팔지 않고 스윙으로 넘긴다(사용자 10/30 — "갭 하락이 큰
  * 고변동은 오히려 스윙으로 갔어야"). 넘긴 보유는 아침 매도·재시도에서 빼고, 2·3차 추가 매수와 청산은 이월 관리자가 09:02에 판단한다.
@@ -65,6 +68,8 @@ public class OvernightCloseStrategy {
     private final Clock clock;
     /** 스윙 이월 — null이면 예전 동작(시험용 생성자). */
     private final SwingCarryManager carry;
+    /** 미국 발표 밤 건너뛰기(E1) — null이면 적용하지 않는다(시험용 생성자). */
+    private final UsEventNights eventNights;
 
     /** 오늘 고른 종목(15:15) — 15:26에 산다. */
     private volatile Picks picks = new Picks(null, List.of());
@@ -84,10 +89,16 @@ public class OvernightCloseStrategy {
         this(properties, market, book, outbox, guard, publisher, clock, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public OvernightCloseStrategy(OvernightCloseProperties properties, LiveMarket market, StrategyBook book,
                                   SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
                                   Clock clock, SwingCarryManager carry) {
+        this(properties, market, book, outbox, guard, publisher, clock, carry, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public OvernightCloseStrategy(OvernightCloseProperties properties, LiveMarket market, StrategyBook book,
+                                  SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
+                                  Clock clock, SwingCarryManager carry, UsEventNights eventNights) {
         this.properties = properties;
         this.market = market;
         this.book = book;
@@ -96,6 +107,7 @@ public class OvernightCloseStrategy {
         this.publisher = publisher;
         this.clock = clock;
         this.carry = carry;
+        this.eventNights = eventNights;
     }
 
     private boolean carrying() {
@@ -166,6 +178,13 @@ public class OvernightCloseStrategy {
             return;
         }
         LocalDate today = guard.today();
+        String skip = eventNightSkip(today);
+        if (skip != null) {
+            log.info(skip);
+            picks = new Picks(today, List.of());
+            publisher.publishEvent(new StrategyRunCompleted(STRATEGY_ID, today, skip, 0, clock.instant()));
+            return;
+        }
         List<List<MarketDataPort.RankedStock>> lists = new ArrayList<>();
         for (String condition : properties.stockConditions()) {
             List<MarketDataPort.RankedStock> rows = market.risingRanking(condition);
@@ -232,6 +251,26 @@ public class OvernightCloseStrategy {
         if (!today.items().isEmpty()) {
             log.info("{}: 종가 단일가 매수 신호 {}종목", STRATEGY_ID, today.items().size());
         }
+    }
+
+    /**
+     * 사건 밤(E1)이면 건너뛰는 이유 한 줄, 아니면 null. 일정이 그 밤을 덮지 않으면 막지 않고 경고만 남긴다.
+     */
+    private String eventNightSkip(LocalDate today) {
+        if (eventNights == null || !eventNights.enabled()) {
+            return null;
+        }
+        UsEventNights.Verdict v = eventNights.check(today, guard.nextTradingDay(today));
+        if (!v.covered()) {
+            log.warn("{} {}: 미국 발표 일정 표가 이 밤을 덮지 않음 — 사건 밤 건너뛰기 없이 진행"
+                    + "(scripts/fetch_macro_event_data.py --schedule로 갱신)", STRATEGY_ID, today);
+            return null;
+        }
+        if (!v.eventNight()) {
+            return null;
+        }
+        return "%s %s 신규 매수 안 함 — 미국 발표 밤(%s), 사건 밤 건너뛰기(E1)".formatted(STRATEGY_ID, today,
+                String.join(" · ", v.events()));
     }
 
     private void sell(String symbol, BigDecimal bid, String reason) {
