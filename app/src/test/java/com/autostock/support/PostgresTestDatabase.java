@@ -55,9 +55,17 @@ public final class PostgresTestDatabase {
         return connection().kind();
     }
 
-    /** DB 테스트를 돌릴 수 있는가 — 외부 주소가 있거나 Docker가 있다. 컨테이너는 띄우지 않는다. */
+    /**
+     * DB 테스트를 돌릴 수 있는가 — 외부 주소가 있거나 Docker가 있다. 컨테이너는 띄우지 않는다.
+     * {@code AUTOSTOCK_TEST_DB_DISABLED=true}면 일부러 끈 것으로 보고 둘 다 보지 않는다(품질 관문 {@code --no-db}, VALUNIVO D336).
+     */
     public static synchronized boolean available() {
-        return externalUrl() != null || dockerAvailable();
+        return !disabled() && (externalUrl() != null || dockerAvailable());
+    }
+
+    /** 품질 관문 {@code --no-db}처럼 DB 테스트를 일부러 빼는가 — {@code AUTOSTOCK_TEST_DB_DISABLED=true}. */
+    static boolean disabled() {
+        return "true".equalsIgnoreCase(System.getenv("AUTOSTOCK_TEST_DB_DISABLED"));
     }
 
     /** CI처럼 DB 테스트가 빠지면 안 되는 환경인가 — {@code AUTOSTOCK_TEST_DB_REQUIRED=true}. */

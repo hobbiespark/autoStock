@@ -1,0 +1,4 @@
+#!/bin/sh
+# VALUNIVO 0-7 S11 (D336): autoStock quality gate on the staged changes (same output as the platform hook).
+# Enabled per clone with: git config core.hooksPath .githooks
+exec py -3.13 scripts/quality_gate.py --staged

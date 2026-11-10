@@ -66,6 +66,11 @@ public class StrategyGuard {
         return calendar.isTradingDay(day);
     }
 
+    /** day 다음 거래일. */
+    public LocalDate nextTradingDay(LocalDate day) {
+        return calendar.plusTradingDays(day, 1);
+    }
+
     public TradingSystemStatus status() {
         return tradingSystemManager.status();
     }

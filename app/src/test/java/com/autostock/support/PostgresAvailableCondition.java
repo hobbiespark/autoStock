@@ -23,6 +23,9 @@ public class PostgresAvailableCondition implements ExecutionCondition {
             return ConditionEvaluationResult.enabled("DB 통합 테스트 PostgreSQL 있음");
         }
         String reason = "DB 통합 테스트 건너뜀 — Docker도 AUTOSTOCK_TEST_DB_URL도 없다(D-18: 운영 이미지로만 검증)";
+        if (PostgresTestDatabase.disabled()) {
+            return ConditionEvaluationResult.disabled("DB 통합 테스트 일부러 뺌 — AUTOSTOCK_TEST_DB_DISABLED=true(품질 관문 --no-db)");
+        }
         if (PostgresTestDatabase.required()) {
             throw new IllegalStateException(reason + " — AUTOSTOCK_TEST_DB_REQUIRED=true라 실패로 처리한다");
         }

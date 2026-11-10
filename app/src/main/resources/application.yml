@@ -144,6 +144,7 @@ strategy:
     strategies: [VB-DAY, ON-CLOSE]
   on:                                                # 종가 → 다음 날 시가(ON-CLOSE) — 문서 3-2
     enabled: false
+    skip-us-event-nights: true                       # 미국 FOMC·CPI·고용 발표 밤에는 신규 매수 안 함(E1, aiDoc/global-event-filter-plan.md 6-2) — 일정 표 macro/us-event-schedule.csv
   ta:                                                # 차트 기법 5종(TA-H1~H5) — 문서 3-3
     enabled: false
 

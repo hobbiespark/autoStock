@@ -310,4 +310,5 @@
 - 판단 전 딜에 신규 알림이 없어졌다 — 공모 일정은 화면(공모주 탭)에서 본다. 추천이 나오면 그때 첫 알림(METRICS)이 간다.
 - 시험(2026-11-06, 작업트리 `C:/ai/_wt/autoStock-ipo-screen`, JDK 25·Node 24): `IpoControllerTest`에 옵토닉스 꼴(옛 행 예정·최신 행 청약 중) 한 줄·탭·옛 행 기록 표시, `IpoAlertPlannerTest`에 패스 딜 신규·METRICS·주간 제외, `IpoSyncSchedulerTest` 신규 알림 기대값(판단 전 제외) 갱신. 전체 `./gradlew test --rerun --continue` 1,321건, 실패 0, 건너뜀 23(원래 조건부). 화면 `npm run build`(tsc 포함) 성공.
 - 미확인: 운영 화면 모양(반영 뒤), 실거래 매도 브랜치(`claude/as-ipo-live-sell`)의 봇 배정 명령이 어느 행에 저장하든 화면에는 보인다(회사로 묶음) — 그 브랜치 병합 때 함께 확인.
+- **운영 반영(2026-11-06 09:57, 사용자 지시 "지금 반영" — 장중 D260 예외, 사용량 보류는 "사용량 예외로 지금"으로 한 단위 예외)**: `main` `4bdd94b`(판단 근거 화면 C3 국면 요약과 함께), 공통 배포 `Invoke-AppDeployment.ps1`을 데브 터미널 탭에서 `-Apply`(RM-53) → release `20261106-095737-ipo-screen-regime`, 백업 `C:/ai/autoStock-runtime/backups/deploy-20261106-095737-ipo-screen-regime`. 6단계 대조 통과, 새 PID 28844 09:57:52 기동·`RUNNING`·WS 로그인. 확인: `GET /api/ipo` 40줄·회사 중복 0, 옵토닉스 `SUBSCRIBING` 한 줄. 판단 근거 화면 맨 위 "C3 국면: OFF — KODEX 200(069500) 종가 84,610 / SMA200 101,026" 표시
 

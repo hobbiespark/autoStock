@@ -277,6 +277,8 @@ autoStock/
 
 **2단계 — 뉴스 감성 (Phase 7)**: 뉴스 수집(RSS/주요 언론) → 종목·섹터 매핑 → KR-FinBERT 사이드카 스코어링 → `NewsSentiment`. 모델 선정 근거: [snunlp/KR-FinBert-SC](https://huggingface.co/snunlp/KR-FinBert-SC) — 뉴스 44만건+애널리스트 리포트 1.1만건 추가 사전학습, 감성분류 정확도 0.963(KoBERT 0.817 대비), **월 다운로드 7.8만회로 한국어 금융 감성분석의 사실상 표준** (2026-08 확인). 이론 계보: FinBERT — [Araci (2019, arXiv)](https://arxiv.org/abs/1908.10063) 및 [Huang, Wang & Yang (2023, Contemporary Accounting Research)](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3910214), 두 계열 합산 인용 1,400+. 국내 실증: [KOSPI 예측](https://www.dbpia.co.kr/journal/articleDetail?nodeId=NODE11227781), [공모주 시초가 예측](https://www.kci.go.kr/kciportal/landing/article.kci?arti_id=ART002932250), [감성-주가 딥러닝](https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART002869886). 2024~2026 트렌드는 금융 LLM(FinGPT 등)으로 이동 중이나 한국어 금융 특화로 검증된 공개 대체재 부재 → KR-FinBert-SC 유지 + LLM 프롬프팅 병행 실험은 선택 과제. 지정학 리스크는 뉴스 스코어로 자체 산출, 임계 초과 시 킬스위치 후보 → 텔레그램 승인 요청.
 
+**1단계 확장 계획 (2026-11-09)**: 글로벌 이벤트(FOMC·CPI·전쟁·유가·대선 등) 중 근거·지속성·데이터·표본 기준을 모두 만족하는 두 가지(예정 발표일 밤사이 노출, 미국 금리·달러 급변)만 검증 대상으로 두고, 채택 조건을 미리 고정한 on/off 백테스트를 통과해야 적용한다 — [aiDoc/global-event-filter-plan.md](aiDoc/global-event-filter-plan.md).
+
 원칙: 감성·거시 시그널은 단독 매매 근거가 아닌 **필터/가중치**. 도입 전후 필터 on/off 백테스트로 기여도 입증 (DSR/PBO 검증 동일 적용).
 
 ### 4-1. 경량 대시보드 (FE)

@@ -119,6 +119,41 @@ class OvernightCloseStrategyTest {
         assertTrue(t.runs().isEmpty());
     }
 
+    /** 미국 CPI 발표일 하나만 든 일정으로 전략을 다시 만든다(다음 거래일 = 내일). */
+    private void useEventSchedule(java.time.LocalDate cpiDay) {
+        String csv = String.join(System.lineSeparator(), "# 덮는 연도: " + TODAY.getYear(), "date,kind", cpiDay + ",CPI");
+        UsEventNights nights = new UsEventNights(true,
+                new java.io.ByteArrayInputStream(csv.getBytes(java.nio.charset.StandardCharsets.UTF_8)));
+        when(guard.nextTradingDay(TODAY)).thenReturn(TODAY.plusDays(1));
+        strategy = new OvernightCloseStrategy(PROPS, market, t.book, t.outbox, guard, t.events::add, CLOCK, null, nights);
+    }
+
+    @Test
+    void 미국_발표_밤에는_후보를_고르지_않아_종가_매수도_없다() {
+        useEventSchedule(TODAY);
+        when(market.risingRanking(anyString())).thenReturn(List.of(rank("111111", "a", "10000", "+8", 9_000_000)));
+
+        strategy.scan();
+        strategy.buyAtClose();
+
+        verify(market, never()).risingRanking(anyString());
+        assertTrue(t.signals().isEmpty());
+        assertTrue(t.runs().get(0).summary().contains("미국 발표 밤"));
+        assertEquals(0, t.runs().get(0).errors());
+    }
+
+    @Test
+    void 사건_밤이_아니면_예전처럼_산다() {
+        useEventSchedule(TODAY.plusDays(1));
+        when(market.risingRanking(anyString())).thenReturn(List.of(rank("111111", "a", "10000", "+8", 9_000_000)));
+        when(market.quote("111111")).thenReturn(quote("10000", "9500", "10100"));
+
+        strategy.scan();
+        strategy.buyAtClose();
+
+        assertEquals(1, t.signals().size());
+    }
+
     @Test
     void 순위_조회가_비면_오늘은_사지_않는다() {
         when(market.risingRanking(anyString())).thenReturn(List.of());
