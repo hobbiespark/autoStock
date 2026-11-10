@@ -160,8 +160,9 @@ public class TaLiveStrategy {
             BigDecimal open = market.todayOpen(symbol);
             if (candles.size() < properties.minBars() || open == null) {
                 errors++;
-                log.warn("{}: {} 데이터 부족 — 봉 {}개(최소 {}), 시가 {} — 오늘 이 종목 판단 안 함", SUMMARY_ID,
-                        StockNames.label(symbol), candles.size(), properties.minBars(), open);
+                log.warn("{}: {} 데이터 부족 — 봉 {}개(최소 {}), 시가 {}{} — 오늘 이 종목 판단 안 함", SUMMARY_ID,
+                        StockNames.label(symbol), candles.size(), properties.minBars(), open,
+                        open == null && market.openMissReason(symbol) != null ? "(" + market.openMissReason(symbol) + ")" : "");
                 continue;
             }
             StockCode code = new StockCode(symbol);

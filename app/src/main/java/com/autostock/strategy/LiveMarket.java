@@ -52,6 +52,7 @@ public class LiveMarket {
     private final Map<String, Set<String>> owners = new ConcurrentHashMap<>();
     private final Map<String, Bars> bars = new ConcurrentHashMap<>();
     private final Map<String, Open> opens = new ConcurrentHashMap<>();
+    private final Map<String, String> openMisses = new ConcurrentHashMap<>();
     private final Set<String> subscribed = ConcurrentHashMap.newKeySet();
 
     private record Bars(LocalDate day, List<Candle> candles) {
@@ -142,15 +143,29 @@ public class LiveMarket {
             return cached.price();
         }
         try {
-            BigDecimal open = marketData.stockQuote(symbol).open();
+            MarketDataPort.StockQuote quote = marketData.stockQuote(symbol);
+            BigDecimal open = quote.open();
             if (open != null && open.signum() > 0) {
                 opens.put(symbol, new Open(today, open));
+                openMisses.remove(symbol);
                 return open;
             }
+            // VALUNIVO 793 L1: 예외 없이 빠지는 시가의 사유를 남긴다(현재가가 있으면 응답은 왔으나 시가 칸만 빈 것)
+            openMisses.put(symbol, quote.current() != null && quote.current().signum() > 0
+                    ? MISS_OPEN_BLANK : MISS_QUOTE_BLANK);
         } catch (RuntimeException e) {
+            openMisses.put(symbol, "조회 실패(" + e.getClass().getSimpleName() + ")");
             log.warn("시가 조회 실패({}): {}", StockNames.label(symbol), e.toString());
         }
         return null;
+    }
+
+    static final String MISS_OPEN_BLANK = "현재가는 있고 시가 칸만 빈 값·0";
+    static final String MISS_QUOTE_BLANK = "현재가·시가 모두 빈 값·0";
+
+    /** 마지막 시가 조회가 빈 까닭(진단 로그용, VALUNIVO 793 L1). 받았거나 아직 조회하지 않았으면 null. */
+    public String openMissReason(String symbol) {
+        return openMisses.get(symbol);
     }
 
     /** 이미 받아 둔 오늘 시가 — 조회하지 않는다(실시간 체결 처리용). 모르면 null. */
@@ -227,11 +242,18 @@ public class LiveMarket {
         }
         int ok = 0;
         Set<String> symbols = registeredSymbols();
+        List<String> missed = new ArrayList<>();
         for (String symbol : symbols) {
             if (todayOpen(symbol) != null) {
                 ok++;
+            } else {
+                missed.add(StockNames.label(symbol) + "=" + openMissReason(symbol));
             }
         }
-        log.info("전략용 시가 받기 — {}/{}종목", ok, symbols.size());
+        if (missed.isEmpty()) {
+            log.info("전략용 시가 받기 — {}/{}종목", ok, symbols.size());
+        } else {
+            log.info("전략용 시가 받기 — {}/{}종목 · 빠짐 {}: {}", ok, symbols.size(), missed.size(), String.join(", ", missed));
+        }
     }
 }
