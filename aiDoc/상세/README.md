@@ -36,6 +36,7 @@ PG18 후보 DB 검증: [PG18 리허설](../pg18-rehearsal.md)(VALUNIVO 4-5 U6, �
 | [ipo-automation.md](../ipo-automation.md) | 공모주 자동화·알림 강화 |
 | [global-event-linkage-research.md](../global-event-linkage-research.md) | 글로벌 경제 이벤트(FOMC·전쟁·유가·대선)와 한국 시장의 연관 조사 |
 | [global-event-filter-plan.md](../global-event-filter-plan.md) | 글로벌 이벤트 필터 적용 계획(유의미 기준·검증 먼저) |
+| [spac-listing-backtest-2026-11-10.md](../spac-listing-backtest-2026-11-10.md) | 스팩 공모주 상장일 매도 백테스트(시초가·종가·5일째) |
 | [strategy-change-performance.md](../strategy-change-performance.md) | 전략 변경 전후 성과 비교(구간 설정·비교 지표) |
 
 ## 디자인

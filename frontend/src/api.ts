@@ -159,6 +159,30 @@ export async function sendTestSignal(symbol: string, side: Side, price: string, 
 export const cancelOrder = (clientOrderId: string) =>
   postJson(`/api/dashboard/orders/${clientOrderId}/cancel`);
 
+// VALUNIVO 3-4 C4(D338): 명령 목록 — 명령 원천(설명서 1.1)의 화면 명령. 조회 명령만 여기서 실행한다(변경은 대시보드 카드).
+export interface CommandArg { name: string; type: string; required: boolean; description: string; example: string }
+export interface CommandItem {
+  id: string;
+  name: string;
+  description: string;
+  risk: 'query' | 'change' | 'l1_ceiling';
+  examples: string[];
+  args: CommandArg[];
+  botName: string | null;
+  nivoName: string;
+  runnable: boolean;
+}
+export interface CommandResult { status: 'ok' | 'refused' | 'failed'; text: string }
+export async function fetchCommands(): Promise<CommandItem[]> {
+  const res = await fetch('/api/commands');
+  if (!res.ok) throw await toApiError(res);
+  return res.json();
+}
+export async function runCommand(id: string, text: string): Promise<CommandResult> {
+  const res = await postJson(`/api/commands/${id}`, { text });
+  return res.json();
+}
+
 // VALUNIVO 612(D301): 모의(paper)↔실전(live) 전환. 화면 버튼과 확인 문구로만 한다. 앱이 안전 종료 뒤 다시 뜬다.
 export interface ModeView { mode: 'paper' | 'live'; switchable: boolean }
 export async function fetchMode(): Promise<ModeView> {

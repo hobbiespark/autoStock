@@ -86,4 +86,25 @@ class PlatformAppCommandControllerTest {
         Path empty = Files.writeString(dir.resolve("empty"), "  ");
         assertThrows(IllegalArgumentException.class, () -> new PlatformAppCommandController(commands, mock(KillSwitch.class), mock(DashboardFacade.class), empty.toString()));
     }
+
+    /** VALUNIVO 3-4 C3: 설명서 입구는 같은 인증으로 명령 원천을 그대로 내고, 본문의 명령 판이 원천과 다르면 실행하지 않는다. */
+    @Test void manifestEntryAndCommandVersionGuard() throws Exception {
+        var commands = mock(TelegramStockCommands.class);
+        when(commands.status()).thenReturn(new TelegramStockCommands.Reply(true, "status", "킬스위치 꺼짐, 보유 0종목", null));
+        var c = controller(commands, mock(KillSwitch.class), mock(DashboardFacade.class));
+        assertEquals(HttpStatus.UNAUTHORIZED, c.manifest(null, from("127.0.0.1")).getStatusCode());
+        assertEquals(HttpStatus.FORBIDDEN, c.manifest(AUTH, from("192.168.0.10")).getStatusCode());
+        var manifest = (tools.jackson.databind.JsonNode) c.manifest(AUTH, from("127.0.0.1")).getBody();
+        assertEquals("1.1", manifest.path("contract_version").asText());
+        assertEquals(13, manifest.path("commands").size());
+        assertEquals(new AppCommandCatalog().manifest(), manifest, "원천 그대로");
+
+        var stale = new PlatformAppCommandController.Body("r1", "sp_self", "quote_view", "005930", 1);
+        assertEquals(new PlatformAppCommandController.Result("refused", PlatformAppCommandController.VERSION_CHANGED),
+                c.run("quote_view", AUTH, stale, from("127.0.0.1")).getBody(), "판 2인 명령에 판 1로 온 옛 요청");
+        var current = new PlatformAppCommandController.Body("r2", "sp_self", "status_view", "", 1);
+        assertEquals("ok", c.run("status_view", AUTH, current, from("127.0.0.1")).getBody().status());
+        var unversioned = new PlatformAppCommandController.Body("r3", "sp_self", "status_view", "", null);
+        assertEquals("ok", c.run("status_view", AUTH, unversioned, from("127.0.0.1")).getBody().status(), "1.0 플랫폼은 판을 싣지 않는다");
+    }
 }

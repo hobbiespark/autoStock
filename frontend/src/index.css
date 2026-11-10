@@ -762,3 +762,36 @@ select {
   border: 1px solid var(--vn-color-border);
   border-radius: 6px;
 }
+
+/* VALUNIVO 3-4 C4: 명령 목록(CommandsPage) */
+.command-list {
+  list-style: none;
+  margin: var(--vn-space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--vn-space-3);
+}
+
+.command-row {
+  border-top: 1px solid var(--line);
+  padding-top: var(--vn-space-3);
+  display: grid;
+  gap: var(--vn-space-1);
+}
+
+.command-run {
+  display: flex;
+  gap: var(--vn-space-2);
+  margin-top: var(--vn-space-1);
+}
+
+.command-result {
+  white-space: pre-wrap;
+  font-family: var(--vn-font-mono);
+  font-size: var(--vn-text-sm);
+  background: var(--bg);
+  border-radius: var(--vn-radius-sm);
+  padding: var(--vn-space-2);
+  max-height: 320px;
+  overflow: auto;
+}

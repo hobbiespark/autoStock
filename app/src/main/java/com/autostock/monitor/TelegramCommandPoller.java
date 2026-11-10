@@ -45,6 +45,8 @@ import java.util.regex.Pattern;
  *   <li>{@code /status} — 포지션·킬스위치 상태 요약을 다시 알림으로 보냄</li>
  *   <li>{@code /ipo <회사> <경쟁률> [청약건수] [일반물량]} — 공모주 청약일 재판단(2026-11-05, ipo.IpoRecheckService). 읽기만 하고
  *       답을 알림으로 보낸다. 매매에는 영향이 없다.</li>
+ *   <li>{@code /autostock_[명령]}·{@code /autostock_help} — VALUNIVO 3-4 C4(D338) 앱 직접 명령 13개. 목록은 {@link AppCommandCatalog},
+ *       실행은 플랫폼 입구와 같은 {@link AppCommandRunner}. 위 옛 이름은 별칭으로 그대로 둔다.</li>
  * </ul>
  *
  * <p>TODO 실측(자택망): {@code getUpdates} 응답의 정확한 JSON 구조(특히 message가 아닌
@@ -67,6 +69,8 @@ public class TelegramCommandPoller {
         STATUS,
         /** {@code /ipo …} — 공모주 청약 재판단(읽기 전용). */
         IPO_RECHECK,
+        /** VALUNIVO 3-4 C4(D338): {@code /autostock_[명령]}·{@code /autostock_help} — 명령 원천의 앱 직접 명령. */
+        APP_DIRECT,
         /** chat_id 불일치, 미지원 텍스트, 빈 메시지 등 — 아무 동작도 하지 않는다. */
         IGNORED
     }
@@ -110,6 +114,11 @@ public class TelegramCommandPoller {
     void ipoRecheck(IpoRecheckService service){this.ipoRecheck=service;}
     @org.springframework.beans.factory.annotation.Autowired(required=false)
     void stockCommands(TelegramStockCommands shared){this.commands=Objects.requireNonNull(shared);}
+    /** VALUNIVO 3-4 C4: 앱 직접 명령의 원천과 실행 부품(플랫폼 입구·화면과 같은 부품). 없으면 /autostock_ 명령을 무시한다. */
+    private AppCommandCatalog appCatalog;
+    private AppCommandRunner appRunner;
+    @org.springframework.beans.factory.annotation.Autowired(required=false)
+    void appCommands(AppCommandCatalog catalog, AppCommandRunner runner){this.appCatalog=catalog;this.appRunner=runner;}
 
     /** 다음 getUpdates 호출에 쓸 offset — 이 값 미만의 update는 이미 처리했다고 텔레그램에 알리는 것. */
     private final AtomicLong nextOffset = new AtomicLong(0);
@@ -428,6 +437,7 @@ public class TelegramCommandPoller {
             case RESUME_CONFIRM -> notifyLegacy(commands.confirmResume(confirmCodeOf(text)));
             case STATUS -> notifyLegacy(commands.status());
             case IPO_RECHECK -> recheckIpo(text);
+            case APP_DIRECT -> appDirect(text);
             case IGNORED -> {
                 if(platformBridge!=null)platformBridge.accept(update);
                 if (chatId != null && !chatId.equals(properties.chatId())) {
@@ -460,6 +470,9 @@ public class TelegramCommandPoller {
         if (stripped.equals("/ipo") || stripped.startsWith("/ipo ")) {
             return Command.IPO_RECHECK;
         }
+        if (stripped.startsWith(AppCommandCatalog.DIRECT_PREFIX)) {
+            return Command.APP_DIRECT;
+        }
         return switch (stripped) {
             case "/stop" -> Command.STOP;
             case "/resume" -> Command.RESUME;
@@ -488,6 +501,40 @@ public class TelegramCommandPoller {
         } catch (RuntimeException e) {
             log.warn("공모주 재판단(/ipo) 실패", e);
             notifier.notify(NoticeLevel.WARN, "[청약 재판단] 계산 실패 — 로그 확인 필요(" + e.getClass().getSimpleName() + ")");
+        }
+    }
+
+    /**
+     * VALUNIVO 3-4 C4(D338, 기획 12 5.2): 앱 직접 명령. {@code /autostock_help}는 원천에서 만든 목록, 그 밖은 실행 부품을 앱 봇 경로로 부르고
+     * 답을 알림으로 보낸다. 긴급 정지 성공은 /stop처럼 따로 보내지 않는다(KillSwitchChanged 알림이 대신). 실패해도 폴링은 계속된다.
+     */
+    private void appDirect(String text) {
+        if (appCatalog == null || appRunner == null) {
+            log.info("앱 직접 명령 무시 — 명령 원천·실행 부품 없음");
+            return;
+        }
+        try {
+            String stripped = text.strip();
+            String name = stripped.split("\\s+", 2)[0];
+            int at = name.indexOf('@');
+            if (at > 0) name = name.substring(0, at);
+            if (name.equals(AppCommandCatalog.HELP)) {
+                notifier.notify(NoticeLevel.INFO, appCatalog.help());
+                return;
+            }
+            var direct = appCatalog.direct(stripped);
+            if (direct.isEmpty()) {
+                notifier.notify(NoticeLevel.INFO, "모르는 명령입니다. " + AppCommandCatalog.HELP + " 를 보세요.");
+                return;
+            }
+            String id = direct.get().command().id();
+            var result = appRunner.run(id, direct.get().rest(), AppCommandRunner.Route.APP_BOT);
+            if (result == null) return;
+            if (id.equals("emergency_stop") && result.ok()) return;
+            notifier.notify(result.ok() ? NoticeLevel.INFO : NoticeLevel.WARN, result.text());
+        } catch (RuntimeException e) {
+            log.warn("앱 직접 명령 처리 실패", e);
+            notifier.notify(NoticeLevel.WARN, "[autoStock] 명령 처리 실패 — 로그 확인 필요(" + e.getClass().getSimpleName() + ")");
         }
     }
 
