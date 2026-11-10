@@ -58,7 +58,6 @@ function CommandRow({ command }: { command: CommandItem }) {
         니보 {command.nivoName}
         {command.botName && <> · 앱 봇 {command.botName}</>}
       </div>
-      {command.examples.length > 0 && <div className="muted">예상 평문: {command.examples.join(' | ')}</div>}
       {command.runnable && (
         <div className="command-run">
           {command.args.length > 0 && (

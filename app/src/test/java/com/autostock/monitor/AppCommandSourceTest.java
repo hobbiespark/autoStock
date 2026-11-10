@@ -81,6 +81,9 @@ class AppCommandSourceTest {
         assertTrue(catalog.direct("/status").isEmpty(), "옛 이름은 폴러의 기존 경로가 받는다");
         String help = catalog.help();
         for (var c : catalog.on("app_bot")) assertTrue(help.contains(c.directName() + " " + c.name()), c.id());
+        // VALUNIVO 812(D339): 예상 평문은 플랫폼용 기계 정보라 사용자 help에 보이지 않는다.
+        for (var c : catalog.on("app_bot"))
+            for (var example : c.examples()) assertFalse(help.contains(example), "예상 평문이 새어 나옴: " + example);
         assertTrue(help.contains("/stop /resume /status /ipo"));
         var menu = catalog.botMenu();
         assertEquals(catalog.on("app_bot").size() + 1, menu.size());

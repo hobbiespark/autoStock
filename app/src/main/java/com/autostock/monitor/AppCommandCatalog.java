@@ -126,14 +126,16 @@ public class AppCommandCatalog {
         return on("app_bot").stream().filter(c -> c.directName().equals(target)).findFirst().map(c -> new Direct(c, rest));
     }
 
-    /** {@code /autostock_help} 본문. 원천에서 만든다(명령·설명·인수·예상 평문, 옛 별칭). */
+    /**
+     * {@code /autostock_help} 본문. 원천에서 만든다(명령·인수, 옛 별칭).
+     * 예상 평문(examples)은 플랫폼과의 검색·분류·중계용 기계 정보라 사용자에게 보이지 않는다(VALUNIVO 812·D339).
+     */
     public String help() {
         var out = new StringBuilder("[autoStock] 앱 직접 명령 ").append(on("app_bot").size()).append("개 — 니보에서는 /nivo_autostock_help\n");
         for (var c : on("app_bot")) {
             out.append('\n').append(c.directName()).append(' ').append(c.name()).append(c.query() ? "" : " · 변경");
             for (var arg : c.args())
                 out.append(" [").append(arg.name()).append(arg.required() ? "" : "(선택)").append(arg.example().isEmpty() ? "" : " 예 " + arg.example()).append(']');
-            if (!c.examples().isEmpty()) out.append("\n  예: \"").append(c.examples().getFirst()).append('"');
         }
         out.append("\n\n옛 이름도 그대로 받습니다: /stop /resume /status /ipo");
         out.append("\n긴급 정지 풀기는 확인 코드가 필요합니다: ").append(DIRECT_PREFIX).append("trading_resume → 60초 안에 ")

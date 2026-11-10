@@ -19,7 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/commands")
 public class AppCommandsController {
-    public record Item(String id, String name, String description, String risk, List<String> examples, List<AppCommandCatalog.Arg> args,
+    /** 화면용 명령 항목. 예상 평문은 플랫폼용 설명서({@code /api/app/v1/manifest})에만 있다(VALUNIVO 812·D339). */
+    public record Item(String id, String name, String description, String risk, List<AppCommandCatalog.Arg> args,
                        String botName, String nivoName, boolean runnable) {}
 
     public record RunRequest(String text) {}
@@ -35,7 +36,7 @@ public class AppCommandsController {
     @GetMapping
     public List<Item> list() {
         return catalog.on("app_fe").stream()
-                .map(c -> new Item(c.id(), c.name(), c.description(), c.risk(), c.examples(), c.args(),
+                .map(c -> new Item(c.id(), c.name(), c.description(), c.risk(), c.args(),
                         c.entries().contains("app_bot") ? c.directName() : null,
                         "/nivo" + c.directName().substring(1).replaceFirst("^autostock_", "_autostock_"), c.query()))
                 .toList();

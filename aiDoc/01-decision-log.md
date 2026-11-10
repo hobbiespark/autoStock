@@ -35,3 +35,4 @@ autoStock에 걸린 결정을 찾는 곳이다(공통 표준 문서 구조, VALU
 | D256 | `application.yml`에 DB 계정 기본값을 두지 않는다 |
 | D259 | 외부 키는 개발·운영이 같은 값을 쓴다 |
 | D336 | 품질 관문 `scripts/quality_gate.py`·커밋 전 훅은 VALUNIVO와 같은 출력, DB 시험은 필수(`--no-db`만 일부러 뺌), 지금 규칙 유지 |
+| D339 | 예상 평문(`examples`)은 플랫폼과의 검색·분류·중계용 기계 정보라 `/autostock_help`·화면 명령 목록에 보이지 않는다(설명서 `/api/app/v1/manifest`에만 둔다, VALUNIVO 812) |
