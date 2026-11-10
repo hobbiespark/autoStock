@@ -166,7 +166,7 @@ export interface CommandItem {
   name: string;
   description: string;
   risk: 'query' | 'change' | 'l1_ceiling';
-  examples: string[];
+  // 예상 평문은 플랫폼용 설명서에만 있다(VALUNIVO 812·D339). 화면에는 보이지 않는다.
   args: CommandArg[];
   botName: string | null;
   nivoName: string;
