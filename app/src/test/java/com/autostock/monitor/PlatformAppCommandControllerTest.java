@@ -58,7 +58,7 @@ class PlatformAppCommandControllerTest {
         assertEquals("refused", c.readOnly("quote_view", "시세 알려줘").status(), "no symbol");
         when(dashboard.quote("005930")).thenReturn(new DashboardController.QuoteView("005930", "삼성전자", new java.math.BigDecimal("71000"), null, null, null, null, null));
         var quote = c.readOnly("quote_view", "005930 시세 어때?");
-        assertEquals("ok", quote.status()); assertTrue(quote.text().contains("71000"), quote.text());
+        assertEquals("ok", quote.status()); assertTrue(quote.text().contains("71,000"), quote.text()); // 835: 천 단위 쉼표
         when(dashboard.quote("000660")).thenReturn(new DashboardController.QuoteView("000660", null, null, null, null, null, null, null));
         assertEquals("failed", c.readOnly("quote_view", "000660").status(), "empty quote is not invented");
         when(decisions.decisions(java.time.LocalDate.of(2026, 11, 4))).thenReturn(java.util.List.of());
