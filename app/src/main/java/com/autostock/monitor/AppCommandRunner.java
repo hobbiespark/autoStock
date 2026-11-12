@@ -48,6 +48,7 @@ public class AppCommandRunner {
     private final KillSwitch killSwitch;
     private final DashboardFacade facade;
     private final JsonMapper json = JsonMapper.builder().enable(SerializationFeature.INDENT_OUTPUT).build();
+    private final ReadableText readable = new ReadableText(json);
 
     public AppCommandRunner(TelegramStockCommands commands, KillSwitch killSwitch, DashboardFacade facade) {
         this.commands = Objects.requireNonNull(commands);
@@ -164,7 +165,11 @@ public class AppCommandRunner {
         return out;
     }
 
+    /** VALUNIVO 835: 사람이 읽는 줄 글(한국어 이름표, 시각 KST·UTC 병기, 숫자 정리). 실패하면 JSON 원문, 그것도 안 되면 toString. */
     private String pretty(Object value) {
-        try { return json.writeValueAsString(value); } catch (RuntimeException e) { return String.valueOf(value); }
+        try { return readable.render(value); }
+        catch (RuntimeException e) {
+            try { return json.writeValueAsString(value); } catch (RuntimeException again) { return String.valueOf(value); }
+        }
     }
 }
