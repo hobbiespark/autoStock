@@ -33,7 +33,7 @@ class ReadableTextTest {
                   수량: 1
                   체결 수량: 1
                   지정가: 58,800
-                  상태: FILLED
+                  상태: 체결 완료
                   전략: ON-CLOSE
                   접수 시각: 2026-11-11 09:02:01 KST (2026-11-11 00:02:01 UTC)""", out);
         assertFalse(out.contains("Z\""), out);
@@ -71,5 +71,30 @@ class ReadableTextTest {
                 평균 슬리피지(bp): 0.3
                 newField: x""", out);
         assertTrue(ReadableText.number(new BigDecimal("71000")).equals("71,000"));
+    }
+
+    @Test
+    void everyStatusValueHasAKoreanNameSoNewValuesAreNoticed() {
+        // VALUNIVO 848: 상태 enum에 값이 늘면 이 시험이 깨져 이름표를 같이 더하게 한다.
+        Map<String, String> status = ReadableText.VALUES.get("status");
+        for (var s : com.autostock.trading.OrderStatus.values()) assertTrue(status.containsKey(s.name()), "주문 " + s);
+        for (var s : TradingSystemStatus.values()) assertTrue(status.containsKey(s.name()), "운영 " + s);
+        for (var s : com.autostock.ipo.IpoStatus.values()) assertTrue(status.containsKey(s.name()), "공모주 " + s);
+    }
+
+    @Test
+    void conclusionHorizonAndEventTypeAreKoreanAndUnknownValuesStay() {
+        Map<String, Object> decision = new LinkedHashMap<>();
+        decision.put("horizon", "MID");
+        decision.put("conclusion", "SKIP");
+        decision.put("type", "FILL");
+        decision.put("status", "NEW_STATE");
+        decision.put("strategyId", "ON-CLOSE");
+        assertEquals("""
+                기간: 중기
+                결론: 보류
+                종류: 체결
+                상태: NEW_STATE
+                전략: ON-CLOSE""", text.render(decision));
     }
 }

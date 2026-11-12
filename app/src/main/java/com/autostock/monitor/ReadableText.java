@@ -48,6 +48,27 @@ final class ReadableText {
             Map.entry("bestAsk", "매도 1호가"), Map.entry("bestBid", "매수 1호가"));
     static final Map<String, String> SIDES = Map.of("BUY", "매수", "SELL", "매도");
 
+    /**
+     * VALUNIVO 848: 칸별 코드 값 → 한국어. 화면에 이름표가 있는 값(결론 {@code DecisionConclusionBadge}, 기간 {@code DecisionsPage},
+     * 공모주 {@code IpoPage})은 화면 낱말을 그대로 쓴다. {@code status}는 주문(OrderStatus 11)·운영(TradingSystemStatus 6)·
+     * 공모주(IpoStatus) 값이 서로 겹치지 않아 한 표로 둔다. 모르는 값은 원래 값 그대로.
+     */
+    static final Map<String, Map<String, String>> VALUES = Map.of(
+            "side", SIDES,
+            "status", Map.ofEntries(
+                    Map.entry("CREATED", "생성"), Map.entry("VALIDATED", "검증 통과"), Map.entry("SUBMITTING", "전송 중"),
+                    Map.entry("SUBMITTED", "접수"), Map.entry("ACCEPTED", "접수 확인"), Map.entry("PARTIALLY_FILLED", "일부 체결"),
+                    Map.entry("FILLED", "체결 완료"), Map.entry("CANCEL_REQUESTED", "취소 요청"), Map.entry("CANCELLED", "취소됨"),
+                    Map.entry("REJECTED", "거부"), Map.entry("UNKNOWN", "결과 확인 중"),
+                    Map.entry("STOPPED", "정지"), Map.entry("STARTING", "시작 중"), Map.entry("RUNNING", "운영 중"),
+                    Map.entry("STOPPING", "정지 중"), Map.entry("DEGRADED", "매매 차단(시스템은 동작)"), Map.entry("ERROR", "오류"),
+                    Map.entry("UPCOMING", "청약 예정"), Map.entry("SUBSCRIBING", "청약 중"), Map.entry("LISTED", "상장 완료"),
+                    Map.entry("PASSED", "청약 종료")),
+            "conclusion", Map.of("BUY", "매수", "SELL", "매도", "HOLD", "보유유지", "SKIP", "보류", "REJECTED", "거부",
+                    "CARRY", "이월", "WATCH", "관찰"),
+            "horizon", Map.of("DAY", "단타", "SWING", "스윙", "MID", "중기", "LONG", "장기", "TEST", "테스트"),
+            "type", Map.of("SIGNAL", "신호", "ORDER", "주문", "FILL", "체결"));
+
     private final JsonMapper json;
 
     ReadableText(JsonMapper json) {
@@ -94,7 +115,8 @@ final class ReadableText {
         if (node.isBoolean()) return node.booleanValue() ? "예" : "아니오";
         if (node.isNumber()) return number(node.decimalValue());
         String text = node.asText();
-        if ("side".equals(field)) return SIDES.getOrDefault(text, text);
+        Map<String, String> values = field == null ? null : VALUES.get(field);
+        if (values != null) return values.getOrDefault(text, text);
         return ISO_INSTANT.matcher(text).matches() ? when(text) : text;
     }
 
