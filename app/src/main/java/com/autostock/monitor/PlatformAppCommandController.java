@@ -71,15 +71,28 @@ public class PlatformAppCommandController {
     @PostMapping("/commands/{commandId}")
     public ResponseEntity<Result> run(@PathVariable String commandId, @RequestHeader(value = "Authorization", required = false) String authorization,
                                       @RequestBody(required = false) Body body, HttpServletRequest request) {
+        // VALUNIVO 855: 받은 명령 한 건마다 결과를 한 줄 남긴다(본문·토큰 없음, AppCommandLog). 처리와 응답은 그대로다.
+        String requestId = body == null ? null : body.request_id();
         var denied = denied(authorization, request);
-        if (denied != null) return ResponseEntity.status(denied.getStatusCode()).body(denied.getBody());
+        if (denied != null) {
+            AppCommandLog.platform(commandId, requestId, "denied=" + denied.getBody().text().replace(' ', '-'), denied.getStatusCode().value(), null);
+            return ResponseEntity.status(denied.getStatusCode()).body(denied.getBody());
+        }
         var command = catalog.find(commandId);
-        if (command.isEmpty()) return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new Result("failed", "unknown command"));
-        if (body != null && body.command_version() != null && body.command_version() != command.get().version())
+        if (command.isEmpty()) return unknown(commandId, requestId);
+        if (body != null && body.command_version() != null && body.command_version() != command.get().version()) {
+            AppCommandLog.platform(commandId, requestId, "refused=version-changed", HttpStatus.OK.value(), VERSION_CHANGED);
             return ResponseEntity.ok(new Result("refused", VERSION_CHANGED));
+        }
         var result = runner.run(commandId, body == null ? "" : body.text(), AppCommandRunner.Route.PLATFORM);
-        if (result == null) return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new Result("failed", "unknown command"));
+        if (result == null) return unknown(commandId, requestId);
+        AppCommandLog.platform(commandId, requestId, result.status(), HttpStatus.OK.value(), result.text());
         return ResponseEntity.ok(new Result(result.status(), result.text()));
+    }
+
+    private static ResponseEntity<Result> unknown(String commandId, String requestId) {
+        AppCommandLog.platform(commandId, requestId, "unknown-command", HttpStatus.NOT_FOUND.value(), null);
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(new Result("failed", "unknown command"));
     }
 
     /** VALUNIVO 3-4 C3: 플랫폼 등록부의 {@code manifest_source: remote}가 읽는 설명서(원천 그대로). */

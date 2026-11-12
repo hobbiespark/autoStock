@@ -156,6 +156,52 @@ class AppCommandSourceTest {
         verifyNoMoreInteractions(notifier);
     }
 
+    /** VALUNIVO 855: 앱 직접 명령 한 건마다 명령 이름·결과·답 글자 수를 한 줄 남긴다. 답 본문과 입력 글은 남기지 않는다. */
+    @Test
+    void botDirectCommandsLeaveOneResultLineWithoutText() {
+        var killSwitch = mock(KillSwitch.class);
+        var notifier = mock(Notifier.class);
+        var props = new TelegramProperties(true, "synthetic-bot-token", "123");
+        var stock = new TelegramStockCommands(killSwitch, new PositionBook(), new FixedClock());
+        var poller = new TelegramCommandPoller(org.springframework.web.reactive.function.client.WebClient.builder(), props, killSwitch, new PositionBook(), notifier, new FixedClock());
+        poller.stockCommands(stock);
+        poller.appCommands(catalog, new AppCommandRunner(stock, killSwitch, mock(DashboardFacade.class)));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AppCommandLog.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            poller.handleUpdate(update(1, "/autostock_help"));
+            poller.handleUpdate(update(2, "/autostock_killswitch"));
+            poller.handleUpdate(update(3, "/autostock_한글명령 비밀 아닌 인자"));
+            poller.handleUpdate(update(4, "/autostock_emergency_stop"));
+            doThrow(new IllegalStateException("boom")).when(notifier).notify(NoticeLevel.INFO, "킬스위치: 해제(주문 허용)");
+            poller.handleUpdate(update(5, "/autostock_killswitch"));
+            var lines = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+            assertEquals(5, lines.size(), lines.toString());
+            assertEquals("앱 명령 — route=app-bot command=help outcome=ok chars=" + catalog.help().length() + " notice=handed", lines.get(0));
+            assertEquals("앱 명령 — route=app-bot command=killswitch_view outcome=ok chars=" + "킬스위치: 해제(주문 허용)".length() + " notice=handed", lines.get(1));
+            assertEquals("앱 명령 — route=app-bot command=unknown outcome=unknown-command chars=" + "모르는 명령입니다. /autostock_help 를 보세요.".length() + " notice=handed", lines.get(2));
+            assertTrue(lines.get(3).matches("앱 명령 — route=app-bot command=emergency_stop outcome=ok chars=[1-9]\\d* notice=skipped-kill-switch-alert"), lines.get(3));
+            assertEquals("앱 명령 — route=app-bot command=killswitch_view outcome=error=IllegalStateException chars=0 notice=failure-notice", lines.get(4));
+            assertTrue(lines.stream().noneMatch(l -> l.contains("한글명령") || l.contains("인자") || l.contains("킬스위치")), lines.toString());
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
+
+    @Test
+    void logNamesKeepOnlySafeCharacters() {
+        assertEquals("status_view", AppCommandLog.name("status_view"));
+        assertEquals("other", AppCommandLog.name("status view"));
+        assertEquals("other", AppCommandLog.name("한글"));
+        assertEquals("other", AppCommandLog.name(null));
+        assertEquals("-", AppCommandLog.request(null));
+        assertEquals("-", AppCommandLog.request(" "));
+        assertEquals("01JABCDEFGHJKMNPQRSTVWXYZ0", AppCommandLog.request("01JABCDEFGHJKMNPQRSTVWXYZ0"));
+        assertEquals("other", AppCommandLog.request("id with space"));
+    }
+
     static Map<String, Object> update(long id, String text) {
         return Map.of("update_id", id, "message", Map.of("chat", Map.of("id", 123), "text", text));
     }

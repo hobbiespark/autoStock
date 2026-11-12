@@ -107,4 +107,34 @@ class PlatformAppCommandControllerTest {
         var unversioned = new PlatformAppCommandController.Body("r3", "sp_self", "status_view", "", null);
         assertEquals("ok", c.run("status_view", AUTH, unversioned, from("127.0.0.1")).getBody().status(), "1.0 플랫폼은 판을 싣지 않는다");
     }
+
+    /** VALUNIVO 855: 플랫폼이 보낸 명령 한 건마다 명령 ID·요청 ID·결과·답 글자 수를 한 줄 남긴다. 본문·답 글·토큰은 남기지 않는다. */
+    @Test void everyCommandLeavesOneResultLineWithoutTextOrToken() throws Exception {
+        var commands = mock(TelegramStockCommands.class);
+        when(commands.status()).thenReturn(new TelegramStockCommands.Reply(true, "status", "킬스위치 꺼짐, 보유 0종목", null));
+        var c = controller(commands, mock(KillSwitch.class), mock(DashboardFacade.class));
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(AppCommandLog.class);
+        var appender = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        appender.start();
+        logger.addAppender(appender);
+        try {
+            c.run("status_view", AUTH, new PlatformAppCommandController.Body("01JREQ0001", "sp_self", "status_view", "상태 알려줘 비밀 아닌 글", 1), from("127.0.0.1"));
+            c.run("status_view", AUTH, null, from("127.0.0.1"));
+            c.run("quote_view", AUTH, new PlatformAppCommandController.Body("01JREQ0002", "sp_self", "quote_view", "005930", 1), from("127.0.0.1"));
+            c.run("transfer_money", AUTH, new PlatformAppCommandController.Body("요청 한글", "sp_self", "transfer_money", "", null), from("127.0.0.1"));
+            c.run("emergency_stop", "Bearer wrong", null, from("127.0.0.1"));
+            c.run("status view 한글", AUTH, null, from("10.0.0.5"));
+            var lines = appender.list.stream().map(ch.qos.logback.classic.spi.ILoggingEvent::getFormattedMessage).toList();
+            assertEquals(java.util.List.of(
+                    "앱 명령 — route=platform command=status_view request=01JREQ0001 outcome=ok http=200 chars=" + "킬스위치 꺼짐, 보유 0종목".length(),
+                    "앱 명령 — route=platform command=status_view request=- outcome=ok http=200 chars=" + "킬스위치 꺼짐, 보유 0종목".length(),
+                    "앱 명령 — route=platform command=quote_view request=01JREQ0002 outcome=refused=version-changed http=200 chars=" + PlatformAppCommandController.VERSION_CHANGED.length(),
+                    "앱 명령 — route=platform command=transfer_money request=other outcome=unknown-command http=404 chars=0",
+                    "앱 명령 — route=platform command=emergency_stop request=- outcome=denied=unauthorized http=401 chars=0",
+                    "앱 명령 — route=platform command=other request=- outcome=denied=loopback-only http=403 chars=0"), lines);
+            assertTrue(lines.stream().noneMatch(l -> l.contains("킬스위치") || l.contains("비밀") || l.contains("synthetic-app-token") || l.contains("wrong")), lines.toString());
+        } finally {
+            logger.detachAppender(appender);
+        }
+    }
 }
