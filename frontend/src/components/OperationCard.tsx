@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { describeError, startTrading, stopTrading } from '../api';
 import type { TradingStatus } from '../types';
+import { label, TRADING_STATUS_LABELS } from '../labels';
 import ConfirmDialog from './ConfirmDialog';
 
 interface Props {
@@ -32,7 +33,7 @@ export default function OperationCard({ status, executionMode }: Props) {
   return (
     <div className="card">
       <h2>운영 상태</h2>
-      <p>상태: {status ?? '확인 중...'}</p>
+      <p>상태: {status ? label(TRADING_STATUS_LABELS, status) : '확인 중...'}</p>
       <p style={{ marginTop: 12 }}>
         <button
           disabled={!canStart || startMutation.isPending}

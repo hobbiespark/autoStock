@@ -1,4 +1,5 @@
 import type { TradingStatus } from '../types';
+import { label, TRADING_STATUS_LABELS } from '../labels';
 import { brokerServerName } from '../format';
 
 interface Props {
@@ -35,7 +36,7 @@ export default function Header({ status, executionMode, brokerServer, isError, d
         </div>
       )}
       <h1>autoStock</h1>
-      <span className={badgeClass}>{status ?? (isError ? '연결 실패' : '확인 중...')}</span>
+      <span className={badgeClass}>{status ? label(TRADING_STATUS_LABELS, status) : (isError ? '연결 실패' : '확인 중...')}</span>
       <span className="last-updated">마지막 갱신: {lastUpdated}</span>
       <div className="sub">
         경량 대시보드 — 2초 주기 자동 갱신 · 실행 모드 {executionMode ?? '확인 중'}

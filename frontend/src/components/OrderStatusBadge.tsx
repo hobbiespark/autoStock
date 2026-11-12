@@ -1,4 +1,5 @@
 import type { OrderStatus } from '../types';
+import { label, ORDER_STATUS_LABELS } from '../labels';
 
 // 11상태 뱃지 색상 규칙(요구사항): FILLED=초록, REJECTED/CANCELLED=빨강,
 // UNKNOWN=주황(결과 불명 — Reconciliation 대상), 나머지는 중립.
@@ -10,5 +11,5 @@ function badgeClass(status: OrderStatus): string {
 }
 
 export default function OrderStatusBadge({ status }: { status: OrderStatus }) {
-  return <span className={badgeClass(status)}>{status}</span>;
+  return <span className={badgeClass(status)}>{label(ORDER_STATUS_LABELS, status)}</span>;
 }

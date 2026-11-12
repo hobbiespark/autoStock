@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import type { DashboardEvent, EventType } from '../types';
+import { EVENT_TYPE_LABELS, label } from '../labels';
 
 interface Props {
   events?: DashboardEvent[];
@@ -73,7 +74,7 @@ export default function EventFeedCard({ events }: Props) {
               className={`tab ${filter === tab ? 'active' : ''}`}
               onClick={() => setFilter(tab)}
             >
-              {tab === 'ALL' ? '전체' : tab}
+              {tab === 'ALL' ? '전체' : label(EVENT_TYPE_LABELS, tab)}
             </span>
           ))}
         </div>
@@ -91,7 +92,7 @@ export default function EventFeedCard({ events }: Props) {
             const key = eventKey(e);
             return (
               <div key={key} className={`feed-item ${highlighted.has(key) ? 'highlight' : ''}`}>
-                <span className={`tag ${e.type}`}>{e.type}</span>
+                <span className={`tag ${e.type}`}>{label(EVENT_TYPE_LABELS, e.type)}</span>
                 <span>{e.summary}</span>
                 <span className="feed-time">{new Date(e.at).toLocaleTimeString()}</span>
               </div>
