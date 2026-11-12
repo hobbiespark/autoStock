@@ -513,27 +513,43 @@ public class TelegramCommandPoller {
             log.info("앱 직접 명령 무시 — 명령 원천·실행 부품 없음");
             return;
         }
+        // VALUNIVO 855: 한 건마다 받은 명령·결과·답 글자 수를 한 줄 남긴다(본문·인자 없음, AppCommandLog). 처리와 알림은 그대로다.
+        String id = "unparsed";
         try {
             String stripped = text.strip();
             String name = stripped.split("\\s+", 2)[0];
             int at = name.indexOf('@');
             if (at > 0) name = name.substring(0, at);
             if (name.equals(AppCommandCatalog.HELP)) {
-                notifier.notify(NoticeLevel.INFO, appCatalog.help());
+                id = "help";
+                String help = appCatalog.help();
+                notifier.notify(NoticeLevel.INFO, help);
+                AppCommandLog.direct(id, "ok", help, "handed");
                 return;
             }
             var direct = appCatalog.direct(stripped);
             if (direct.isEmpty()) {
-                notifier.notify(NoticeLevel.INFO, "모르는 명령입니다. " + AppCommandCatalog.HELP + " 를 보세요.");
+                id = "unknown";
+                String reply = "모르는 명령입니다. " + AppCommandCatalog.HELP + " 를 보세요.";
+                notifier.notify(NoticeLevel.INFO, reply);
+                AppCommandLog.direct(id, "unknown-command", reply, "handed");
                 return;
             }
-            String id = direct.get().command().id();
+            id = direct.get().command().id();
             var result = appRunner.run(id, direct.get().rest(), AppCommandRunner.Route.APP_BOT);
-            if (result == null) return;
-            if (id.equals("emergency_stop") && result.ok()) return;
+            if (result == null) {
+                AppCommandLog.direct(id, "none", null, "skipped");
+                return;
+            }
+            if (id.equals("emergency_stop") && result.ok()) {
+                AppCommandLog.direct(id, result.status(), result.text(), "skipped-kill-switch-alert");
+                return;
+            }
             notifier.notify(result.ok() ? NoticeLevel.INFO : NoticeLevel.WARN, result.text());
+            AppCommandLog.direct(id, result.status(), result.text(), "handed");
         } catch (RuntimeException e) {
             log.warn("앱 직접 명령 처리 실패", e);
+            AppCommandLog.direct(id, "error=" + e.getClass().getSimpleName(), null, "failure-notice");
             notifier.notify(NoticeLevel.WARN, "[autoStock] 명령 처리 실패 — 로그 확인 필요(" + e.getClass().getSimpleName() + ")");
         }
     }
