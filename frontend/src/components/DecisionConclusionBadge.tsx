@@ -16,6 +16,8 @@ const LABELS: Record<string, string> = {
   HOLD: '보유유지',
   SKIP: '보류',
   REJECTED: '거부',
+  CARRY: '이월', // VALUNIVO 849: 봇 답(848)과 같은 낱말
+  WATCH: '관찰',
 };
 
 export default function DecisionConclusionBadge({ conclusion }: { conclusion: DecisionConclusion }) {
