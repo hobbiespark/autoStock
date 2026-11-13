@@ -89,6 +89,19 @@ SPA_c v3 p=0.146(v2였다면 p=1.000). MDD 예산(장기 25%)은 셋 다 통과�
 
 SPA_c v3 p=1.000, MDD 예산(중기 25%)도 2.5~3배 초과. 변동성이 지수와 비슷해 w≈1이므로 v3도 v2와 같은 검정이 된다. X3는 X1b(+104%)보다 나아 품질 필터의 효과는 보이지만, 동일가중 선별이 시총가중 지수를 이 구간에 못 이기는 구조(X0 진단)는 그대로다. 재무는 OpenDART 2015 사업연도부터라 OOS가 2016-04에 시작한다. 재실행: `RealDataFactorExperimentTest`(재무 `data/fscore/fs2_2015..2025.csv`, 수집 `scripts/fetch_fscore_financials.py` v2).
 
+### 지수 타이밍·시총가중 (Z 계열, 2026-11-14 추가 — 게이트 ① v3, 4종 한 SPA 풀, OOS 2016-04~)
+
+| 계열 | 구성 | 총수익 | MDD | Sharpe | 부트p95 MDD | w | 판정 |
+|---|---|---|---|---|---|---|---|
+| Z1 | KODEX200 변동성 관리(min(1, 252일/21일 분산비), 월 1회) | +399% | 33.3% | 0.99 | 44.1% | 0.70 | FAIL |
+| Z2 | 할로윈(11~4월만 보유) | +259% | 34.6% | 0.84 | 44.7% | 0.67 | FAIL |
+| Z4 | 월말 효과(마지막 거래일 + 첫 3거래일) | +47% | 25.3% | 0.33 | 45.4% | 0.60 | FAIL |
+| Z3 | 시총 상위 200 시총가중, 비금융 F-Score≤3 제외 | +361% | 39.9% | 0.75 | 59.9% | 0.96 | FAIL |
+| (진단) | Z3₀ 같은 유니버스 시총가중 전체 | +309% | 39.8% | 0.70 | 61.7% | 0.96 | — |
+| 기준선 | KODEX200 B&H(같은 구간) | **+438%** | 40.8% | 0.79 | — | — | — |
+
+SPA_c v3 p=0.196. Z1의 v3 t +1.57은 v3로 판정한 10계열(Y·F·Z) 중 가장 크지만 유의하지 않고 MDD 예산도 넘는다. Z3는 필터 없는 시총가중보다 +51%p로 필터 효과는 있었으나 바탕 유니버스가 지수에 128%p 뒤진다. 재실행: `RealDataTrackZExperimentTest`.
+
 ## 3. 교차 검증에서 확립된 사실
 
 1. **T 확장의 교훈**: C3는 2019~ 구간에서 게이트 ① 잠정 통과(MDD 13.4%)였으나, 2015~로 늘리자 MDD 25.0%·DSR 0.058로 붕괴. 짧은 구간의 좋은 수치는 행운일 수 있음이 실증됨 — 기간 확장이 최고의 과최적화 검출기.
@@ -128,6 +141,8 @@ cd D:\myApp\autoStock
 .\gradlew.bat :app:test --tests "com.autostock.backtest.RealDataAssetAllocationExperimentTest"
 # F 계열 (재무 팩터, 게이트 v3 — 재무 수집 후)
 .\gradlew.bat :app:test --tests "com.autostock.backtest.RealDataFactorExperimentTest"
+# Z 계열 (지수 타이밍·시총가중 품질, 게이트 v3)
+.\gradlew.bat :app:test --tests "com.autostock.backtest.RealDataTrackZExperimentTest"
 ```
 
 수치 상세와 판정 이력 원문은 PROGRESS.md §3, 방법론 원칙은 STRATEGY.md, 기준 결정 배경은 PLAN.md ADR-11~14 참고.
