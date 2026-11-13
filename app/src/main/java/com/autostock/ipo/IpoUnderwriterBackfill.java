@@ -35,7 +35,11 @@ public class IpoUnderwriterBackfill {
 
     private static final Logger log = LoggerFactory.getLogger(IpoUnderwriterBackfill.class);
 
-    static final String PROGRESS_NAME = "underwriters";
+    /**
+     * 진행 위치 이름. 2026-11-14 결함 수정(VALUNIVO 880)으로 {@code underwriters}(첫판, 공모 대부분을 놓침)에서 바꿔 처음부터 다시 훑는다.
+     * 옛 행은 남겨 두고 쓰지 않는다(이미 저장한 회사는 건너뛰므로 지울 것이 없다).
+     */
+    static final String PROGRESS_NAME = "underwriters-v2";
     static final int WINDOW_DAYS = 14;
 
     private final DartClient dart;
@@ -88,50 +92,90 @@ public class IpoUnderwriterBackfill {
                         since, until, filings.pagesRead(), filings.totalPages());
                 break;
             }
-            int saved = saveWindow(filings.deals(), since, until);
+            WindowResult result = saveWindow(filings.deals(), since, until);
             state.advance(since, clock.instant());
             windows++;
-            log.info("공모 인수인 거꾸로 채우기: {}~{} 신고 {}건, 공모 {}곳 저장 (목표 {}부터)",
-                    since, until, filings.deals().size(), saved, state.getTargetFrom());
+            log.info("공모 인수인 거꾸로 채우기: {}~{} 신고 {}건, 회사 {}곳 중 공모 {}곳 저장 · 이미 있음 {} · 유상증자 {} · 조회 빔 {} · "
+                            + "상세 없음 {} · 종류 미판정 {} (목표 {}부터)",
+                    since, until, filings.deals().size(), result.corps, result.saved, result.known, result.rights,
+                    result.empty, result.noDetail, result.unknownKind, state.getTargetFrom());
         }
         progress.save(state);
         return windows;
     }
 
-    /** 창 하나의 신고를 회사별로 묶어, 아직 없는 회사만 조회해 남긴다. 저장한 회사 수. */
-    private int saveWindow(List<DartClient.DealNotice> deals, LocalDate since, LocalDate until) {
+    /** 창 하나의 결과 — 회사마다 마지막으로 빠진 이유를 하나씩 센다(VALUNIVO 880 진단). */
+    static final class WindowResult {
+        int corps;
+        int saved;
+        int known;
+        int rights;
+        int empty;
+        int noDetail;
+        int unknownKind;
+    }
+
+    private enum Miss { EMPTY, NO_DETAIL, UNKNOWN_KIND }
+
+    /**
+     * 창 하나의 신고를 회사별로 묶어, 아직 없는 회사만 조회해 남긴다.
+     *
+     * <p>{@code estkRs.json}은 조회 기간의 <b>최신 신고서 한 건</b>만 돌려준다. 기간을 창 끝까지로 잡아야 이 창의 접수번호 행이 돌아온다
+     * (첫판은 창 끝 + 120일로 잡아 창 밖의 더 나중 정정 신고서가 돌아와 행이 없었다). 결과가 비거나 상세·종류가 없으면 다음 접수번호를
+     * 시도하고, 유상증자로 판정될 때만 그 회사를 건너뛴다.
+     */
+    private WindowResult saveWindow(List<DartClient.DealNotice> deals, LocalDate since, LocalDate until) {
         Map<String, List<DartClient.DealNotice>> byCorp = deals.stream()
                 .collect(Collectors.groupingBy(DartClient.DealNotice::corpCode, LinkedHashMap::new, Collectors.toList()));
-        int saved = 0;
+        WindowResult result = new WindowResult();
+        result.corps = byCorp.size();
         for (Map.Entry<String, List<DartClient.DealNotice>> entry : byCorp.entrySet()) {
             if (history.findByCorpCode(entry.getKey()).isPresent()) {
-                continue;   // 더 최근 창에서 이미 남김(거꾸로 읽으므로 먼저 남긴 쪽이 더 나중 공모)
+                result.known++;   // 더 최근 창에서 이미 남김(거꾸로 읽으므로 먼저 남긴 쪽이 더 나중 공모)
+                continue;
             }
             List<DartClient.DealNotice> notices = entry.getValue().stream()
                     .filter(n -> n.reportName() == null || !n.reportName().startsWith(DartClient.CONFIRMED_TERMS_PREFIX))
                     .sorted(Comparator.comparing(DartClient.DealNotice::rceptDt, Comparator.nullsLast(Comparator.reverseOrder())))
                     .toList();
+            Miss miss = Miss.EMPTY;
+            boolean done = false;
             for (DartClient.DealNotice notice : notices) {
-                Optional<DartClient.OfferingLookup> lookup = dart.fetchOffering(notice.corpCode(), notice.rceptNo(), since,
-                        until.plusDays(IpoOfferingClassifier.LOOKUP_DAYS));
-                if (lookup.isEmpty() || lookup.get().kind() == OfferingKind.RIGHTS) {
-                    break;   // 조회 실패이거나 유상증자 — 이 회사는 건너뜀
+                Optional<DartClient.OfferingLookup> lookup = dart.fetchOffering(notice.corpCode(), notice.rceptNo(), since, until);
+                if (lookup.isEmpty()) {
+                    miss = Miss.EMPTY;
+                    continue;   // 이 접수번호로는 아무것도 없음 — 다른 접수번호
+                }
+                if (lookup.get().kind() == OfferingKind.RIGHTS) {
+                    result.rights++;
+                    done = true;
+                    break;   // 유상증자 — 이 회사는 건너뜀
                 }
                 DartClient.OfferingDetail detail = lookup.get().detail();
                 if (detail == null || detail.underwriters().isEmpty()) {
+                    miss = Miss.NO_DETAIL;
                     continue;   // 이 접수번호에는 행이 없음 — 다른 접수번호
                 }
                 if (lookup.get().kind() != OfferingKind.IPO) {
-                    break;   // 공모 종류를 판정하지 못함 — 세지 않음
+                    miss = Miss.UNKNOWN_KIND;
+                    continue;   // 공모 종류를 판정하지 못함 — 다른 접수번호(모집방법이 실린 신고서가 있을 수 있음)
                 }
                 history.save(new IpoUnderwritingHistoryEntity(notice.corpCode(), notice.corpName(), notice.rceptNo(),
                         notice.rceptDt() != null ? notice.rceptDt() : until, detail.subscriptionStart(), detail.underwriters(),
                         clock.instant()));
-                saved++;
+                result.saved++;
+                done = true;
                 break;
             }
+            if (!done) {
+                switch (miss) {
+                    case EMPTY -> result.empty++;
+                    case NO_DETAIL -> result.noDetail++;
+                    case UNKNOWN_KIND -> result.unknownKind++;
+                }
+            }
         }
-        return saved;
+        return result;
     }
 
     /** 채운 범위 — 알림 문구에 쓴다. 아직 시작 전이면 빈 값. */
