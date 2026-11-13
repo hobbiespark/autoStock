@@ -197,6 +197,14 @@ ipo:
       - 한화투자증권
       - 카카오페이증권
 
+fx:
+  accumulation:                                 # 외화 적립 알림(VALUNIVO 4-6, aiDoc/fx-accumulation-alert.md 11장, D-28). 주문하지 않음
+    alerts-enabled: false                       # 감시·월초·월말 알림. 운영 반영 뒤 12-01 전에 켠다(입력 명령은 꺼도 동작)
+    monthly-cap-krw: 130000                     # 월 상한(데브 계획서)
+    direct-buy-usd-krw: 20000                   # 통화별 직접매수 금액
+    direct-buy-jpy-krw: 20000
+    review-start-day: 15                        # 검토 시작일(포함, 데브 계획서 "15일 이후")
+
 autostock:
   minute-archive:
     enabled: false              # 분봉 일일 적재(평일 15:45 KST, ka10080 1페이지→data/minutes/*.csv append).

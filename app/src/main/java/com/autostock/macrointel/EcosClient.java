@@ -82,11 +82,32 @@ public class EcosClient {
     }
 
     /**
+     * 항목코드를 직접 주는 조회(VALUNIVO 4-6 외화 적립, {@code fx} 모듈 — 원/100엔 {@code 0000002} 등). 실패 처리는
+     * {@link #fetchLatest(String)}와 같다. 기존 거시 지표 경로({@code MacroSyncScheduler} → {@code risk.MacroGuard})는 이 메서드를
+     * 쓰지 않는다.
+     */
+    public Optional<Observation> fetchLatest(String statCode, String itemCode) {
+        LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
+        try {
+            Map<String, Object> response = callApi(statCode, itemCode, today);
+            return parse(statCode, response);
+        } catch (RuntimeException e) {
+            log.error("ECOS 조회 실패(statCode={}, item={})", statCode, itemCode, SecretMasking.sanitizeForLogging(e));
+            return Optional.empty();
+        }
+    }
+
+    /**
      * 실제 HTTP 호출 지점 — protected로 열어 두어 테스트에서 이 메서드를 오버라이드해
      * 준비된 응답으로 대체할 수 있게 했다({@code market.HolidaySyncService.callApi}와 같은
      * 이 저장소의 기존 관례).
      */
     protected Map<String, Object> callApi(String statCode, LocalDate date) {
+        return callApi(statCode, itemCodeFor(statCode), date);
+    }
+
+    /** 항목코드를 받는 실제 HTTP 호출 지점 — 테스트가 오버라이드한다. */
+    protected Map<String, Object> callApi(String statCode, String itemCode, LocalDate date) {
         // 실측 확정(2026-09-18, docs/measured/ext_probe_20260918_ecos_*.json):
         //   GET /api/StatisticSearch/{key}/json/kr/1/20/{statCode}/D/{start}/{end}/{itemCode}
         //   → {"StatisticSearch":{"list_total_count":N,"row":[{"TIME":"20260918","DATA_VALUE":"1380.3",...}]}}
@@ -96,7 +117,7 @@ public class EcosClient {
         return webClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .path("/api/StatisticSearch/{key}/json/kr/1/20/{statCode}/D/{start}/{end}/{item}")
-                        .build(properties.ecosApiKey(), statCode, start, end, itemCodeFor(statCode)))
+                        .build(properties.ecosApiKey(), statCode, start, end, itemCode))
                 .retrieve()
                 .bodyToMono(Map.class)
                 .block();
