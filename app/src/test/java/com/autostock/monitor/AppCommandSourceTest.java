@@ -35,12 +35,15 @@ class AppCommandSourceTest {
             "purge", "pay", "refund", "거래", "주문", "매수", "매도", "해제", "재개", "발행", "게시", "삭제", "결제", "환불", "송금");
 
     @Test
-    void sourceAndRunnerKnowTheSameThirteenCommands() {
-        assertEquals(13, catalog.ids().size());
+    void sourceAndRunnerKnowTheSameEighteenCommands() {
+        assertEquals(18, catalog.ids().size());   // VALUNIVO 870: 외화 적립 다섯 더함(플랫폼 한도 20)
         assertEquals(AppCommandRunner.HANDLED, new HashSet<>(catalog.ids()), "원천과 실행 부품의 명령 집합이 같다");
         for (String target : AppCommandCatalog.ALIASES.values()) assertTrue(catalog.find(target).isPresent(), target);
-        assertEquals(Set.of("emergency_stop", "trading_resume"),
+        assertEquals(Set.of("emergency_stop", "trading_resume", "fx_reserve", "fx_fill", "fx_buy", "fx_cancel"),
                 Set.copyOf(catalog.commands().stream().filter(c -> !c.query()).map(AppCommandCatalog.Command::id).toList()));
+        // 변경 명령은 모두 화면 경로에서 실행하지 않는다(AppCommandRunner.CHANGES).
+        assertEquals(Set.copyOf(catalog.commands().stream().filter(c -> !c.query()).map(AppCommandCatalog.Command::id).toList()),
+                AppCommandRunner.CHANGES);
     }
 
     @Test
@@ -212,7 +215,9 @@ class AppCommandSourceTest {
         var runner = new AppCommandRunner(new TelegramStockCommands(killSwitch, new PositionBook(), new FixedClock()), killSwitch, mock(DashboardFacade.class));
         var screen = new AppCommandsController(catalog, runner);
         var items = screen.list();
-        assertEquals(11, items.size());
+        assertEquals(12, items.size());   // VALUNIVO 870: fx_view(조회)가 화면 목록에 더해짐. 외화 입력(변경)은 화면에 없다
+        assertTrue(items.stream().anyMatch(i -> i.id().equals("fx_view")));
+        assertTrue(items.stream().noneMatch(i -> i.id().startsWith("fx_") && !i.id().equals("fx_view")));
         assertTrue(items.stream().allMatch(AppCommandsController.Item::runnable));
         var status = items.stream().filter(i -> i.id().equals("status_view")).findFirst().orElseThrow();
         assertEquals("/autostock_status", status.botName());

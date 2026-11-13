@@ -96,7 +96,7 @@ class PlatformAppCommandControllerTest {
         assertEquals(HttpStatus.FORBIDDEN, c.manifest(AUTH, from("192.168.0.10")).getStatusCode());
         var manifest = (tools.jackson.databind.JsonNode) c.manifest(AUTH, from("127.0.0.1")).getBody();
         assertEquals("1.1", manifest.path("contract_version").asText());
-        assertEquals(13, manifest.path("commands").size());
+        assertEquals(18, manifest.path("commands").size());   // VALUNIVO 870: 외화 적립 다섯 더함
         assertEquals(new AppCommandCatalog().manifest(), manifest, "원천 그대로");
 
         var stale = new PlatformAppCommandController.Body("r1", "sp_self", "quote_view", "005930", 1);
