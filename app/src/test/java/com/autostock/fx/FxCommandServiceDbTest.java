@@ -30,7 +30,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FxCommandServiceDbTest extends PostgresDataJpaTest {
 
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-12-15T01:10:00Z"), ZoneOffset.UTC);
-    private static final FxAccumulationProperties PROPS = new FxAccumulationProperties(true, 130_000, 20_000, 20_000, 15);
+    private static final FxAccumulationProperties PROPS = new FxAccumulationProperties(true, 130_000, 20_000, 20_000, 15, null);
 
     @Autowired
     FxReservationRepository reservations;
@@ -124,6 +124,20 @@ class FxCommandServiceDbTest extends PostgresDataJpaTest {
 
         assertTrue(text.contains("만료일이 지난 예약 R"), text);
         assertTrue(text.contains("/autostock_fx_fill"), text);
+    }
+
+    @Test
+    void 시작일_전에는_월말_일정이_정산을_보내지_않는다() {
+        // VALUNIVO 877: 시계는 12-15. 시작일이 다음 달이면 이번 달 정산은 없다.
+        List<Object> published = new ArrayList<>();
+        FxAccumulationProperties later = new FxAccumulationProperties(true, 130_000, 20_000, 20_000, 15, LocalDate.of(2027, 1, 1));
+        FxMonthScheduler month = new FxMonthScheduler(later, service(), alertLog, published::add, CLOCK);
+
+        month.scheduledMonthEnd();
+        month.scheduledMonthStart();
+
+        assertTrue(published.isEmpty());
+        assertEquals(0, alertLog.count());
     }
 
     @Test

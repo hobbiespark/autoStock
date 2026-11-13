@@ -29,8 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class FxReviewSchedulerDbTest extends PostgresDataJpaTest {
 
     private static final Clock CLOCK = Clock.fixed(Instant.parse("2026-12-15T01:10:00Z"), ZoneOffset.UTC);
-    private static final FxAccumulationProperties ON = new FxAccumulationProperties(true, 130_000, 20_000, 20_000, 15);
-    private static final FxAccumulationProperties OFF = new FxAccumulationProperties(false, 130_000, 20_000, 20_000, 15);
+    private static final FxAccumulationProperties ON = new FxAccumulationProperties(true, 130_000, 20_000, 20_000, 15, null);
+    private static final FxAccumulationProperties OFF = new FxAccumulationProperties(false, 130_000, 20_000, 20_000, 15, null);
 
     @Autowired
     FxReservationRepository reservations;
@@ -97,6 +97,19 @@ class FxReviewSchedulerDbTest extends PostgresDataJpaTest {
 
         assertTrue(published.isEmpty());
         assertTrue(ecos.calls.isEmpty());
+    }
+
+    @Test
+    void 시작일_전이면_켜져_있어도_일정이_돌지_않고_시작일_당일에는_돈다() {
+        // VALUNIVO 877: active-from. 시계는 12-15라 시작일 12-16이면 전, 12-15면 당일.
+        ecos.rates.put("0000001", "1330.00");
+
+        scheduler(new FxAccumulationProperties(true, 130_000, 20_000, 20_000, 15, LocalDate.of(2026, 12, 16))).scheduledReview();
+        assertTrue(ecos.calls.isEmpty());
+        assertTrue(published.isEmpty());
+
+        scheduler(new FxAccumulationProperties(true, 130_000, 20_000, 20_000, 15, LocalDate.of(2026, 12, 15))).scheduledReview();
+        assertEquals(1, published.size(), "당일부터 돈다");
     }
 
     @Test

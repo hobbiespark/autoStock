@@ -203,7 +203,8 @@ ipo:
 
 fx:
   accumulation:                                 # 외화 적립 알림(VALUNIVO 4-6, aiDoc/fx-accumulation-alert.md 11장, D-28). 주문하지 않음
-    alerts-enabled: false                       # 감시·월초·월말 알림. 운영 반영 뒤 12-01 전에 켠다(입력 명령은 꺼도 동작)
+    alerts-enabled: true                        # 감시·월초·월말 알림(입력 명령은 꺼도 동작)
+    active-from: 2026-12-01                     # 이 날부터 알림이 돈다(데브 계획서 시행일, VALUNIVO 877). 11-30 정산·11월 검토 알림 없음
     monthly-cap-krw: 130000                     # 월 상한(데브 계획서)
     direct-buy-usd-krw: 20000                   # 통화별 직접매수 금액
     direct-buy-jpy-krw: 20000

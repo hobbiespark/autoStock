@@ -11,6 +11,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * @param directBuyUsdKrw 달러 직접매수 금액(원)
  * @param directBuyJpyKrw 엔 직접매수 금액(원)
  * @param reviewStartDay  검토 시작일(포함, 데브 계획서 "15일 이후")
+ * @param activeFrom      이 날부터 감시·월초·월말 알림이 돈다(포함, 없으면 켜자마자). 데브 계획서 시행일 12-01(VALUNIVO 877)
  */
 @ConfigurationProperties(prefix = "fx.accumulation")
 public record FxAccumulationProperties(
@@ -18,7 +19,8 @@ public record FxAccumulationProperties(
         @DefaultValue("130000") long monthlyCapKrw,
         @DefaultValue("20000") long directBuyUsdKrw,
         @DefaultValue("20000") long directBuyJpyKrw,
-        @DefaultValue("15") int reviewStartDay
+        @DefaultValue("15") int reviewStartDay,
+        java.time.LocalDate activeFrom
 ) {
     public FxAccumulationProperties {
         if (reviewStartDay < 1 || reviewStartDay > 28) {
@@ -27,6 +29,11 @@ public record FxAccumulationProperties(
         if (monthlyCapKrw <= 0 || directBuyUsdKrw <= 0 || directBuyJpyKrw <= 0) {
             throw new IllegalArgumentException("fx.accumulation 금액은 0보다 커야 합니다");
         }
+    }
+
+    /** 오늘(KST) 감시·월초·월말 알림이 도는가 — 켜져 있고 시작일이 됐을 때. 입력 명령은 이것과 무관하다. */
+    public boolean activeOn(java.time.LocalDate today) {
+        return alertsEnabled && (activeFrom == null || !today.isBefore(activeFrom));
     }
 
     /** 그 통화의 직접매수 금액. */

@@ -41,15 +41,15 @@ public class FxMonthScheduler {
 
     @Scheduled(cron = "0 10 9 1 * *", zone = "Asia/Seoul")
     public void scheduledMonthStart() {
-        if (properties.alertsEnabled()) {
+        if (properties.activeOn(LocalDate.now(clock.withZone(MarketConstants.KST)))) {
             guarded(this::monthStart, "월초 안내");
         }
     }
 
-    /** 말일(L) 18:10. */
+    /** 말일(L) 18:10. 시작일 전 달의 정산은 보내지 않는다. */
     @Scheduled(cron = "0 10 18 L * *", zone = "Asia/Seoul")
     public void scheduledMonthEnd() {
-        if (properties.alertsEnabled()) {
+        if (properties.activeOn(LocalDate.now(clock.withZone(MarketConstants.KST)))) {
             guarded(this::monthEnd, "월말 정산");
         }
     }
