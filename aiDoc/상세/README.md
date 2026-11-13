@@ -32,6 +32,7 @@ PG18 후보 DB 검증: [PG18 리허설](../pg18-rehearsal.md)(VALUNIVO 4-5 U6, �
 | [multi-strategy-paper-2026-10-16.md](../multi-strategy-paper-2026-10-16.md) | 모의투자 다전략 |
 | [split-buy-swing-carry-2026-10-30.md](../split-buy-swing-carry-2026-10-30.md) | 운용 자금·분할 매수·스윙 이월 |
 | [ipo-subscription-strategy.md](../ipo-subscription-strategy.md) | 공모주 청약 추천 전략 |
+| [fx-accumulation-alert.md](../fx-accumulation-alert.md) | 외화 적립 알림(USD·JPY) 설계: 환율 출처·예산·검토 조건·입력 명령 |
 | [ipo-demand-forecast.md](../ipo-demand-forecast.md) | 공모주 수요예측 자동 입력 |
 | [ipo-automation.md](../ipo-automation.md) | 공모주 자동화·알림 강화 |
 | [global-event-linkage-research.md](../global-event-linkage-research.md) | 글로벌 경제 이벤트(FOMC·전쟁·유가·대선)와 한국 시장의 연관 조사 |
