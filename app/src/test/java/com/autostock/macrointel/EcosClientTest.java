@@ -64,6 +64,35 @@ class EcosClientTest {
         assertTrue(client.fetchLatest(EcosClient.STAT_CODE_USDKRW).isEmpty());
     }
 
+    @Test
+    void 기존_원달러_조회는_그대로_0000001을_쓰고_항목_조회는_준_항목을_쓴다() {
+        // VALUNIVO 869: 2인수 callApi가 3인수로 위임하도록 바뀌었다. 거시 지표 경로(MacroGuard 입력)의 항목이 바뀌지 않았는지 고정한다.
+        ItemCapturingEcosClient client = new ItemCapturingEcosClient();
+
+        client.fetchLatest(EcosClient.STAT_CODE_USDKRW);
+        client.fetchLatest(EcosClient.STAT_CODE_BASE_RATE);
+        Optional<EcosClient.Observation> jpy = client.fetchLatest("731Y001", "0000002");
+
+        assertEquals(List.of("731Y001/0000001", "722Y001/0101000", "731Y001/0000002"), client.calls);
+        assertTrue(jpy.isPresent());
+        assertEquals(new BigDecimal("900.10"), jpy.get().value());
+    }
+
+    /** 3인수 호출 지점을 덮어써 항목코드를 기록하는 대역. */
+    private static final class ItemCapturingEcosClient extends EcosClient {
+        private final List<String> calls = new java.util.ArrayList<>();
+
+        ItemCapturingEcosClient() {
+            super(WebClient.builder(), PROPERTIES, Clock.systemUTC());
+        }
+
+        @Override
+        protected Map<String, Object> callApi(String statCode, String itemCode, LocalDate date) {
+            calls.add(statCode + "/" + itemCode);
+            return Map.of("StatisticSearch", Map.of("row", List.of(Map.of("TIME", "20261113", "DATA_VALUE", "900.10"))));
+        }
+    }
+
     /** 실제 HTTP 호출 없이 준비된 응답 Map으로 대체하는 테스트 전용 서브클래스. */
     private static final class FakeEcosClient extends EcosClient {
         private Map<String, Object> stubbedResponse;

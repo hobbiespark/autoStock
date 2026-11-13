@@ -43,6 +43,9 @@ class IpoDealRepositoryDbTest extends PostgresDataJpaTest {
     @Autowired
     PlatformTransactionManager txManager;
 
+    @Autowired
+    jakarta.persistence.EntityManager em;
+
     private static IpoDealEntity newDeal(String rceptNo) {
         return new IpoDealEntity("01359815", "테스트공모", rceptNo, "DART", Instant.now());
     }
@@ -148,5 +151,31 @@ class IpoDealRepositoryDbTest extends PostgresDataJpaTest {
                 alertLog.findByCorpCodeIn(java.util.List.of("01158632")).stream().map(IpoAlertLogEntity::key).toList());
         assertThrows(org.springframework.dao.DataIntegrityViolationException.class, () -> alertLog.saveAndFlush(
                 new IpoAlertLogEntity("01158632", "LISTING", "2026-10-15", Instant.now())), "같은 알림은 두 번 남지 않는다");
+    }
+
+    @Test
+    void V33_인수인_전부를_저장해_다시_읽고_기록이_없는_옛_딜은_대표_주관사로_보며_계좌_개설_요청_기록이_남는다() {
+        IpoDealEntity deal = new IpoDealEntity("01000001", "가나전자", "20261110900001", "DART", Instant.now());
+        deal.applyOfferingDetail(new DartClient.OfferingDetail("20261110900001", java.time.LocalDate.of(2026, 11, 20),
+                java.time.LocalDate.of(2026, 11, 21), null, "엔에이치투자증권", new BigDecimal("10000"), 3_800_000L,
+                java.util.List.of("엔에이치투자증권", "케이비증권", "에스케이증권")), Instant.now());
+        Long id = deals.saveAndFlush(deal).getId();
+        IpoDealEntity old = new IpoDealEntity("01000002", "다라바이오", "20261110900002", "DART", Instant.now());
+        old.applyOfferingDetail(new DartClient.OfferingDetail("20261110900002", null, null, null, "하나증권", null, null),
+                Instant.now());
+        Long oldId = deals.saveAndFlush(old).getId();
+        jdbc.update("update ipo_deals set underwriters = null where id = ?", oldId);   // V33 전 행과 같은 모양
+        alertLog.saveAndFlush(new IpoAlertLogEntity(IpoAccountOpenPlanner.ACCOUNT_CORP, IpoAccountOpenPlanner.PHASE_ACCOUNT_OPEN,
+                "2026-11-13", Instant.now()));
+        em.clear();   // 아래 findById가 메모리 사본이 아니라 DB 행을 읽게
+
+        assertEquals("엔에이치투자증권, 케이비증권, 에스케이증권",
+                jdbc.queryForObject("select underwriters from ipo_deals where id = ?", String.class, id));
+        assertEquals(java.util.List.of("엔에이치투자증권", "케이비증권", "에스케이증권"),
+                deals.findById(id).orElseThrow().getUnderwriters());
+        assertEquals(java.util.List.of("하나증권"), deals.findById(oldId).orElseThrow().getUnderwriters());
+        assertEquals(java.util.List.of("ACCOUNT|ACCOUNT-OPEN|2026-11-13"),
+                alertLog.findByCorpCodeIn(java.util.List.of(IpoAccountOpenPlanner.ACCOUNT_CORP)).stream()
+                        .map(IpoAlertLogEntity::key).toList());
     }
 }

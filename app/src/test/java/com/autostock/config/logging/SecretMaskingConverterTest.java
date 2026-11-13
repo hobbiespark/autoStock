@@ -101,6 +101,18 @@ class SecretMaskingConverterTest {
         assertTrue(rendered.contains("bot***"));
     }
 
+    // VALUNIVO 860·862: 폴링 실패 줄(TelegramCommandPoller.describe)은 예외 메시지를 %m에 그대로 싣는다.
+    // 인코딩된 구분자(%3A)의 토큰이 어펜더 출력에서 가려지는지 메시지 경로로 고정한다.
+    @Test
+    void 로그_메시지의_URL_인코딩된_텔레그램_봇_토큰이_마스킹된다() {
+        String rendered = logAndCapture(
+                "텔레그램 명령 폴링 실패 — TooManyRequests: 429 Too Many Requests from GET "
+                        + "https://api.telegram.org/bot123456789%3AAAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/getUpdates", null);
+
+        assertFalse(rendered.contains("AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"));
+        assertTrue(rendered.contains("bot***/getUpdates"));
+    }
+
     @Test
     void 스택트레이스에_담긴_ECOS_경로_인증키가_마스킹된다() {
         RuntimeException ex = new RuntimeException(

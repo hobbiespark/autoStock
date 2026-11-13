@@ -35,7 +35,10 @@ public final class SecretMasking {
      * {@code appKey}, {@code APPKEY}, {@code app_key} 등으로 섞여 나타날 수 있어서).
      *
      * <ol>
-     *   <li>텔레그램 봇 토큰이 그대로 노출되는 {@code bot<숫자>:<문자열>} URL 경로 세그먼트.</li>
+     *   <li>텔레그램 봇 토큰이 그대로 노출되는 {@code bot<숫자>:<문자열>} URL 경로 세그먼트.
+     *       구분자가 URL 인코딩된 {@code bot<숫자>%3A<문자열>}도 잡는다 — WebClient 예외 메시지는
+     *       uriBuilder가 경로 변수를 인코딩한 URL을 담아, 콜론만 보던 규칙을 빠져나가 운영 로그에
+     *       토큰이 남았다(VALUNIVO 860·862, 11-04·11-08·11-09 폴링 429 줄).</li>
      *   <li>{@code Authorization: Bearer <token>} 헤더 값.</li>
      *   <li>JSON {@code "key":"value"} 형태 — 키움 토큰 발급 응답/요청 바디 등이 그대로
      *       문자열로 로그에 찍히는 경우.</li>
@@ -52,7 +55,7 @@ public final class SecretMasking {
     // 나중에 처리한다.
     static final List<Rule> RULES = List.of(
             new Rule(
-                    Pattern.compile("(?i)bot[0-9]{6,}:[A-Za-z0-9_-]{20,}"),
+                    Pattern.compile("(?i)bot[0-9]{6,}(?::|%3A)[A-Za-z0-9_-]{20,}"),
                     "bot***"),
             new Rule(
                     Pattern.compile("(?i)Bearer\\s+[A-Za-z0-9._~+/-]{10,}=*"),

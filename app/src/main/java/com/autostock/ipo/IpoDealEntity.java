@@ -75,6 +75,13 @@ public class IpoDealEntity {
     @Column(name = "lead_manager", length = 256)
     private String leadManager;
 
+    /**
+     * 인수인 전부(V33, 2026-11-11) — DART 인수인정보의 대표·공동·인수 회사 이름을 ", "로 이은 값. 보유 계좌로 청약할 수 있는지
+     * 보는 데 쓴다(청약 추천 A 항목·계좌 개설 요청). 그 전 딜은 null — 대표 주관사 하나로 본다({@link #getUnderwriters}).
+     */
+    @Column(name = "underwriters", length = 512)
+    private String underwriters;
+
     @Column(name = "institutional_competition_rate")
     private BigDecimal institutionalCompetitionRate;
 
@@ -190,6 +197,8 @@ public class IpoDealEntity {
         this.subscriptionEnd = detail.subscriptionEnd();
         this.refundDate = detail.refundDate();
         this.leadManager = detail.leadManager();
+        String joined = String.join(UNDERWRITER_SEPARATOR, detail.underwriters());
+        this.underwriters = joined.isEmpty() ? null : (joined.length() > 512 ? joined.substring(0, 512) : joined);
         this.offerPriceConfirmed = detail.offerPriceConfirmed();
         touch(now);
     }
@@ -401,6 +410,16 @@ public class IpoDealEntity {
     public LocalDate getRefundDate() { return refundDate; }
     public LocalDate getListingDate() { return listingDate; }
     public String getLeadManager() { return leadManager; }
+
+    static final String UNDERWRITER_SEPARATOR = ", ";
+
+    /** 인수인 이름 목록(대표 먼저). 기록이 없으면 대표 주관사 하나, 그것도 없으면 빈 목록. */
+    public java.util.List<String> getUnderwriters() {
+        if (underwriters == null || underwriters.isBlank()) {
+            return leadManager == null ? java.util.List.of() : java.util.List.of(leadManager);
+        }
+        return java.util.Arrays.stream(underwriters.split(",")).map(String::trim).filter(n -> !n.isEmpty()).toList();
+    }
     public BigDecimal getInstitutionalCompetitionRate() { return institutionalCompetitionRate; }
     public BigDecimal getLockupCommitRate() { return lockupCommitRate; }
     public MetricsSource getMetricsSource() { return metricsSource; }

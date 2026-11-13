@@ -31,6 +31,30 @@ class SecretMaskingTest {
         assertTrue(masked.contains("/sendMessage"));
     }
 
+    // VALUNIVO 860·862: 운영 폴링 429 줄은 uriBuilder가 경로 변수를 인코딩해 구분자가 %3A였고,
+    // 콜론만 보던 규칙을 빠져나가 토큰이 로그에 남았다. 실제 예외 메시지 형태 그대로 고정한다.
+    @Test
+    void URL_인코딩된_구분자의_텔레그램_봇_토큰도_마스킹한다() {
+        String input = "TooManyRequests: 429 Too Many Requests from GET "
+                + "https://api.telegram.org/bot123456789%3AAAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/getUpdates?offset=1&timeout=25";
+
+        String masked = SecretMasking.mask(input);
+
+        assertFalse(masked.contains("AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"));
+        assertTrue(masked.contains("bot***/getUpdates"));
+        assertTrue(masked.contains("offset=1"));
+    }
+
+    @Test
+    void 소문자_인코딩_구분자의_텔레그램_봇_토큰도_마스킹한다() {
+        String input = "GET https://api.telegram.org/bot123456789%3aAAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw/sendMessage";
+
+        String masked = SecretMasking.mask(input);
+
+        assertFalse(masked.contains("AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"));
+        assertTrue(masked.contains("bot***/sendMessage"));
+    }
+
     @Test
     void ECOS_URL_경로의_인증키를_마스킹한다() {
         String input = "404 Not Found from GET https://ecos.bok.or.kr/api/StatisticSearch/"

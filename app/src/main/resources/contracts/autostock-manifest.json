@@ -1,7 +1,7 @@
 {
   "contract_version": "1.1",
   "app_id": "autostock",
-  "app_version": "commands-1.1-1",
+  "app_version": "commands-1.1-2",
   "display_name": "autoStock",
   "deployment": "external",
   "supported_contract_versions": ["1.0", "1.1"],
@@ -43,7 +43,12 @@
     {"id": "trading_resume", "name": "긴급 정지 풀기", "description": "긴급 정지를 푼다. autoStock의 60초 4자리 확인 코드 절차를 그대로 거친다", "risk": "l1_ceiling", "keywords": ["다시 시작", "resume"],
      "examples": ["긴급 정지 풀어줘", "자동매매 다시 켜줘"],
      "args": [{"name": "code", "type": "string", "required": false, "description": "두 번째 보낼 때 받은 4자리 확인 코드", "example": "1234"}],
-     "effect": "write", "area": "trading.killswitch", "version": 2, "entries": ["platform", "app_bot"]}
+     "effect": "write", "area": "trading.killswitch", "version": 2, "entries": ["platform", "app_bot"]},
+    {"id": "fx_view", "name": "외화 적립 현황", "description": "이번 달 외화 예약·체결 합계, 노출액과 상한, 열린 예약 목록을 보여 준다", "risk": "query", "keywords": ["외화", "환율", "적립", "달러", "엔화"], "examples": ["외화 적립 현황 보여줘", "이번 달 달러 엔 적립 어때?"], "effect": "read", "area": "fx.accumulation", "version": 1, "entries": ["platform", "app_bot", "app_fe"]},
+    {"id": "fx_reserve", "name": "외화 예약 기록", "description": "은행 앱에서 신청한 외화 목표환율 예약을 기록한다(기록만 하고 돈을 움직이지 않는다)", "risk": "change", "keywords": ["외화", "예약", "목표환율"], "examples": ["달러 예약 1330에 4만원, 신청 당시 1360 기록해줘", "엔화 예약 890 40000 신청 당시 905"], "args": [{"name": "currency", "type": "enum", "required": true, "description": "USD 또는 JPY(달러·엔도 받음)", "example": "USD", "values": ["USD", "JPY"]}, {"name": "reserve_rate", "type": "string", "required": true, "description": "예약(목표) 환율, 원/1달러·원/100엔", "example": "1330"}, {"name": "amount", "type": "integer", "required": true, "description": "예약 금액(원)", "example": "40000"}, {"name": "request_rate", "type": "string", "required": true, "description": "신청할 때 은행 앱에 보인 살 때 환율", "example": "1360"}, {"name": "expires", "type": "date", "required": false, "description": "만료일(없으면 오늘부터 한 달)", "example": "2026-12-31"}], "effect": "write", "area": "fx.accumulation", "version": 2, "entries": ["platform", "app_bot"]},
+    {"id": "fx_fill", "name": "외화 예약 체결 기록", "description": "예약이 은행에서 체결됐음을 기록한다(환율을 안 주면 예약 환율)", "risk": "change", "keywords": ["외화", "체결", "예약"], "examples": ["달러 예약 R12 체결됐어", "R3 예약 892에 체결"], "args": [{"name": "no", "type": "string", "required": true, "description": "예약 번호", "example": "R12"}, {"name": "rate", "type": "string", "required": false, "description": "체결 환율", "example": "1330"}, {"name": "date", "type": "date", "required": false, "description": "체결일(없으면 오늘)", "example": "2026-12-09"}], "effect": "write", "area": "fx.accumulation", "version": 2, "entries": ["platform", "app_bot"]},
+    {"id": "fx_buy", "name": "외화 직접매수 기록", "description": "은행 앱에서 직접 산 외화를 기록한다(앱은 사지 않는다)", "risk": "change", "keywords": ["외화", "직접매수", "환전"], "examples": ["달러 1338에 2만원 샀어", "엔화 직접 885에 20000원 기록"], "args": [{"name": "currency", "type": "enum", "required": true, "description": "USD 또는 JPY(달러·엔도 받음)", "example": "USD", "values": ["USD", "JPY"]}, {"name": "rate", "type": "string", "required": true, "description": "산 환율, 원/1달러·원/100엔", "example": "1338"}, {"name": "amount", "type": "integer", "required": true, "description": "산 금액(원)", "example": "20000"}, {"name": "date", "type": "date", "required": false, "description": "산 날(없으면 오늘)", "example": "2026-12-16"}], "effect": "write", "area": "fx.accumulation", "version": 2, "entries": ["platform", "app_bot"]},
+    {"id": "fx_cancel", "name": "외화 기록 취소", "description": "잘못 넣은 외화 기록이나 은행에서 취소한 예약을 취소 상태로 바꾼다(기록은 남긴다)", "risk": "l1_ceiling", "keywords": ["외화", "취소", "정정"], "examples": ["외화 예약 R12 취소해줘", "직접 기록 B3 잘못 넣었어 취소"], "args": [{"name": "no", "type": "string", "required": true, "description": "예약 R12 또는 직접 B3", "example": "R12"}], "effect": "write", "area": "fx.accumulation", "version": 2, "entries": ["platform", "app_bot"]}
   ],
   "notifications": {"self_send": true, "channel": "telegram"}
 }

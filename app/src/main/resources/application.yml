@@ -182,6 +182,28 @@ ipo:
     margin-rate: 0.5                            # 청약 증거금률(주관사마다 다름 — 알림에 "주관사 공고 확인")
     min-qty: 10                                 # 최소 청약 수량(주, 균등 최소 단위)
     unit-qty: 10                                # 청약 단위(주, 비례 수량은 이 단위로 내림)
+    # 계좌를 가진 증권사(2026-11-11 사용자) — 인수인 중 하나라도 있으면 청약 추천 점수 +1, 없는 증권사는 한 달에 한 곳씩
+    # 개설 요청 알림. 새 계좌를 열면 여기에 더하고 재기동한다. 표기(SK·에스케이, 옛 이름)는 앱이 맞춘다(BrokerNames)
+    held-brokers:
+      - KB증권
+      - SK증권
+      - 대신증권
+      - 미래에셋증권
+      - 삼성증권
+      - 신한투자증권
+      - 키움증권
+      - 하나증권
+      - 한국투자증권
+      - 한화투자증권
+      - 카카오페이증권
+
+fx:
+  accumulation:                                 # 외화 적립 알림(VALUNIVO 4-6, aiDoc/fx-accumulation-alert.md 11장, D-28). 주문하지 않음
+    alerts-enabled: false                       # 감시·월초·월말 알림. 운영 반영 뒤 12-01 전에 켠다(입력 명령은 꺼도 동작)
+    monthly-cap-krw: 130000                     # 월 상한(데브 계획서)
+    direct-buy-usd-krw: 20000                   # 통화별 직접매수 금액
+    direct-buy-jpy-krw: 20000
+    review-start-day: 15                        # 검토 시작일(포함, 데브 계획서 "15일 이후")
 
 autostock:
   minute-archive:

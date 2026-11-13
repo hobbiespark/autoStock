@@ -436,8 +436,20 @@ public class DartClient {
                         .findFirst()
                         .orElse(null));
 
+        // 2026-11-11: 보유 계좌 청약 가능 판단(BrokerNames) — 대표·공동·인수 모두(대표 먼저, 같은 이름은 한 번)
+        List<String> allUnderwriters = new java.util.ArrayList<>();
+        if (leadManager != null) {
+            allUnderwriters.add(leadManager);
+        }
+        underwriters.stream()
+                .map(u -> stringOrNull(u.get("actnmn")))
+                .filter(java.util.Objects::nonNull)
+                .filter(n -> !allUnderwriters.contains(n))
+                .forEach(allUnderwriters::add);
+
         return new OfferingDetail(
-                rceptNo, subStart, subEnd, refundDate, leadManager, offerPriceConfirmed, sharesOffered);
+                rceptNo, subStart, subEnd, refundDate, leadManager, offerPriceConfirmed, sharesOffered,
+                List.copyOf(allUnderwriters));
     }
 
     /** "증권의종류"의 모집방법(slmthn) — 이 접수번호의 보통주 행을 먼저, 없으면 아무 행. */
@@ -644,7 +656,19 @@ public class DartClient {
      */
     public record OfferingDetail(String rceptNo, LocalDate subscriptionStart, LocalDate subscriptionEnd,
                                   LocalDate refundDate, String leadManager, BigDecimal offerPriceConfirmed,
-                                  Long sharesOffered) {
+                                  Long sharesOffered, List<String> underwriters) {
+
+        /** @param underwriters 인수인정보의 회사 이름 전부(대표 먼저) — 청약을 받을 수 있는 증권사 후보(2026-11-11) */
+        public OfferingDetail {
+            underwriters = underwriters == null ? List.of() : List.copyOf(underwriters);
+        }
+
+        /** 인수인 목록 없이(시험·옛 호출) — 대표 주관사 하나만 인수인으로 본다. */
+        public OfferingDetail(String rceptNo, LocalDate subscriptionStart, LocalDate subscriptionEnd,
+                              LocalDate refundDate, String leadManager, BigDecimal offerPriceConfirmed, Long sharesOffered) {
+            this(rceptNo, subscriptionStart, subscriptionEnd, refundDate, leadManager, offerPriceConfirmed, sharesOffered,
+                    leadManager == null ? List.of() : List.of(leadManager));
+        }
     }
 
     /**
