@@ -131,7 +131,8 @@
 
 | 키 | 기본 | 뜻 |
 |---|---|---|
-| `alerts-enabled` | `false` | 감시·월초·월말 알림. 운영 반영 뒤 12-01 전에 켠다. 입력 명령은 꺼도 동작 |
+| `alerts-enabled` | 코드 기본 `false`, `application.yml` `true`(VALUNIVO 877) | 감시·월초·월말 알림. 입력 명령은 꺼도 동작 |
+| `active-from` | 코드 기본 없음, `application.yml` `2026-12-01` | 이 날(포함)부터 감시·월초·월말이 돈다. 11월 예약의 15일 이후 검토 알림과 11-30 정산은 나가지 않는다(데브 계획서 시행일) |
 | `monthly-cap-krw` | `130000` | 월 상한 |
 | `direct-buy-usd-krw`·`direct-buy-jpy-krw` | `20000` | 통화별 직접매수 금액 |
 | `review-start-day` | `15` | 검토 시작일(포함, 1~28) |

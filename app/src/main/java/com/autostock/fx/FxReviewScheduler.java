@@ -50,10 +50,10 @@ public class FxReviewScheduler {
         this.clock = clock;
     }
 
-    /** 평일 09:10~18:10 매시(설계 3장). 알림이 꺼져 있으면 아무것도 하지 않는다. */
+    /** 평일 09:10~18:10 매시(설계 3장). 알림이 꺼져 있거나 시작일 전이면 아무것도 하지 않는다. */
     @Scheduled(cron = "0 10 9-18 * * MON-FRI", zone = "Asia/Seoul")
     public void scheduledReview() {
-        if (!properties.alertsEnabled()) {
+        if (!properties.activeOn(LocalDate.now(clock.withZone(MarketConstants.KST)))) {
             return;
         }
         try {
