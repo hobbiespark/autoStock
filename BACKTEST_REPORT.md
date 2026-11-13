@@ -66,6 +66,22 @@ G2a 탈락 사유 2건: ① 상장폐지 85종목 일봉 누락(커버리지 94.
 
 SPA_c p=0.439 — 5종 중 최선(H1)도 KODEX200 단순보유 대비 통계적 우위 없음(일평균 초과 +0.013%p, t=0.77 = 노이즈). H1의 +655%는 추세장 노출의 결과이지 기법 고유의 엣지가 아니며, MDD 예산(스윙 15%)을 전 계열이 초과. 문헌 예측(Bajgrowicz & Scaillet 2012 — TA 규칙은 비용·스누핑 보정 후 생존 0)과 정합. 재실행: `RealDataTaChartExperimentTest`.
 
+### 자산배분 (Y 계열, 2026-11-14 추가 — 게이트 ① v3 첫 적용, ADR-15)
+
+v3는 SPA 벤치마크만 "후보와 변동성을 맞춘 KODEX200 + 현금"으로 바꾼다(신규 계열부터, 기존 계열 소급 없음). 규칙·사전 선언: [adr15_preregistration_20261114](docs/research/adr15_preregistration_20261114.md).
+
+| 계열 | 구성 | OOS총수익 | MDD | Sharpe | 부트p95 MDD | w | 판정 |
+|---|---|---|---|---|---|---|---|
+| Y1 | 영구 포트폴리오(주식·장기채·금·현금 25%, 15~35% 밴드) | +136% | 16.6% | 0.95 | 23.5% | 0.37 | FAIL(SPA) |
+| Y2 | 역변동성(4 ETF, 252일) | +97% | 19.1% | 0.92 | 22.2% | 0.30 | FAIL(SPA) |
+| Y3 | Faber GTAA(4 ETF 각 25%, 210일 이동평균) | +157% | 13.3% | 1.07 | 18.6% | 0.36 | FAIL(SPA) |
+
+SPA_c v3 p=0.146(v2였다면 p=1.000). MDD 예산(장기 25%)은 셋 다 통과했다. 변동성 매칭으로 "총수익 비교의 구조적 불리"는 없어졌지만(t가 음에서 +0.5~+1.4로), 같은 위험의 "KODEX200 약 1/3 + 현금"보다 나은 정도가 10년 표본에서 우연과 구분되지 않는다. 재실행: `RealDataAssetAllocationExperimentTest`.
+
+### 재무 팩터 (F 계열, 사전 선언 완료 — 재무 수집 뒤 실행)
+
+X3 F-Score≥7 × 12-1 모멘텀, F1 마법공식, F2 GP/A. 규칙은 위 사전 선언 문서 4장. 재실행: `RealDataFactorExperimentTest`(재무 `data/fscore/fs2_2015..2025.csv`가 없으면 스킵).
+
 ## 3. 교차 검증에서 확립된 사실
 
 1. **T 확장의 교훈**: C3는 2019~ 구간에서 게이트 ① 잠정 통과(MDD 13.4%)였으나, 2015~로 늘리자 MDD 25.0%·DSR 0.058로 붕괴. 짧은 구간의 좋은 수치는 행운일 수 있음이 실증됨 — 기간 확장이 최고의 과최적화 검출기.
@@ -101,6 +117,10 @@ cd D:\myApp\autoStock
 .\gradlew.bat :app:test --tests "com.autostock.backtest.RealDataBuybackEventExperimentTest"
 # 부트스트랩+SPA 병기 수치
 .\gradlew.bat :app:test --tests "com.autostock.backtest.GateBootstrapSpaExperimentTest"
+# Y 계열 (자산배분, 게이트 v3)
+.\gradlew.bat :app:test --tests "com.autostock.backtest.RealDataAssetAllocationExperimentTest"
+# F 계열 (재무 팩터, 게이트 v3 — 재무 수집 후)
+.\gradlew.bat :app:test --tests "com.autostock.backtest.RealDataFactorExperimentTest"
 ```
 
 수치 상세와 판정 이력 원문은 PROGRESS.md §3, 방법론 원칙은 STRATEGY.md, 기준 결정 배경은 PLAN.md ADR-11~14 참고.

@@ -194,7 +194,7 @@ class RealDataCrossSectionalExperimentTest {
      * (실측 2026-09-18: corp_map_all에 ETF·ETN·우선주는 없음 — DART 법인 목록이라 원래 빠져 있다.)
      * 사전 선언 규칙의 유니버스 정의에 속하며 실험 실행 전에 확정했다.
      */
-    private static Set<String> nonOperatingCompanies(Path corpMap) {
+    static Set<String> nonOperatingCompanies(Path corpMap) {
         Set<String> out = new HashSet<>();
         if (!Files.isRegularFile(corpMap)) {
             return out;
@@ -319,7 +319,7 @@ class RealDataCrossSectionalExperimentTest {
     }
 
     /** data/universe/marketcap/{YYYYMMDD}.csv (scripts/fetch_krx_marketcap.py) — 날짜별 종목→시가총액(원). */
-    private static NavigableMap<LocalDate, Map<String, Double>> marketCapSnapshots(Path dir) {
+    static NavigableMap<LocalDate, Map<String, Double>> marketCapSnapshots(Path dir) {
         NavigableMap<LocalDate, Map<String, Double>> out = new TreeMap<>();
         try (java.nio.file.DirectoryStream<Path> files = Files.newDirectoryStream(dir, "*.csv")) {
             for (Path file : files) {
@@ -350,7 +350,7 @@ class RealDataCrossSectionalExperimentTest {
         return out;
     }
 
-    private static Map<LocalDate, Double> dailyReturns(List<Candle> candles) {
+    static Map<LocalDate, Double> dailyReturns(List<Candle> candles) {
         Map<LocalDate, Double> map = new LinkedHashMap<>();
         for (int i = 1; i < candles.size(); i++) {
             BigDecimal prev = candles.get(i - 1).close();
@@ -378,7 +378,7 @@ class RealDataCrossSectionalExperimentTest {
         return out;
     }
 
-    private static Path resolveDataDir() {
+    static Path resolveDataDir() {
         String override = System.getProperty("autostock.data.dir");
         if (override != null) {
             Path path = Paths.get(override);

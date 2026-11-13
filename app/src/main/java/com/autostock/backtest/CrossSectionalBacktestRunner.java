@@ -353,7 +353,9 @@ public final class CrossSectionalBacktestRunner {
                 histories.put(sym, hist);
             }
         }
-        return new Formation(List.copyOf(strategy.select(histories)), histories.size());
+        CrossSectionalStrategy.FormationContext context =
+                new CrossSectionalStrategy.FormationContext(calendar.get(f), capSnapshot);
+        return new Formation(List.copyOf(strategy.select(context, histories)), histories.size());
     }
 
     // ── 회계 보조 ──────────────────────────────────────────────────────────

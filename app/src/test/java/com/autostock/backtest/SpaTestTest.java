@@ -97,6 +97,42 @@ class SpaTestTest {
         assertTrue(pCrowded < 0.10, "열등후보가 섞여도 유효후보 존재 시 p-value는 여전히 작아야 함(" + pCrowded + ")");
     }
 
+    /**
+     * ADR-15가 고치려는 상황: 지수 절반 노출 + 고유 엣지인 방어형 후보는 강세장 지수보다 총수익이 낮아
+     * v2(총수익 비교)에선 이길 수 없고, 같은 변동성의 "지수+현금"과 비교하는 v3에선 엣지가 드러난다.
+     */
+    @Test
+    void 방어형_엣지_후보는_v2에서_못_잡고_v3_변동성매칭에서_잡힌다() {
+        int n = 2500;
+        double[] bench = normalReturns(n, 0.0012, 0.01, 50L);
+        Random rnd = new Random(51L);
+        double[] defensive = new double[n];
+        for (int i = 0; i < n; i++) {
+            defensive[i] = 0.5 * bench[i] + 0.0004 + 0.002 * rnd.nextGaussian();
+        }
+        Map<String, double[]> candidates = new LinkedHashMap<>();
+        candidates.put("방어형", defensive);
+
+        double pV2 = new SpaTest(bench, candidates, 21, RESAMPLES, 42L).run().pValueSpaConsistent();
+        double pV3 = SpaTest.volatilityMatched(bench, candidates, 21, RESAMPLES, 42L).run().pValueSpaConsistent();
+
+        assertTrue(pV2 > 0.10, "v2(총수익 비교)인데 방어형 후보 p-value(" + pV2 + ")가 작음");
+        assertTrue(pV3 < 0.05, "v3(변동성 매칭)인데 방어형 엣지 후보 p-value(" + pV3 + ")가 0.05 이상");
+    }
+
+    @Test
+    void 지수보다_변동성이_큰_후보는_w가_1이라_v2와_같은_결과() {
+        double[] bench = normalReturns(OBSERVATIONS, 0.0, 0.01, 60L);
+        Map<String, double[]> candidates = new LinkedHashMap<>();
+        candidates.put("고변동", trackBenchmark(bench, 0.0002, 0.004, 61L));
+
+        SpaTest.SpaResult v2 = new SpaTest(bench, candidates, 21, RESAMPLES, 42L).run();
+        SpaTest.SpaResult v3 = SpaTest.volatilityMatched(bench, candidates, 21, RESAMPLES, 42L).run();
+
+        assertEquals(v2.pValueSpaConsistent(), v3.pValueSpaConsistent(), 0.0);
+        assertEquals(v2.testStatistic(), v3.testStatistic(), 0.0);
+    }
+
     @Test
     void 후보_길이가_벤치마크와_다르면_예외() {
         double[] bench = normalReturns(100, 0.0, 0.01, 1L);

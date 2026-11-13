@@ -1,19 +1,59 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""G3 — F-Score 산출용 재무 수집 (fnlttSinglAcntAll, 사업보고서 11011, CFS→OFS 폴백).
-   출력: data/fscore/fs_{year}.csv (corp_code,stock_code,fs_div + 9계정×당기/전기)
-   재개형: 출력 CSV의 corp_code + .fail_{year} 기록은 건너뜀. YEAR·BUDGET_SECONDS 환경변수."""
+"""G3·트랙 F — F-Score·마법공식·GP/A 산출용 재무 수집 (fnlttSinglAcntAll, 사업보고서 11011, CFS→OFS 폴백).
+   출력: data/fscore/fs2_{year}.csv (corp_code,stock_code,fs_div + 12계정×당기/전기)
+   재개형: 출력 CSV의 corp_code + .fail2_{year} 기록은 건너뜀.
+   환경변수: YEARS(예: 2014-2025 또는 2019,2020 — 없으면 YEAR, 기본 2024)·BUDGET_SECONDS(기본 100).
+
+   v2(2026-11-14, VALUNIVO 881): v1(fs_{year}.csv)은 계정명 부분 일치라 "자본과부채총계"가 부채총계로,
+   "비유동자산"이 유동자산으로 잡힐 수 있었다(fs_2024.csv의 부채총계=자산총계 실측). v2는 XBRL 계정 ID를
+   먼저 보고, 없으면 공백을 뺀 계정명이 정확히 같을 때만 쓴다. 재무제표 구분(sj_div)도 맞춘다.
+   v1 파일은 지우지 않고 쓰지 않는다(트랙 F는 fs2만 읽음)."""
 import csv, json, os, sys, time, threading, urllib.parse, urllib.request, concurrent.futures
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent.parent
 OUT=ROOT/"data/fscore"; OUT.mkdir(parents=True, exist_ok=True)
-ACC={"자산총계":"assets","부채총계":"liab","유동자산":"ca","유동부채":"cl","매출액":"rev",
-     "매출총이익":"gp","영업이익":"op","당기순이익":"ni","영업활동현금흐름":"cfo"}
-COLS=["corp_code","stock_code","fs_div"]+[f"{v}_{t}" for v in ACC.values() for t in("cur","prev")]
+BS=("BS",); IS=("IS","CIS"); CF=("CF",)
+# 열 이름: (재무제표 구분, XBRL 계정 ID들, 공백 뺀 정확한 계정명들)
+ACC={
+    "assets":(BS,("ifrs-full_Assets",),("자산총계",)),
+    "liab":(BS,("ifrs-full_Liabilities",),("부채총계",)),
+    "ca":(BS,("ifrs-full_CurrentAssets",),("유동자산",)),
+    "cl":(BS,("ifrs-full_CurrentLiabilities",),("유동부채",)),
+    "cash":(BS,("ifrs-full_CashAndCashEquivalents",),("현금및현금성자산",)),
+    "ppe":(BS,("ifrs-full_PropertyPlantAndEquipment",),("유형자산",)),
+    "capital":(BS,("ifrs-full_IssuedCapital",),("자본금",)),
+    "rev":(IS,("ifrs-full_Revenue",),("매출액","수익(매출액)","영업수익","매출")),
+    "gp":(IS,("ifrs-full_GrossProfit",),("매출총이익","매출총이익(손실)")),
+    "op":(IS,("dart_OperatingIncomeLoss",),("영업이익","영업이익(손실)")),
+    "ni":(IS,("ifrs-full_ProfitLoss",),("당기순이익","당기순이익(손실)")),
+    "cfo":(CF,("ifrs-full_CashFlowsFromUsedInOperatingActivities",),("영업활동현금흐름","영업활동으로인한현금흐름")),
+}
+COLS=["corp_code","stock_code","fs_div"]+[f"{v}_{t}" for v in ACC for t in("cur","prev")]
+def years_from_env():
+    spec=os.environ.get('YEARS') or os.environ.get('YEAR','2024')
+    out=[]
+    for part in spec.split(','):
+        part=part.strip()
+        if '-' in part:
+            a,b=part.split('-',1); out.extend(str(y) for y in range(int(a),int(b)+1))
+        elif part: out.append(part)
+    return out
+def pick(items):
+    """한 보고서의 계정 목록에서 열마다 값 하나를 고른다 — ID 일치가 이름 일치보다 우선."""
+    by_id={}; by_name={}
+    for it in items:
+        sj=it.get('sj_div',''); aid=it.get('account_id','').strip(); nm=it.get('account_nm','').replace(' ','').strip()
+        for col,(sjs,ids,names) in ACC.items():
+            if sj not in sjs: continue
+            if aid in ids and col not in by_id: by_id[col]=it
+            elif nm in names and col not in by_name: by_name[col]=it
+    return {col:(by_id.get(col) or by_name.get(col)) for col in ACC}
 def load_key():
     k=os.environ.get('DART_API_KEY','')
     if not k:
-        for l in (ROOT/'.env').read_text(encoding='utf-8').splitlines():
+        envp=Path(os.environ.get('AUTOSTOCK_ENV_FILE') or ROOT/'.env')  # 작업트리에서는 원본 .env 경로를 준다
+        for l in envp.read_text(encoding='utf-8').splitlines():
             if l.startswith('DART_API_KEY='): k=l.split('=',1)[1].strip()
     return k
 def num(s):
@@ -52,25 +92,33 @@ def collect(key, corp, stock, year):
         if d.get('status')!='000': continue
         row={"corp_code":corp,"stock_code":stock,"fs_div":fs}
         got=set()
-        for it in d.get('list',[]):
-            nm=it.get('account_nm','').strip()
-            for k,v in ACC.items():
-                if k in nm and v not in got:
-                    got.add(v)
-                    row[f"{v}_cur"]=num(it.get('thstrm_amount'))
-                    row[f"{v}_prev"]=num(it.get('frmtrm_amount'))
+        for col,it in pick(d.get('list',[])).items():
+            if it is None: continue
+            got.add(col)
+            row[f"{col}_cur"]=num(it.get('thstrm_amount'))
+            row[f"{col}_prev"]=num(it.get('frmtrm_amount'))
         if "assets" in got and "ni" in got:  # 최소 요건
             for c in COLS: row.setdefault(c,'')
             return row
     return None
 def main():
-    key=load_key(); year=os.environ.get('YEAR','2024')
-    out=OUT/f"fs_{year}.csv"; failp=OUT/f".fail_{year}"
+    key=load_key()
+    for year in years_from_env():
+        result=run_year(key, year)
+        if result=='aborted': return 2
+        if result=='budget': return 0  # 시간 예산 소진 — 다음 실행이 이어 받는다
+    return 0
+def run_year(key, year):
+    out=OUT/f"fs2_{year}.csv"; failp=OUT/f".fail2_{year}"
     done=set(); rows=[]
     if out.exists():
         for r in csv.DictReader(open(out,encoding='utf-8')): done.add(r['corp_code']); rows.append(r)
     failed=set(failp.read_text().split()) if failp.exists() else set()
     univ=[(r['corp_code'],r['stock_code']) for r in csv.DictReader(open(ROOT/'data/corp_map_all.csv',encoding='utf-8'))]
+    only=os.environ.get('ONLY_STOCKS')  # 종목코드 목록 파일(줄마다 하나) — 트랙 F는 시총 상위권만 필요
+    if only:
+        keep=set(Path(only).read_text(encoding='utf-8').split())
+        univ=[(c,s) for c,s in univ if s in keep]
     todo=[(c,s) for c,s in univ if c not in done and c not in failed]
     print(f"[{year}] 유니버스 {len(univ)} | 완료 {len(done)} | 실패 {len(failed)} | 남음 {len(todo)}",flush=True)
     lock=threading.Lock(); started=time.time()
@@ -134,4 +182,7 @@ def main():
         print(f"[!] 중단 — 이번 실행의 실패 기록은 저장하지 않음(정상 기업 오염 방지). 완료 {len(rows)}건 보존",flush=True)
     save()
     print(f"[{year}] 현재 {len(rows)}건 수집 (미제공/비12월결산 등 실패 {len(failed)})",flush=True)
+    if aborted: return 'aborted'
+    if time.time()>deadline: return 'budget'
+    return 'done'
 if __name__=='__main__': sys.exit(main())
