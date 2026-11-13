@@ -196,6 +196,10 @@ ipo:
       - 한국투자증권
       - 한화투자증권
       - 카카오페이증권
+  underwriter-backfill:                         # 지난 공모 인수인 거꾸로 채우기(2026-11-13, D-29) — 계좌 개설 추천의 1·3·5년 실적
+    enabled: true                               # 밤 00~06시 매시 40분, dart.enabled가 꺼지면 안 돎
+    years: 5
+    windows-per-pass: 4                         # 2주 창 4개(한 번에 list.json 약 50번)
 
 fx:
   accumulation:                                 # 외화 적립 알림(VALUNIVO 4-6, aiDoc/fx-accumulation-alert.md 11장, D-28). 주문하지 않음

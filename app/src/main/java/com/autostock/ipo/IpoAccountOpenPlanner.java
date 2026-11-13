@@ -19,8 +19,11 @@ import java.util.stream.Collectors;
  * <ol>
  *   <li>다가오는 추천 딜(비례까지·균등만·스팩, 청약 마감 전) 수가 많은 증권사</li>
  *   <li>같으면 최근 {@value #RECENT_DAYS}일(청약 시작일 기준) 공모 수가 많은 증권사</li>
+ *   <li>같으면 최근 3년, 그다음 5년 공모 수가 많은 증권사(2026-11-13 사용자 "지난 1,3,5년 ipo를 많이 했다던지 하는 근거로 추천", D-29)</li>
  *   <li>같으면 이름순</li>
  * </ol>
+ * 지난 공모는 앱이 모은 딜에 DART에서 거꾸로 채운 이력({@link IpoUnderwritingHistoryEntity}, 회사가 겹치면 딜 쪽)을 더해 센다.
+ * 1·3·5년 모두 보유 계좌로는 청약할 수 없었던 공모만 센다 — 보유 증권사와 함께 인수한 공모는 새 계좌 없이도 청약할 수 있어 개설 근거가 아니다.
  * 보유 계좌로 못 하는 딜이 하나도 없으면 요청하지 않는다. 마지막 요청일에서 한 달이 지나야 다음 요청을 한다.
  */
 final class IpoAccountOpenPlanner {
@@ -47,6 +50,16 @@ final class IpoAccountOpenPlanner {
      */
     static Optional<IpoAlertPlanner.PlannedAlert> plan(List<IpoDealEntity> deals, Set<String> heldKeys, LocalDate today,
                                                        LocalDate lastRequest) {
+        return plan(deals, List.of(), null, heldKeys, today, lastRequest);
+    }
+
+    /**
+     * @param history     DART에서 거꾸로 채운 지난 공모(V35)
+     * @param coveredFrom 이력을 채운 가장 이른 날 — 아직 시작 전이면 null(문구에 "채우는 중")
+     */
+    static Optional<IpoAlertPlanner.PlannedAlert> plan(List<IpoDealEntity> deals, List<IpoUnderwritingHistoryEntity> history,
+                                                       LocalDate coveredFrom, Set<String> heldKeys, LocalDate today,
+                                                       LocalDate lastRequest) {
         if (heldKeys == null || heldKeys.isEmpty()) {
             return Optional.empty();
         }
@@ -54,15 +67,21 @@ final class IpoAccountOpenPlanner {
         if (allowed != null && today.isBefore(allowed)) {
             return Optional.empty();
         }
+        LocalDate from1 = today.minusDays(RECENT_DAYS);
+        LocalDate from3 = today.minusYears(3);
+        LocalDate from5 = today.minusYears(5);
         Map<String, Candidate> candidates = new LinkedHashMap<>();
-        for (Corp corp : corps(deals)) {
+        for (Corp corp : corps(deals, history)) {
             List<String> keys = corp.underwriters.stream().map(BrokerNames::key).filter(k -> k != null).distinct().toList();
             if (keys.isEmpty() || keys.stream().anyMatch(heldKeys::contains)) {
                 continue;   // 인수인을 모르거나 보유 계좌로 청약할 수 있다
             }
             boolean upcoming = corp.recommendedGrade != null && corp.end != null && !corp.end.isBefore(today);
-            boolean recent = corp.start != null && !corp.start.isAfter(today) && !corp.start.isBefore(today.minusDays(RECENT_DAYS));
-            if (!upcoming && !recent) {
+            boolean past = corp.start != null && !corp.start.isAfter(today);
+            boolean in1 = past && !corp.start.isBefore(from1);
+            boolean in3 = past && !corp.start.isBefore(from3);
+            boolean in5 = past && !corp.start.isBefore(from5);
+            if (!upcoming && !in5) {
                 continue;
             }
             for (String key : keys) {
@@ -70,20 +89,32 @@ final class IpoAccountOpenPlanner {
                 if (upcoming) {
                     c.upcoming.add(corp);
                 }
-                if (recent) {
+                if (in1) {
                     c.recent++;
+                }
+                if (in3) {
+                    c.within3++;
+                }
+                if (in5) {
+                    c.within5++;
                 }
             }
         }
         return candidates.values().stream()
                 .min(Comparator.comparingInt((Candidate c) -> -c.upcoming.size())
                         .thenComparingInt(c -> -c.recent)
+                        .thenComparingInt(c -> -c.within3)
+                        .thenComparingInt(c -> -c.within5)
                         .thenComparing(c -> c.key))
                 .map(c -> new IpoAlertPlanner.PlannedAlert(ACCOUNT_CORP, displayName(c.key), PHASE_ACCOUNT_OPEN,
-                        today.toString(), message(c, today)));
+                        today.toString(), message(c, today, coveredFrom)));
     }
 
     static String message(Candidate c, LocalDate today) {
+        return message(c, today, null);
+    }
+
+    static String message(Candidate c, LocalDate today, LocalDate coveredFrom) {
         StringBuilder text = new StringBuilder("[계좌 개설 요청] %s — 이번 달 개설할 증권사 1곳(신규 계좌는 한 달에 하나씩). "
                 .formatted(displayName(c.key)));
         if (!c.upcoming.isEmpty()) {
@@ -94,12 +125,21 @@ final class IpoAccountOpenPlanner {
             text.append("보유 계좌로 청약할 수 없는 다가오는 추천 딜 %d곳: %s%s. ".formatted(sorted.size(), listed,
                     sorted.size() > LISTED_DEALS ? " 외" : ""));
         }
-        if (c.recent > 0) {
-            text.append("최근 1년 보유 계좌로 못 한 공모 %d건을 인수했다. ".formatted(c.recent));
+        if (c.within5 > 0) {
+            text.append("보유 계좌로 못 한 공모 인수: 최근 1년 %d건 · 3년 %d건 · 5년 %d건%s. "
+                    .formatted(c.recent, c.within3, c.within5, coverageNote(today, coveredFrom)));
         }
         text.append("개설하면 application.yml ipo.subscription.held-brokers에 더하고 재기동 — 이 증권사 딜은 청약 점수 +1. ")
                 .append("다음 요청은 %s 이후.".formatted(nextAllowed(today).format(MD)));
         return text.toString();
+    }
+
+    /** 이력을 다 채우지 못했으면 건수가 덜 셀 수 있다고 밝힌다. */
+    static String coverageNote(LocalDate today, LocalDate coveredFrom) {
+        if (coveredFrom == null) {
+            return "(지난 공모 이력은 아직 채우는 중)";
+        }
+        return coveredFrom.isAfter(today.minusYears(5)) ? "(지난 공모 이력은 %s부터 채움, 5년 채우는 중)".formatted(coveredFrom) : "";
     }
 
     private static String dealText(Corp corp) {
@@ -118,6 +158,8 @@ final class IpoAccountOpenPlanner {
         final String key;
         final List<Corp> upcoming = new ArrayList<>();
         int recent;
+        int within3;
+        int within5;
 
         Candidate(String key) {
             this.key = key;
@@ -127,6 +169,18 @@ final class IpoAccountOpenPlanner {
     /** 회사 하나(신고서 여러 개를 묶음). */
     record Corp(String name, List<String> underwriters, LocalDate start, LocalDate end,
                 IpoSubscriptionAdvisor.Grade recommendedGrade) {
+    }
+
+    /** 앱이 모은 딜에 거꾸로 채운 이력을 더한다. 같은 회사는 딜 쪽(일정·추천 등급이 있음)을 쓴다. */
+    private static List<Corp> corps(List<IpoDealEntity> deals, List<IpoUnderwritingHistoryEntity> history) {
+        List<Corp> corps = corps(deals);
+        java.util.Set<String> known = deals.stream().map(IpoDealEntity::getCorpCode).collect(Collectors.toSet());
+        for (IpoUnderwritingHistoryEntity h : history) {
+            if (known.add(h.getCorpCode())) {
+                corps.add(new Corp(h.getCorpName(), h.getUnderwriterList(), h.countedOn(), null, null));
+            }
+        }
+        return corps;
     }
 
     private static List<Corp> corps(List<IpoDealEntity> deals) {

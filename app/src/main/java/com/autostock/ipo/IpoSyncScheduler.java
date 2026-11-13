@@ -761,11 +761,25 @@ public class IpoSyncScheduler {
                     .map(IpoAlertLogEntity::getSentAt).filter(java.util.Objects::nonNull)
                     .map(at -> at.atZone(MarketConstants.KST).toLocalDate())
                     .max(java.util.Comparator.naturalOrder()).orElse(null);
-            IpoAccountOpenPlanner.plan(repository.findAll(), heldBrokerKeys, today, last).ifPresent(alert -> {
+            List<IpoUnderwritingHistoryEntity> history = underwritingHistory == null ? List.of() : underwritingHistory.findAll();
+            LocalDate coveredFrom = backfillProgress == null ? null
+                    : backfillProgress.findById(IpoUnderwriterBackfill.PROGRESS_NAME)
+                            .map(IpoBackfillProgressEntity::getCoveredFrom).orElse(null);
+            IpoAccountOpenPlanner.plan(repository.findAll(), history, coveredFrom, heldBrokerKeys, today, last).ifPresent(alert -> {
                 publishAlert(alert.corpName(), alert.phase(), alert.message());
                 record(alert);
             });
         }
+    }
+
+    // VALUNIVO 875(D-29): 계좌 개설 추천의 1·3·5년 실적 — DART에서 거꾸로 채운 지난 공모 이력. 시험에서 직접 만들 때는 비어 있을 수 있다.
+    private IpoUnderwritingHistoryRepository underwritingHistory;
+    private IpoBackfillProgressRepository backfillProgress;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void underwritingHistory(IpoUnderwritingHistoryRepository value, IpoBackfillProgressRepository progress) {
+        this.underwritingHistory = value;
+        this.backfillProgress = progress;
     }
 
     /**
