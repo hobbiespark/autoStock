@@ -39,6 +39,14 @@ public interface CrossSectionalStrategy {
     }
 
     /**
+     * 고른 종목의 목표 비중(트랙 Z3 시총가중, docs/research/trackz_preregistration_20261114.md 3장). 기본은 null이며
+     * 엔진은 동일가중으로 나눈다. 값을 주면 엔진이 양수 비중만 남겨 합 1로 맞춘다(양수가 하나도 없으면 동일가중).
+     */
+    default Map<String, Double> targetWeights(FormationContext context, List<String> selected) {
+        return null;
+    }
+
+    /**
      * @param formationDate 형성일(이 날 종가까지 사용, 체결은 익일 시가)
      * @param marketCaps    형성일 이하 최근 KRX 월말 스냅샷의 종목→시가총액(원). 시총 유니버스가 아니면 빈 맵
      */

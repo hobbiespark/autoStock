@@ -31,6 +31,69 @@ public final class FactorStrategies {
         return new GrossProfitability(table, topN);
     }
 
+    /**
+     * Z3 — 시총가중 품질 필터(트랙 Z 사전 선언 2장): 유니버스 전부를 시가총액 비중으로 들되, 금융업이 아닌 회사 중
+     * F-Score ≤ maxExcludedScore인 종목만 뺀다. 재무가 없는 종목·금융업은 남긴다.
+     */
+    public static CrossSectionalStrategy capWeightedQualityFilter(FundamentalsTable table, int maxExcludedScore) {
+        return new CapWeighted(table, maxExcludedScore, 61);
+    }
+
+    /** Z3₀ — 진단(trial 아님): 같은 유니버스를 필터 없이 시가총액 비중으로. */
+    public static CrossSectionalStrategy capWeightedAll() {
+        return new CapWeighted(null, -1, 61);
+    }
+
+    static final class CapWeighted extends ContextOnly {
+        private final FundamentalsTable table;
+        private final int maxExcludedScore;
+        private final int minHistory;
+
+        CapWeighted(FundamentalsTable table, int maxExcludedScore, int minHistory) {
+            this.table = table;
+            this.maxExcludedScore = maxExcludedScore;
+            this.minHistory = minHistory;
+        }
+
+        @Override
+        public String label() {
+            return table == null ? "Z3₀ 시총가중 전체(진단)" : "Z3 시총가중 F-Score<=" + maxExcludedScore + " 제외";
+        }
+
+        @Override
+        public int minHistoryDays() {
+            return minHistory;
+        }
+
+        @Override
+        public List<String> select(FormationContext context, Map<String, double[]> histories) {
+            List<String> out = new ArrayList<>();
+            for (String s : histories.keySet()) {
+                if (table != null) {
+                    FundamentalsTable.Fundamentals f = table.asOf(context.formationDate(), s);
+                    if (f != null && !f.looksFinancial() && f.fScore() <= maxExcludedScore) {
+                        continue;
+                    }
+                }
+                Double cap = context.marketCaps().get(s);
+                if (cap != null && cap > 0) {
+                    out.add(s);
+                }
+            }
+            out.sort(Comparator.naturalOrder());
+            return out;
+        }
+
+        @Override
+        public Map<String, Double> targetWeights(FormationContext context, List<String> selected) {
+            Map<String, Double> w = new LinkedHashMap<>();
+            for (String s : selected) {
+                w.put(s, context.marketCaps().get(s));
+            }
+            return w;
+        }
+    }
+
     /** 맥락 없이 부르면 어느 회계연도를 쓸지 알 수 없으므로 막는다 — 엔진은 언제나 맥락과 함께 부른다. */
     private abstract static class ContextOnly implements CrossSectionalStrategy {
         @Override
