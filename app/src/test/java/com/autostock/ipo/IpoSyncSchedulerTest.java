@@ -868,4 +868,85 @@ class IpoSyncSchedulerTest {
         assertEquals("[상장 시초가] 진코스텍(250030) — 시초가 47,000원, 공모가 23,500원 대비 +100.0%, 배정 10주 기준 차익 약 235,000원"
                 + "(수수료·세금 전). 기본 기준: 시초가 매도. 매도는 영웅문S#에서 수동.", captor.getValue().message());
     }
+
+    // ── 2026-11-11(D-27): 보유 계좌 가점과 월 1회 계좌 개설 요청 — 수집 → 매시 점검 조립 경로 ─────────────
+
+    private static IpoDealEntity dealUnderwrittenBy(String corpCode, String corpName, String rceptNo, LocalDate start,
+                                                    List<String> underwriters) {
+        IpoDealEntity entity = new IpoDealEntity(corpCode, corpName, rceptNo, "DART", Instant.now());
+        entity.applyOfferingDetail(new DartClient.OfferingDetail(rceptNo, start, start.plusDays(1), null, underwriters.get(0),
+                new BigDecimal("10000"), 3_800_000L, underwriters), Instant.now());
+        entity.applyMetrics(new BigDecimal("1200"), new BigDecimal("0.30"), Instant.now());
+        return entity;
+    }
+
+    private IpoSyncScheduler schedulerHolding(List<String> heldBrokers, Clock clock) {
+        IpoSubscriptionProperties props = new IpoSubscriptionProperties(new BigDecimal("2000000"), new BigDecimal("0.5"), 10, 10,
+                heldBrokers);
+        return new IpoSyncScheduler(enabledProps, filterProps, dartClient, repository, alertLog, null, props, publisher, clock);
+    }
+
+    private List<IpoAlert> accountAlerts() {
+        var captor = org.mockito.ArgumentCaptor.forClass(IpoAlert.class);
+        verify(publisher, org.mockito.Mockito.atLeast(0)).publishEvent(captor.capture());
+        return captor.getAllValues().stream().filter(a -> IpoAccountOpenPlanner.PHASE_ACCOUNT_OPEN.equals(a.phase())).toList();
+    }
+
+    @Test
+    void 수집_뒤_매시_점검이_미보유_증권사_계좌_개설을_한_달에_한_번만_요청하고_보유_인수인은_가점을_받는다() {
+        MutableClock clock = new MutableClock(LocalDateTime.of(2026, 11, 13, 10, 5));
+        IpoDealEntity notHeld = dealUnderwrittenBy("01000001", "가나전자", "20261110000001", LocalDate.of(2026, 11, 20),
+                List.of("엔에이치투자증권"));
+        IpoDealEntity held = dealUnderwrittenBy("01000002", "다라바이오", "20261110000002", LocalDate.of(2026, 11, 24),
+                List.of("엔에이치투자증권", "케이비증권"));
+        when(repository.findAll()).thenReturn(List.of(notHeld, held));
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(DartClient.RecentFilings.complete(List.of()));
+        IpoSyncScheduler scheduler = schedulerHolding(List.of("KB증권", "SK증권"), clock);
+        scheduler.evaluateFilter(notHeld);
+        scheduler.evaluateFilter(held);
+
+        // 보유 계좌(KB) 인수 딜은 A +1, 미보유 딜은 A 0 — 사유 글에 근거가 남는다
+        assertTrue(held.getRecommendReason().contains("보유 계좌로 청약 가능(케이비증권, +1)"), held.getRecommendReason());
+        assertTrue(notHeld.getRecommendReason().contains("보유 계좌 없음(인수 엔에이치투자증권)"),
+                notHeld.getRecommendReason());
+        assertEquals(notHeld.getAdviceScore() + 1, held.getAdviceScore().intValue(), "같은 재료에서 보유 계좌만 다르면 1점 차이");
+
+        scheduler.catchUpHourly();   // 오늘 수집 기록이 없어 수집
+        scheduler.catchUpHourly();   // 수집한 날의 매시 점검 → 첫 요청
+        scheduler.catchUpHourly();   // 같은 날 다시 — 보내지 않음
+
+        List<IpoAlert> first = accountAlerts();
+        assertEquals(1, first.size(), "한 달에 한 번");
+        assertTrue(first.get(0).message().startsWith("[계좌 개설 요청] NH투자증권 — 이번 달 개설할 증권사 1곳"), first.get(0).message());
+        assertTrue(first.get(0).message().contains("가나전자(11/20~11/21, 균등만)"), first.get(0).message());
+        assertTrue(first.get(0).message().contains("다음 요청은 12/13 이후."), first.get(0).message());
+        assertEquals(1, alertRows.stream().filter(r -> r.key().startsWith("ACCOUNT|ACCOUNT-OPEN|2026-11-13")).count());
+
+        clock.set(LocalDateTime.of(2026, 12, 12, 10, 5));   // 한 달이 아직 안 됨
+        scheduler.catchUpHourly();
+        scheduler.catchUpHourly();
+        assertEquals(1, accountAlerts().size(), "12/12는 아직 한 달 전");
+
+        clock.set(LocalDateTime.of(2026, 12, 13, 10, 5));   // 한 달 뒤 — 미보유 딜이 최근 1년 공모로 남아 다시 요청
+        scheduler.catchUpHourly();
+        scheduler.catchUpHourly();
+        assertEquals(2, accountAlerts().size(), "한 달 뒤 다음 요청");
+    }
+
+    @Test
+    void 보유_증권사_목록이_비면_가점_항목과_계좌_개설_요청을_모두_끈다() {
+        MutableClock clock = new MutableClock(LocalDateTime.of(2026, 11, 13, 10, 5));
+        IpoDealEntity notHeld = dealUnderwrittenBy("01000001", "가나전자", "20261110000001", LocalDate.of(2026, 11, 20),
+                List.of("엔에이치투자증권"));
+        when(repository.findAll()).thenReturn(List.of(notHeld));
+        when(dartClient.fetchRecentEquityFilings(any(), any())).thenReturn(DartClient.RecentFilings.complete(List.of()));
+        IpoSyncScheduler scheduler = schedulerHolding(List.of(), clock);
+        scheduler.evaluateFilter(notHeld);
+
+        scheduler.catchUpHourly();
+        scheduler.catchUpHourly();
+
+        assertTrue(!notHeld.getRecommendReason().contains("보유 계좌"), notHeld.getRecommendReason());
+        assertEquals(0, accountAlerts().size());
+    }
 }

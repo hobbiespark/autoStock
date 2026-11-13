@@ -102,6 +102,8 @@ public class IpoSyncScheduler {
     private final IpoListingHistoryRepository history;
     /** 청약 금액 추천(2026-10-30). */
     private final IpoSubscriptionSizer sizer;
+    /** 계좌를 가진 증권사 열쇠(2026-11-11, {@link BrokerNames}) — 비면 A 항목·계좌 개설 요청을 끈다. */
+    private final Set<String> heldBrokerKeys;
 
     /** 수집·알림·상장 확인이 같은 딜을 동시에 고치지 않게 — 정기 배치·매시 점검·상장 확인 이벤트가 겹칠 수 있다. */
     private final Object batchLock = new Object();
@@ -137,6 +139,7 @@ public class IpoSyncScheduler {
                              IpoListingHistoryRepository history, IpoSubscriptionProperties subscriptionProperties,
                              ApplicationEventPublisher publisher, Clock clock) {
         this.sizer = new IpoSubscriptionSizer(subscriptionProperties);
+        this.heldBrokerKeys = BrokerNames.keys(subscriptionProperties.heldBrokers());
         this.history = history;
         this.dartProperties = dartProperties;
         this.filterProperties = filterProperties;
@@ -232,6 +235,7 @@ public class IpoSyncScheduler {
                 try {
                     alertPass(today, alertsDeferred ? "밤에 미룬 알림" : "시간별 점검", !alertsDeferred);
                     weeklyPass(today);
+                    accountPass(today);
                 } catch (RuntimeException e) {
                     log.error("ipo 알림 점검 실패 — 다음 시간별 점검에서 재시도", e);
                 }
@@ -497,7 +501,8 @@ public class IpoSyncScheduler {
         IpoSubscriptionAdvisor.Advice advice = IpoSubscriptionAdvisor.advise(new IpoSubscriptionAdvisor.Input(
                 competitionRate, entity.getLockupCommitRate(), entity.getOfferPriceFinal(), entity.getOfferPriceLow(),
                 entity.getOfferPriceHigh(), entity.getFloatRatio(), entity.getListedShares(),
-                context(past, decisionDate(entity, today), entity.getCorpCode())));
+                context(past, decisionDate(entity, today), entity.getCorpCode()),
+                IpoSubscriptionAdvisor.Account.of(entity.getUnderwriters(), heldBrokerKeys)));
         entity.applyRecommendation(advice.grade().recommendation(), advice.reason() + sourceNote(entity), clock.instant());
         entity.applyAdvice(advice.grade().name(), advice.score(), clock.instant());
     }
@@ -737,6 +742,26 @@ public class IpoSyncScheduler {
             Set<String> sent = alertLog.findByCorpCodeIn(Set.of(IpoAlertPlanner.WEEKLY_CORP)).stream()
                     .map(IpoAlertLogEntity::key).collect(Collectors.toSet());
             IpoAlertPlanner.weekly(repository.findAll(), today, nowKst(), sent, sizer).ifPresent(alert -> {
+                publishAlert(alert.corpName(), alert.phase(), alert.message());
+                record(alert);
+            });
+        }
+    }
+
+    /**
+     * 증권 계좌 개설 요청(2026-11-11) — 보유 계좌로 청약할 수 없는 공모를 맡은 증권사 한 곳을, 마지막 요청에서 한 달이 지났을 때만
+     * 알린다({@link IpoAccountOpenPlanner}). 시간대 밖이면 보내지 않는다(다음 매시 점검이 다시 본다).
+     */
+    void accountPass(LocalDate today) {
+        if (heldBrokerKeys.isEmpty() || !withinAlertHours()) {
+            return;
+        }
+        synchronized (batchLock) {
+            LocalDate last = alertLog.findByCorpCodeIn(Set.of(IpoAccountOpenPlanner.ACCOUNT_CORP)).stream()
+                    .map(IpoAlertLogEntity::getSentAt).filter(java.util.Objects::nonNull)
+                    .map(at -> at.atZone(MarketConstants.KST).toLocalDate())
+                    .max(java.util.Comparator.naturalOrder()).orElse(null);
+            IpoAccountOpenPlanner.plan(repository.findAll(), heldBrokerKeys, today, last).ifPresent(alert -> {
                 publishAlert(alert.corpName(), alert.phase(), alert.message());
                 record(alert);
             });

@@ -22,8 +22,11 @@ import java.util.stream.Collectors;
  *   <li>M 상장 시가총액(상장예정주식수 × 확정가): ≥5,000억 −1</li>
  *   <li>S 분위기(직전 상장 {@value #MOOD_WINDOW}곳 상장일 종가 수익률 평균): ≥30% 0 · ≥0% −1 · &lt;0% −2 ·
  *       직전 {@value #MOOD_MIN_SAMPLES}곳 미만 0</li>
+ *   <li>A 보유 계좌(2026-11-11 사용자 "계좌 개설 제한이 있는 만큼 보유 증권사에서 청약 가능하면 +점수"): 인수인 중 계좌를 가진
+ *       증권사가 있으면 +1 · 없으면 0 · 인수인이나 보유 목록을 모르면 항목 없음. 수익률 예측 항목이 아니라 청약 실행 가능성 항목이다
+ *       — 사전 선언(T-IPO-1) 뒤에 더해 새 trial T-IPO-2로 적는다(aiDoc/ipo-subscription-strategy.md 6절)</li>
  * </ul>
- * 등급: C를 모르면 판단 보류 → 합 ≤ −2 또는 C &lt; 100이면 패스 → 합 ≥ 3·C ≥ 1,000·밴드 상단 이상·유통 ≤30%(모르면 통과)·S 0점이면
+ * 등급(A 포함 합): C를 모르면 판단 보류 → 합 ≤ −2 또는 C &lt; 100이면 패스 → 합 ≥ 3·C ≥ 1,000·밴드 상단 이상·유통 ≤30%(모르면 통과)·S 0점이면
  * 비례까지 → 나머지 균등만. 임계값은 결과를 본 뒤 바꾸지 않는다(바꿀 때는 새 trial).
  */
 final class IpoSubscriptionAdvisor {
@@ -94,7 +97,34 @@ final class IpoSubscriptionAdvisor {
      * @param listedShares    상장예정주식수
      */
     record Input(BigDecimal competitionRate, BigDecimal lockupRate, BigDecimal finalPrice, BigDecimal bandLow,
-                 BigDecimal bandHigh, BigDecimal floatRatio, Long listedShares, Context context) {
+                 BigDecimal bandHigh, BigDecimal floatRatio, Long listedShares, Context context, Account account) {
+
+        /** 보유 계좌를 보지 않고(과거 자료 검증·옛 호출) — A 항목 없음. */
+        Input(BigDecimal competitionRate, BigDecimal lockupRate, BigDecimal finalPrice, BigDecimal bandLow,
+              BigDecimal bandHigh, BigDecimal floatRatio, Long listedShares, Context context) {
+            this(competitionRate, lockupRate, finalPrice, bandLow, bandHigh, floatRatio, listedShares, context, null);
+        }
+    }
+
+    /**
+     * 보유 계좌로 청약할 수 있는지(2026-11-11).
+     *
+     * @param underwriters 인수인 이름(대표 먼저)
+     * @param held         그중 계좌를 가진 증권사(원래 이름)
+     */
+    record Account(List<String> underwriters, List<String> held) {
+        Account {
+            underwriters = underwriters == null ? List.of() : List.copyOf(underwriters);
+            held = held == null ? List.of() : List.copyOf(held);
+        }
+
+        /** 인수인 목록과 보유 증권사 열쇠({@link BrokerNames#keys})로 만든다. 둘 중 하나라도 비면 null(판단하지 않음). */
+        static Account of(List<String> underwriters, java.util.Set<String> heldKeys) {
+            if (underwriters == null || underwriters.isEmpty() || heldKeys == null || heldKeys.isEmpty()) {
+                return null;
+            }
+            return new Account(underwriters, BrokerNames.held(underwriters, heldKeys));
+        }
     }
 
     /** 점수 항목 하나 — 화면·알림에 근거로 그대로 싣는다. */
@@ -205,7 +235,18 @@ final class IpoSubscriptionAdvisor {
         }
         factors.add(new Factor("S", sText, sPoints));
 
-        int score = cPoints + lPoints + bPoints + fPoints + mPoints + sPoints;
+        int aPoints = 0;
+        if (in.account() != null) {
+            Account account = in.account();
+            if (!account.held().isEmpty()) {
+                aPoints = 1;
+                factors.add(new Factor("A", "보유 계좌로 청약 가능(%s)".formatted(String.join("·", account.held())), aPoints));
+            } else {
+                factors.add(new Factor("A", "보유 계좌 없음(인수 %s)".formatted(String.join("·", account.underwriters())), 0));
+            }
+        }
+
+        int score = cPoints + lPoints + bPoints + fPoints + mPoints + sPoints + aPoints;
         Grade grade;
         if (score <= -2 || c.compareTo(BigDecimal.valueOf(100)) < 0) {
             grade = Grade.PASS;

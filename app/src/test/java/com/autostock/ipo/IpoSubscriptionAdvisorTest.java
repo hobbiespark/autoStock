@@ -140,4 +140,33 @@ class IpoSubscriptionAdvisorTest {
         assertEquals(0, d("0.2").compareTo(ok.moodMean()));
         assertEquals(5, ok.moodSamples());
     }
+
+    // ── 2026-11-11 A 보유 계좌(T-IPO-2) ──────────────────────────────────────────
+
+    private static IpoSubscriptionAdvisor.Advice adviseWithAccount(IpoSubscriptionAdvisor.Account account) {
+        // 균등만 꼴: 1,157:1(+2) · 확약 중앙값 근처(0) · 밴드 안(−1) · 유통 25%(0) · 분위기 +50%(0) = +1
+        return IpoSubscriptionAdvisor.advise(new IpoSubscriptionAdvisor.Input(d("1157.98"), d("0.08"), d("15000"), d("13000"),
+                d("16000"), d("0.25"), null, WARM, account));
+    }
+
+    @Test
+    void 보유_계좌로_청약할_수_있으면_1점을_더한다() {
+        java.util.Set<String> held = BrokerNames.keys(List.of("SK증권", "키움증권"));
+
+        IpoSubscriptionAdvisor.Advice yes = adviseWithAccount(
+                IpoSubscriptionAdvisor.Account.of(List.of("엔에이치투자증권", "에스케이증권"), held));
+        assertEquals(1, points(yes, "A"));
+        assertEquals(2, yes.score());
+        assertTrue(yes.reason().contains(" · 보유 계좌로 청약 가능(에스케이증권, +1)"), yes.reason());
+
+        IpoSubscriptionAdvisor.Advice no = adviseWithAccount(
+                IpoSubscriptionAdvisor.Account.of(List.of("엔에이치투자증권"), held));
+        assertEquals(0, points(no, "A"));
+        assertEquals(1, no.score());
+        assertTrue(no.reason().contains(" · 보유 계좌 없음(인수 엔에이치투자증권)"), no.reason());
+
+        IpoSubscriptionAdvisor.Advice unknown = adviseWithAccount(IpoSubscriptionAdvisor.Account.of(List.of(), held));
+        assertTrue(unknown.factors().stream().noneMatch(f -> f.code().equals("A")), "인수인을 모르면 항목 없음");
+        assertEquals(1, unknown.score());
+    }
 }

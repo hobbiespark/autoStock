@@ -36,3 +36,4 @@ autoStock에 걸린 결정을 찾는 곳이다(공통 표준 문서 구조, VALU
 | D259 | 외부 키는 개발·운영이 같은 값을 쓴다 |
 | D336 | 품질 관문 `scripts/quality_gate.py`·커밋 전 훅은 VALUNIVO와 같은 출력, DB 시험은 필수(`--no-db`만 일부러 뺌), 지금 규칙 유지 |
 | D339 | 예상 평문(`examples`)은 플랫폼과의 검색·분류·중계용 기계 정보라 `/autostock_help`·화면 명령 목록에 보이지 않는다(설명서 `/api/app/v1/manifest`에만 둔다, VALUNIVO 812) |
+| D-27 | 2026-11-11 | 공모주 청약 추천에 **A 보유 계좌** 항목을 더한다 — 인수인(대표·공동·인수) 중 계좌를 가진 증권사가 있으면 +1, 등급도 이 합으로 정한다. 계좌가 없는 증권사는 보유 계좌로 못 하는 공모를 많이 맡은 곳부터 **한 달에 한 곳**만 텔레그램으로 개설을 요청한다. 보유 목록은 `ipo.subscription.held-brokers` | 사용자 요청("계좌 개설 제한이 있는 만큼 보유 증권사에서 청약 가능하면 +점수, 보유하지 않은 계좌 증권사는 1개월에 1개씩 개설 요청"). 수익률 예측이 아닌 실행 가능성 항목이라 T-IPO-1 사전 선언 뒤 새 trial T-IPO-2로 적는다. 번호는 미병합 `claude/as-ipo-live-sell` D-24·develop D-26 다음 | [ipo-subscription-strategy.md](ipo-subscription-strategy.md) 6절 |

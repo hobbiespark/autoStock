@@ -1,9 +1,11 @@
 package com.autostock.ipo;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
+import org.springframework.boot.context.properties.bind.ConstructorBinding;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 공모주 청약 금액 추천 설정(2026-10-30 사용자 "청약추천이라면 200만원 예산 내에서 얼마나 청약할지도 추천",
@@ -15,19 +17,29 @@ import java.math.BigDecimal;
  * @param marginRate 청약 증거금률(기본 0.5 = 50%)
  * @param minQty     최소 청약 수량(주, 기본 10 — 균등 배정 최소 단위)
  * @param unitQty    청약 단위(주, 기본 10 — 비례 수량은 이 단위로 내림)
+ * @param heldBrokers 계좌를 가진 증권사(2026-11-11 사용자) — 인수인 중 하나라도 있으면 청약 추천 점수 +1(A 항목), 없는 증권사는
+ *                   한 달에 한 곳씩 개설 요청 알림({@link IpoAccountOpenPlanner}). 이름 표기는 {@link BrokerNames}가 맞춘다.
+ *                   비우면 A 항목과 개설 요청을 모두 끈다
  */
 @ConfigurationProperties(prefix = "ipo.subscription")
 public record IpoSubscriptionProperties(
         @DefaultValue("2000000") BigDecimal budgetKrw,
         @DefaultValue("0.5") BigDecimal marginRate,
         @DefaultValue("10") int minQty,
-        @DefaultValue("10") int unitQty
+        @DefaultValue("10") int unitQty,
+        List<String> heldBrokers
 ) {
 
     /** 설정 없이 쓰는 기본값(시험·옛 생성자). */
     static final IpoSubscriptionProperties DEFAULT =
-            new IpoSubscriptionProperties(new BigDecimal("2000000"), new BigDecimal("0.5"), 10, 10);
+            new IpoSubscriptionProperties(new BigDecimal("2000000"), new BigDecimal("0.5"), 10, 10, List.of());
 
+    /** 보유 증권사 없이(시험·옛 생성자). */
+    public IpoSubscriptionProperties(BigDecimal budgetKrw, BigDecimal marginRate, int minQty, int unitQty) {
+        this(budgetKrw, marginRate, minQty, unitQty, List.of());
+    }
+
+    @ConstructorBinding
     public IpoSubscriptionProperties {
         if (budgetKrw == null || budgetKrw.signum() <= 0) {
             throw new IllegalArgumentException("ipo.subscription.budget-krw는 0보다 커야 한다");
@@ -38,5 +50,6 @@ public record IpoSubscriptionProperties(
         if (minQty <= 0 || unitQty <= 0) {
             throw new IllegalArgumentException("ipo.subscription.min-qty·unit-qty는 0보다 커야 한다");
         }
+        heldBrokers = heldBrokers == null ? List.of() : List.copyOf(heldBrokers);
     }
 }

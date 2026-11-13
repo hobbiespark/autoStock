@@ -133,6 +133,7 @@ class DartClientTest {
         assertEquals(LocalDate.of(2026, 11, 10), d.subscriptionEnd());
         assertEquals(LocalDate.of(2026, 11, 17), d.refundDate());
         assertEquals("SK증권", d.leadManager(), "actsen=대표 인수인을 주관사로 선택해야 함");
+        assertEquals(java.util.List.of("SK증권", "상상인증권"), d.underwriters(), "인수인 전부, 대표 먼저(2026-11-11)");
         assertEquals(new BigDecimal("5030"), d.offerPriceConfirmed(), "slprc(5,030)의 콤마를 제거해 숫자로 파싱해야 함");
         assertEquals(3_800_000L, d.sharesOffered());
     }
