@@ -934,6 +934,31 @@ class IpoSyncSchedulerTest {
     }
 
     @Test
+    void 계좌_개설_요청은_거꾸로_채운_지난_공모_이력으로_1_3_5년_실적을_센다() {
+        // VALUNIVO 875(D-29): 운영 경로(accountPass)가 이력 저장소·진행 위치를 계획기에 넘긴다.
+        MutableClock clock = new MutableClock(LocalDateTime.of(2026, 11, 13, 10, 5));
+        when(repository.findAll()).thenReturn(List.of());
+        IpoSyncScheduler scheduler = schedulerHolding(List.of("KB증권"), clock);
+        IpoUnderwritingHistoryRepository historyRepo = mock(IpoUnderwritingHistoryRepository.class);
+        IpoBackfillProgressRepository progressRepo = mock(IpoBackfillProgressRepository.class);
+        Instant at = Instant.parse("2026-11-13T00:00:00Z");
+        when(historyRepo.findAll()).thenReturn(List.of(
+                new IpoUnderwritingHistoryEntity("H1", "가나", "R1", LocalDate.of(2026, 5, 1), LocalDate.of(2026, 5, 20), List.of("교보증권"), at),
+                new IpoUnderwritingHistoryEntity("H2", "다라", "R2", LocalDate.of(2024, 5, 1), LocalDate.of(2024, 5, 20), List.of("신영증권"), at),
+                new IpoUnderwritingHistoryEntity("H3", "마바", "R3", LocalDate.of(2023, 12, 1), LocalDate.of(2023, 12, 20), List.of("신영증권"), at)));
+        when(progressRepo.findById(IpoUnderwriterBackfill.PROGRESS_NAME)).thenReturn(Optional.of(
+                new IpoBackfillProgressEntity(IpoUnderwriterBackfill.PROGRESS_NAME, LocalDate.of(2021, 11, 13), LocalDate.of(2021, 11, 13), at)));
+        scheduler.underwritingHistory(historyRepo, progressRepo);
+
+        scheduler.accountPass(LocalDate.of(2026, 11, 13));
+
+        List<IpoAlert> alerts = accountAlerts();
+        assertEquals(1, alerts.size());
+        assertTrue(alerts.get(0).message().startsWith("[계좌 개설 요청] 교보증권 — "), "1년 실적이 3년 실적보다 먼저: " + alerts.get(0).message());
+        assertTrue(alerts.get(0).message().contains("보유 계좌로 못 한 공모 인수: 최근 1년 1건 · 3년 1건 · 5년 1건. "), alerts.get(0).message());
+    }
+
+    @Test
     void 보유_증권사_목록이_비면_가점_항목과_계좌_개설_요청을_모두_끈다() {
         MutableClock clock = new MutableClock(LocalDateTime.of(2026, 11, 13, 10, 5));
         IpoDealEntity notHeld = dealUnderwrittenBy("01000001", "가나전자", "20261110000001", LocalDate.of(2026, 11, 20),
