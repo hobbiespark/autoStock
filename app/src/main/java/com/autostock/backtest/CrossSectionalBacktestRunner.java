@@ -151,6 +151,7 @@ public final class CrossSectionalBacktestRunner {
         Map<String, Double> qty = new LinkedHashMap<>();     // 보유 수량(분수 허용)
         Map<String, Double> lastClose = new HashMap<>();     // 결측일 평가용 마지막 종가
         List<String> pendingTargets = null;                  // 형성일에 계산돼 익일 시가에 실행될 목표
+        Map<String, Double> pendingWeights = null;           // 목표 비중(null이면 동일가중)
         Set<String> pendingExits = new HashSet<>();          // 리밸런싱 날 거래가 없어 못 판 종목 — 다음 거래일 시가에 매도
 
         List<LocalDate> dates = new ArrayList<>();
@@ -166,6 +167,7 @@ public final class CrossSectionalBacktestRunner {
         // 최초 편입: start 전날을 형성일로 삼아 첫날 시가부터 투자한다
         Formation initial = form(series, calendar, startIdx - 1, strategy, config);
         pendingTargets = initial.targets();
+        pendingWeights = initial.weights();
         universeSum += initial.universeSize();
         universeCount++;
 
@@ -192,7 +194,11 @@ public final class CrossSectionalBacktestRunner {
                 // 매도: 목표에 없는 종목 전량, 목표에 있는 종목은 초과분
                 List<String> held = new ArrayList<>(qty.keySet());
                 Map<String, Double> targetValue = new HashMap<>();
-                if (!pendingTargets.isEmpty()) {
+                if (pendingWeights != null) {
+                    for (Map.Entry<String, Double> w : pendingWeights.entrySet()) {
+                        targetValue.put(w.getKey(), equityAtOpen * w.getValue());
+                    }
+                } else if (!pendingTargets.isEmpty()) {
                     double each = equityAtOpen / pendingTargets.size();
                     for (String t : pendingTargets) {
                         targetValue.put(t, each);
@@ -226,8 +232,8 @@ public final class CrossSectionalBacktestRunner {
                 // 매수: 목표 대비 부족분
                 for (String t : pendingTargets) {
                     double open = series.get(t).open[i];
-                    if (Double.isNaN(open) || open <= 0) {
-                        continue; // 체결 불가 — 그 몫은 현금으로 남는다
+                    if (Double.isNaN(open) || open <= 0 || !targetValue.containsKey(t)) {
+                        continue; // 체결 불가(또는 비중 0) — 그 몫은 현금으로 남는다
                     }
                     double current = qty.getOrDefault(t, 0.0) * open;
                     double target = targetValue.get(t);
@@ -249,6 +255,7 @@ public final class CrossSectionalBacktestRunner {
                 rebalances++;
                 turnoverSum += equityAtOpen > 0 ? soldValue / equityAtOpen : 0;
                 pendingTargets = null;
+                pendingWeights = null;
             }
 
             // ── 2) 상장폐지(시계열 종료) 청산 ────────────────────────────────
@@ -274,6 +281,7 @@ public final class CrossSectionalBacktestRunner {
             if (i < endIdx && isMonthEnd(calendar, i)) {
                 Formation f = form(series, calendar, i, strategy, config);
                 pendingTargets = f.targets();
+                pendingWeights = f.weights();
                 universeSum += f.universeSize();
                 universeCount++;
             }
@@ -291,7 +299,8 @@ public final class CrossSectionalBacktestRunner {
 
     // ── 형성: 유니버스 → 전략 선택 ──────────────────────────────────────────
 
-    private record Formation(List<String> targets, int universeSize) {
+    /** weights가 null이면 동일가중. 아니면 targets 중 weights에 있는 종목만 그 비중으로 산다. */
+    private record Formation(List<String> targets, Map<String, Double> weights, int universeSize) {
     }
 
     private Formation form(Map<String, Series> series, List<LocalDate> calendar, int f,
@@ -303,7 +312,7 @@ public final class CrossSectionalBacktestRunner {
         if (byCap) {
             Map.Entry<LocalDate, Map<String, Double>> snap = config.marketCapByDate().floorEntry(calendar.get(f));
             if (snap == null) {
-                return new Formation(List.of(), 0); // 형성일 이전 스냅샷 없음 — 이 달은 현금
+                return new Formation(List.of(), null, 0); // 형성일 이전 스냅샷 없음 — 이 달은 현금
             }
             capSnapshot = snap.getValue();
         }
@@ -353,7 +362,33 @@ public final class CrossSectionalBacktestRunner {
                 histories.put(sym, hist);
             }
         }
-        return new Formation(List.copyOf(strategy.select(histories)), histories.size());
+        CrossSectionalStrategy.FormationContext context =
+                new CrossSectionalStrategy.FormationContext(calendar.get(f), capSnapshot);
+        List<String> picked = List.copyOf(strategy.select(context, histories));
+        return new Formation(picked, normalizedWeights(picked, strategy.targetWeights(context, picked)), histories.size());
+    }
+
+    /** 전략이 준 비중을 고른 종목·양수만 남겨 합 1로. null이거나 양수가 없으면 null(= 동일가중). */
+    static Map<String, Double> normalizedWeights(List<String> picked, Map<String, Double> raw) {
+        if (raw == null || picked.isEmpty()) {
+            return null;
+        }
+        Map<String, Double> out = new LinkedHashMap<>();
+        double sum = 0;
+        for (String s : picked) {
+            Double w = raw.get(s);
+            if (w != null && w > 0 && !w.isNaN() && !w.isInfinite()) {
+                out.put(s, w);
+                sum += w;
+            }
+        }
+        if (sum <= 0) {
+            return null;
+        }
+        for (Map.Entry<String, Double> e : out.entrySet()) {
+            e.setValue(e.getValue() / sum);
+        }
+        return out;
     }
 
     // ── 회계 보조 ──────────────────────────────────────────────────────────

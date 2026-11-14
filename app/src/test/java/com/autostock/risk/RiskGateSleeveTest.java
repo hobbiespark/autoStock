@@ -233,6 +233,7 @@ class RiskGateSleeveTest {
     @Test
     void 지평은_전략_ID에서_유도한다() {
         assertEquals("MID", RiskGate.horizonFor("C3-MOMENTUM"));
+        assertEquals("LONG", RiskGate.horizonFor("KODEX-HOLD"));
         assertEquals("DAY", RiskGate.horizonFor("VB-DAY"));
         assertEquals("DAY", RiskGate.horizonFor("ON-CLOSE"));
         assertEquals("SWING", RiskGate.horizonFor("TA-H3"));

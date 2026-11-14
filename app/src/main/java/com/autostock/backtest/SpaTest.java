@@ -53,7 +53,8 @@ public final class SpaTest {
     public static final int DEFAULT_RESAMPLES = StationaryBootstrap.DEFAULT_RESAMPLES;
     public static final long DEFAULT_SEED = StationaryBootstrap.DEFAULT_SEED;
 
-    private final double[] benchmarkReturns;
+    /** 후보 k의 벤치마크 — v2는 모든 후보가 같은 배열, v3(ADR-15)는 후보마다 변동성을 맞춘 배열. */
+    private final List<double[]> benchmarkByCandidate;
     private final List<String> candidateLabels;
     private final List<double[]> candidateReturns;
     private final int meanBlockLength;
@@ -66,6 +67,20 @@ public final class SpaTest {
 
     public SpaTest(double[] benchmarkReturns, Map<String, double[]> candidates,
                     int meanBlockLength, int resamples, long seed) {
+        this(benchmarkReturns, candidates, meanBlockLength, resamples, seed, false);
+    }
+
+    /**
+     * 게이트 ① v3(ADR-15) — 후보마다 {@link VolatilityMatchedBenchmark}로 만든 "지수 w + 현금" 벤치마크와 비교한다.
+     * 부트스트랩 인덱스는 v2와 같이 모든 후보가 공유한다(교차상관 보존).
+     */
+    public static SpaTest volatilityMatched(double[] benchmarkReturns, Map<String, double[]> candidates,
+                                            int meanBlockLength, int resamples, long seed) {
+        return new SpaTest(benchmarkReturns, candidates, meanBlockLength, resamples, seed, true);
+    }
+
+    private SpaTest(double[] benchmarkReturns, Map<String, double[]> candidates,
+                    int meanBlockLength, int resamples, long seed, boolean volatilityMatched) {
         if (benchmarkReturns == null || benchmarkReturns.length == 0) {
             throw new IllegalArgumentException("benchmarkReturns가 비어 있음");
         }
@@ -73,18 +88,23 @@ public final class SpaTest {
             throw new IllegalArgumentException("candidates가 비어 있음");
         }
         int t = benchmarkReturns.length;
+        double[] benchmark = benchmarkReturns.clone();
         this.candidateLabels = new ArrayList<>();
         this.candidateReturns = new ArrayList<>();
+        this.benchmarkByCandidate = new ArrayList<>();
         for (Map.Entry<String, double[]> e : candidates.entrySet()) {
             if (e.getValue() == null || e.getValue().length != t) {
                 throw new IllegalArgumentException("후보 '" + e.getKey() + "'의 길이(" +
                         (e.getValue() == null ? "null" : e.getValue().length) +
                         ")가 벤치마크 길이(" + t + ")와 다름 — 공통 날짜 정렬을 먼저 해야 함");
             }
+            double[] candidate = e.getValue().clone();
             candidateLabels.add(e.getKey());
-            candidateReturns.add(e.getValue().clone());
+            candidateReturns.add(candidate);
+            benchmarkByCandidate.add(volatilityMatched
+                    ? VolatilityMatchedBenchmark.series(candidate, benchmark)
+                    : benchmark);
         }
-        this.benchmarkReturns = benchmarkReturns.clone();
         this.meanBlockLength = meanBlockLength;
         this.resamples = resamples;
         this.seed = seed;
@@ -104,15 +124,16 @@ public final class SpaTest {
     }
 
     public SpaResult run() {
-        int observations = benchmarkReturns.length;
+        int observations = benchmarkByCandidate.get(0).length;
         int candidateCount = candidateReturns.size();
 
-        // d_k,t = r_k,t - r_bench,t
+        // d_k,t = r_k,t - r_bench(k),t
         double[][] d = new double[candidateCount][observations];
         for (int k = 0; k < candidateCount; k++) {
             double[] c = candidateReturns.get(k);
+            double[] bench = benchmarkByCandidate.get(k);
             for (int t = 0; t < observations; t++) {
-                d[k][t] = c[t] - benchmarkReturns[t];
+                d[k][t] = c[t] - bench[t];
             }
         }
 

@@ -101,6 +101,30 @@ class CrossSectionalBacktestRunnerTest {
         assertThat(r.dailyReturns().get(1)).isCloseTo(expected, within(1e-9));
     }
 
+    /** 트랙 Z3용 비중 지정 — 전략이 3:1(합 1이 아니어도 됨)을 주면 엔진이 75:25로 맞춰 산다. 0·음수 비중 종목은 사지 않는다. */
+    @Test
+    void 전략이_비중을_주면_그_비중으로_산다() {
+        List<LocalDate> cal = weekdays(40);
+        Map<String, List<Candle>> data = new LinkedHashMap<>();
+        data.put("A", candles("A", cal, 0, 39, i -> 100 + i));
+        data.put("B", candles("B", cal, 0, 39, i -> 50 + i));
+        data.put("C", candles("C", cal, 0, 39, i -> 100 + 2 * i));
+        CrossSectionalStrategy weighted = new CrossSectionalStrategy() {
+            @Override public String label() { return "test weighted"; }
+            @Override public int minHistoryDays() { return 5; }
+            @Override public List<String> select(Map<String, double[]> histories) { return List.of("A", "B", "C"); }
+            @Override public Map<String, Double> targetWeights(FormationContext context, List<String> selected) {
+                return Map.of("A", 3.0, "B", 1.0, "C", 0.0);
+            }
+        };
+
+        var r = new CrossSectionalBacktestRunner().run(data, cal, weighted, config(cal, 10, ZERO_COST));
+
+        double expected = 0.75 * (111.0 / 110.0 - 1) + 0.25 * (61.0 / 60.0 - 1);
+        assertThat(r.dailyReturns().get(1)).isCloseTo(expected, within(1e-9));
+        assertThat(CrossSectionalBacktestRunner.normalizedWeights(List.of("A"), Map.of("A", -1.0))).isNull();
+    }
+
     @Test
     void 전략은_형성일_종가까지만_본다_룩어헤드_없음() {
         List<LocalDate> cal = weekdays(30);

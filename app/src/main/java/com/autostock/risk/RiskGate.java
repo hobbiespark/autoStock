@@ -817,7 +817,7 @@ public class RiskGate {
     }
 
     /**
-     * strategyId → 보유기간 지평(ADR-11) 매핑. C3 "MID", 단타·종가→익일 "DAY", 차트 기법 "SWING", 그 외 "TEST"
+     * strategyId → 보유기간 지평(ADR-11) 매핑. C3 "MID", 지수 보유 "LONG", 단타·종가→익일 "DAY", 차트 기법 "SWING", 그 외 "TEST"
      * (2026-10-16 다전략 추가).
      */
     static String horizonFor(String strategyId) {
@@ -827,6 +827,9 @@ public class RiskGate {
         String id = strategyId.toUpperCase(Locale.ROOT);
         if (id.startsWith("C3")) {
             return "MID";
+        }
+        if (id.startsWith("KODEX-HOLD")) {
+            return "LONG"; // 지수 보유(경로 C, ADR-16)
         }
         if (id.startsWith("VB-") || id.startsWith("ON-")) {
             return "DAY";

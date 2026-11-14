@@ -23,7 +23,7 @@ PG18 후보 DB 검증: [PG18 리허설](../pg18-rehearsal.md)(VALUNIVO 4-5 U6, �
 |---|---|
 | [PLAN.md](../../PLAN.md) | 개발 계획·ADR·로드맵 |
 | [BACKTEST_REPORT.md](../../BACKTEST_REPORT.md) | 백테스트 보고 |
-| [docs/research/](../../docs/research/) | 게이트 진단·X0 진단 |
+| [docs/research/](../../docs/research/) | 게이트 진단·X0 진단·ADR-15 게이트 v3와 트랙 Y·F 사전 선언 |
 | [upgrade-2026-10/05-research-planning.md](../upgrade-2026-10/05-research-planning.md) | 기획 관점 조사 |
 | [upgrade-2026-10/07-research-trading-market.md](../upgrade-2026-10/07-research-trading-market.md) | 시장 구조 조사 |
 | [upgrade-2026-10/08-research-trading-strategy.md](../upgrade-2026-10/08-research-trading-strategy.md) | 전략 조사 |
