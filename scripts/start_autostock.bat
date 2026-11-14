@@ -3,6 +3,7 @@ chcp 65001 >nul
 REM console to UTF-8 (pairs with bootRun -Dstdout.encoding=UTF-8 in app/build.gradle.kts)
 REM autoStock start - paper profile, LIVE(mock) mode + C3 + WS + auto-start (RUNBOOK 5)
 REM No goto/labels in this file (line-ending safe). Env load + docker wait are delegated to PowerShell.
+set "AUTOSTOCK_START_LAYOUT=888"
 cd /d "%~dp0.."
 
 REM ---- already running? (2026-10-15 07:53: started twice 17s apart; the 2nd died on port 8080 after touching the DB) ----
@@ -89,14 +90,26 @@ if exist "%RELCMD%" del "%RELCMD%" >nul 2>&1
 echo [O] starting autoStock (stop = Ctrl+C or scripts\stop_autostock.bat)
 REM flags: LIVE(mock) mode, KODEX-HOLD index sleeve (path C, ADR-16, replaces C3 from 2026-11-14) + multi-strategy paper trial (VB-DAY, ON-CLOSE, TA-H1..H5 - aiDoc/multi-strategy-paper-2026-10-16.md), WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync + new-listing check (+ telegram when keys exist)
 set "AUTOSTOCK_ARGS=--execution.mode=LIVE --strategy.hold.enabled=true --strategy.vb.enabled=true --strategy.on.enabled=true --strategy.ta.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true --autostock.listing-watch.enabled=true%TG_ARGS%"
+REM 888 transition padding (see the guard comment below)
+REM pad .....................................................................................................................................................................................................................................................................................................................................................................................................................................................................
+if not defined AUTOSTOCK_START_LAYOUT exit /b
+REM ---- 888 transition guard: cmd reads a .bat from the file by byte offset, line by line. A checkout update
+REM      while autoStock ran (11-14 11:42) made the old cmd resume mid-line at stop (11:56). The guard above sits
+REM      at the offset where a pre-888 copy resumes after java exits, so that copy ends there. The padding keeps
+REM      that offset: leave the lines above the guard as they are until no pre-888 copy runs (any restart ends it).
 REM release jar: same working folder (app\, the bootRun default) and the same JVM flags as app\build.gradle.kts bootRun
+REM 888: java and every command after it run from one parenthesized block that cmd parses before java starts,
+REM      so editing this file while autoStock runs cannot make cmd run a line fragment when java exits.
 if defined AUTOSTOCK_RELEASE_JAR (
   echo [O] release %AUTOSTOCK_RELEASE_NAME% - java -jar %AUTOSTOCK_RELEASE_JAR%
   pushd app
   "%JAVA_HOME%\bin\java.exe" -Dfile.encoding=UTF-8 -Dstdout.encoding=UTF-8 -Dstderr.encoding=UTF-8 --enable-native-access=ALL-UNNAMED -jar "%AUTOSTOCK_RELEASE_JAR%" %AUTOSTOCK_ARGS%
   popd
+  pause
+  exit /b
 ) else (
   echo [.] source mode - gradle bootRun
   call gradlew.bat :app:bootRun --args="%AUTOSTOCK_ARGS%"
+  pause
+  exit /b
 )
-pause
