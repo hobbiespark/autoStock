@@ -87,8 +87,8 @@ if exist "%RELCMD%" call "%RELCMD%"
 if exist "%RELCMD%" del "%RELCMD%" >nul 2>&1
 
 echo [O] starting autoStock (stop = Ctrl+C or scripts\stop_autostock.bat)
-REM flags: LIVE(mock) mode, C3 + multi-strategy paper trial (VB-DAY, ON-CLOSE, TA-H1..H5 - aiDoc/multi-strategy-paper-2026-10-16.md), WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync + new-listing check (+ telegram when keys exist)
-set "AUTOSTOCK_ARGS=--execution.mode=LIVE --strategy.c3.enabled=true --strategy.vb.enabled=true --strategy.on.enabled=true --strategy.ta.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true --autostock.listing-watch.enabled=true%TG_ARGS%"
+REM flags: LIVE(mock) mode, KODEX-HOLD index sleeve (path C, ADR-16, replaces C3 from 2026-11-14) + multi-strategy paper trial (VB-DAY, ON-CLOSE, TA-H1..H5 - aiDoc/multi-strategy-paper-2026-10-16.md), WS, auto-start + DART(ipo/blacklist) + macro(FRED/ECOS) + holiday sync + new-listing check (+ telegram when keys exist)
+set "AUTOSTOCK_ARGS=--execution.mode=LIVE --strategy.hold.enabled=true --strategy.vb.enabled=true --strategy.on.enabled=true --strategy.ta.enabled=true --autostock.ws.enabled=true --autostock.trading.auto-start=true --dart.enabled=true --macrointel.enabled=true --macrointel.blacklist.enabled=true --market.holiday-api.enabled=true --autostock.minute-archive.enabled=true --autostock.listing-watch.enabled=true%TG_ARGS%"
 REM release jar: same working folder (app\, the bootRun default) and the same JVM flags as app\build.gradle.kts bootRun
 if defined AUTOSTOCK_RELEASE_JAR (
   echo [O] release %AUTOSTOCK_RELEASE_NAME% - java -jar %AUTOSTOCK_RELEASE_JAR%

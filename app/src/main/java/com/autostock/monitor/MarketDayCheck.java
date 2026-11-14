@@ -10,6 +10,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.health.contributor.Health;
 import org.springframework.boot.health.contributor.HealthContributor;
@@ -52,6 +53,8 @@ public class MarketDayCheck {
     private static final Logger log = LoggerFactory.getLogger(MarketDayCheck.class);
 
     static final String C3_STRATEGY_ID = "C3-MOMENTUM";
+    /** 지수 보유 전략(경로 C, ADR-16) — strategy 모듈 타입을 참조하지 않으려고 ID 문자열만 둔다(C3와 같은 방식). */
+    static final String HOLD_STRATEGY_ID = "KODEX-HOLD";
     private static final DateTimeFormatter EXPIRES = DateTimeFormatter.ofPattern("MM/dd HH:mm");
 
     private final MarketCheckProperties properties;
@@ -62,16 +65,29 @@ public class MarketDayCheck {
     private final ObjectProvider<HealthContributorRegistry> healthRegistry;
     private final MeterRegistry meterRegistry;
     private final boolean c3Enabled;
+    private final boolean holdEnabled;
     private final Clock clock;
 
     /** 전략별 마지막 정기 실행일 — 09:15 확인용(재기동하면 비지만 09:05 실행이 다시 채운다). */
     private final Map<String, LocalDate> lastRun = new ConcurrentHashMap<>();
 
+    /** 시험용 — 지수 보유 전략 꺼짐. */
+    public MarketDayCheck(MarketCheckProperties properties, NotificationDispatcher dispatcher,
+                          MarketCalendarService marketCalendar, MarketSessionService marketSession,
+                          TradingSystemManager tradingSystem, ObjectProvider<HealthContributorRegistry> healthRegistry,
+                          MeterRegistry meterRegistry, boolean c3Enabled, Clock clock) {
+        this(properties, dispatcher, marketCalendar, marketSession, tradingSystem, healthRegistry, meterRegistry,
+                c3Enabled, false, clock);
+    }
+
+    @Autowired
     public MarketDayCheck(MarketCheckProperties properties, NotificationDispatcher dispatcher,
                           MarketCalendarService marketCalendar, MarketSessionService marketSession,
                           TradingSystemManager tradingSystem, ObjectProvider<HealthContributorRegistry> healthRegistry,
                           MeterRegistry meterRegistry, @Value("${strategy.c3.enabled:false}") boolean c3Enabled,
+                          @Value("${strategy.hold.enabled:false}") boolean holdEnabled,
                           Clock clock) {
+        this.holdEnabled = holdEnabled;
         this.properties = properties;
         this.dispatcher = dispatcher;
         this.marketCalendar = marketCalendar;
@@ -96,21 +112,30 @@ public class MarketDayCheck {
         dispatcher.submit(event.success() ? NoticeLevel.INFO : NoticeLevel.WARN, event.summary());
     }
 
-    /** 09:15 — C3(09:05)가 오늘 돌았는가. */
+    /** 09:15 — 켜진 09:05 전략(C3·지수 보유)이 오늘 돌았는가. */
     @Scheduled(cron = "0 15 9 * * MON-FRI", zone = "Asia/Seoul")
     public void checkStrategyRan() {
         LocalDate today = LocalDate.now(clock.withZone(MarketConstants.KST));
-        if (!properties.enabled() || !c3Enabled || !marketCalendar.isTradingDay(today)) {
+        if (!properties.enabled() || !marketCalendar.isTradingDay(today)) {
             return;
         }
-        if (today.equals(lastRun.get(C3_STRATEGY_ID))) {
-            log.info("장중 점검 09:15 — C3 오늘 실행 확인");
+        if (c3Enabled) {
+            checkRan(today, C3_STRATEGY_ID, "C3");
+        }
+        if (holdEnabled) {
+            checkRan(today, HOLD_STRATEGY_ID, "KODEX-HOLD");
+        }
+    }
+
+    private void checkRan(LocalDate today, String strategyId, String name) {
+        if (today.equals(lastRun.get(strategyId))) {
+            log.info("장중 점검 09:15 — {} 오늘 실행 확인", name);
             return;
         }
         TradingSystemStatus status = tradingSystem.status();
         String message = status == TradingSystemStatus.RUNNING
-                ? "장중 점검: C3 오늘(%s) 09:05 실행 기록 없음 — 로그의 C3 줄 확인 필요".formatted(today)
-                : "장중 점검: C3 오늘(%s) 실행 안 함 — 매매 시스템 상태 %s".formatted(today, status);
+                ? "장중 점검: %s 오늘(%s) 09:05 실행 기록 없음 — 로그의 %s 줄 확인 필요".formatted(name, today, name)
+                : "장중 점검: %s 오늘(%s) 실행 안 함 — 매매 시스템 상태 %s".formatted(name, today, status);
         log.warn(message);
         dispatcher.submit(NoticeLevel.WARN, message);
     }

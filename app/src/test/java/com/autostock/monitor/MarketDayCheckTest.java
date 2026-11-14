@@ -103,6 +103,27 @@ class MarketDayCheckTest {
         assertEquals(NoticeLevel.WARN, sent.get(1).level());
     }
 
+    /** 경로 C(ADR-16) — C3를 끄고 지수 보유만 켰을 때 09:15 확인은 KODEX-HOLD를 본다(운영 생성자). */
+    @Test
+    @SuppressWarnings("unchecked")
+    void 지수보유만_켜면_0915_확인은_KODEX_HOLD를_본다() {
+        ObjectProvider<HealthContributorRegistry> provider = mock(ObjectProvider.class);
+        when(provider.getIfAvailable()).thenReturn(new DefaultHealthContributorRegistry());
+        MarketDayCheck check = new MarketDayCheck(new MarketCheckProperties(true, false, 120), dispatcher, calendar, session,
+                tradingSystem, provider, meters, false, true, AT_10);
+
+        check.checkStrategyRan();
+        List<Notice> missing = sent();
+        assertEquals(1, missing.size());
+        assertEquals(NoticeLevel.WARN, missing.get(0).level());
+        assertTrue(missing.get(0).message().contains("KODEX-HOLD"), missing.get(0).message());
+
+        notices.clear();
+        check.onStrategyRun(new StrategyRunCompleted("KODEX-HOLD", DAY, "KODEX-HOLD 판단", 0, Instant.parse("2026-10-07T00:05:13Z")));
+        check.checkStrategyRan();
+        assertTrue(sent().isEmpty(), "오늘 실행했으면 경고 없음(실행 요약 알림은 꺼 둠)");
+    }
+
     @Test
     void 실행_요약_알림을_끄면_보내지_않지만_실행_기록은_남긴다() {
         MarketDayCheck check = check(new MarketCheckProperties(true, false, 120));
