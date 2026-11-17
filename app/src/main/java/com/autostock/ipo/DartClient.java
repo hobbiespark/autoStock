@@ -233,6 +233,36 @@ public class DartClient {
         }
     }
 
+    /**
+     * 회사의 최신 공모 한 건 — 접수번호를 모를 때(지난 공모 거꾸로 채우기). 돌아온 "일반사항" 행의 접수번호(가장 큰 번호)로 상세와 종류를 읽는다.
+     *
+     * <p>실측(2026-11-18, VALUNIVO 893, 운영 공모 목록 20여 곳): {@code estkRs.json}의 {@code bgn_de~end_de}는 <b>최초 증권신고서의
+     * 접수일</b>에 걸리고, 돌아오는 행은 그 공모의 <b>가장 나중 정정 신고서</b> 한 건이다. 정정·[발행조건확정]이 접수된 기간으로 부르면 013(자료 없음),
+     * 최초 신고서 기간으로 부르면 다른 접수번호의 행이 온다. 그래서 접수번호를 맞추지 않고, 최초 신고서가 들어가도록 넓은 기간으로 한 번 부른다.
+     * 없거나 실패하면 {@link Optional#empty()}.
+     */
+    public Optional<OfferingLookup> fetchLatestOffering(String corpCode, LocalDate since, LocalDate until) {
+        try {
+            Map<String, Object> response = callDetail(corpCode, since, until);
+            return parseOffering(response, latestGeneralRceptNo(response));
+        } catch (RuntimeException e) {
+            log.error("DART estkRs.json 조회 실패(corpCode={}, 최신 공모)", corpCode, SecretMasking.sanitizeForLogging(e));
+            return Optional.empty();
+        }
+    }
+
+    /** 응답 "일반사항" 행 가운데 가장 큰 접수번호. 행이 없으면 빈 문자열(→ 상세 없음). */
+    private String latestGeneralRceptNo(Map<String, Object> response) {
+        if (response == null || !(response.get("group") instanceof List<?> groups)) {
+            return "";
+        }
+        return allRows(groups, "일반사항").stream()
+                .map(r -> stringOrNull(r.get("rcept_no")))
+                .filter(java.util.Objects::nonNull)
+                .max(java.util.Comparator.naturalOrder())
+                .orElse("");
+    }
+
     /** 회사 한 곳의 [since, until] 증권신고서(지분증권) 계열 공시 — [발행조건확정] 찾기용. 실패하면 빈 목록. */
     public List<DealNotice> fetchCorpEquityFilings(String corpCode, LocalDate since, LocalDate until) {
         try {
