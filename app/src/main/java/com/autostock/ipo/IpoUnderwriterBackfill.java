@@ -21,7 +21,7 @@ import java.util.stream.Collectors;
  *
  * <p>첫 실행 날부터 {@code years}년 전까지, 2주 창씩 과거로 거슬러 {@code list.json}(지분증권 신고서)을 읽고 회사마다
  * {@code estkRs.json}으로 공모 종류와 인수인을 받아 {@code ipo_underwriting_history}에 남긴다. 5년이면 호출이 수천 번이라 한 번에 하지 않고
- * 밤(00~06시) 매시 {@code windowsPerPass}창씩 나눠 진행 위치({@code ipo_backfill_progress})를 저장한다 — 재기동해도 이어 간다.
+ * 장 밖 켜짐 시간(07:40, 16:40~19:40)에 {@code windowsPerPass}창씩 나눠 진행 위치({@code ipo_backfill_progress})를 저장한다 — 재기동해도 이어 간다.
  *
  * <ul>
  *   <li>목록을 끝까지 읽지 못한 창은 진행 위치를 옮기지 않는다(다음 번에 같은 창을 다시 읽음).</li>
@@ -59,8 +59,13 @@ public class IpoUnderwriterBackfill {
         this.clock = clock;
     }
 
-    /** 밤 00~06시 매시 40분(낮 배치·매시 점검과 겹치지 않게). */
-    @Scheduled(cron = "0 40 0-6 * * *", zone = "Asia/Seoul")
+    /**
+     * PC 켜짐 시간(07~20시, VALUNIVO D351)의 장 밖: 장 시작 전 07:40과 장 마감 뒤 16:40~19:40, 하루 5번.
+     * 매시 점검(:05)·07~08시 장전 점검(5분마다)·08:20~ 배치·18:10·18:30 배치와 겹치지 않는 40분이다.
+     */
+    static final String CRON = "0 40 7,16-19 * * *";
+
+    @Scheduled(cron = CRON, zone = "Asia/Seoul")
     public void scheduledPass() {
         if (!properties.enabled() || !dartProperties.enabled()) {
             return;
