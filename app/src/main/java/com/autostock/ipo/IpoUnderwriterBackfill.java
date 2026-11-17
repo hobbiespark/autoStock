@@ -26,7 +26,7 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>목록을 끝까지 읽지 못한 창은 진행 위치를 옮기지 않는다(다음 번에 같은 창을 다시 읽음).</li>
  *   <li>공모 종류가 {@link OfferingKind#IPO}로 판정된 회사만 남긴다(유상증자·판정 불가 제외). 이미 남긴 회사는 다시 조회하지 않는다.</li>
- *   <li>{@code estkRs.json}은 회사의 최신 신고서 한 건만 돌려주고 [발행조건확정] 접수번호로는 행이 없어, 그 회사의 다른 접수번호를 최신부터 시도한다.</li>
+ *   <li>{@code estkRs.json}은 기간이 최초 증권신고서 접수일에 걸릴 때 최신 정정 신고서 한 건을 돌려주므로, 회사마다 창 끝에서 1년을 거슬러 한 번 묻는다(VALUNIVO 893).</li>
  * </ul>
  * 주문·거래와 관계없다. 실패는 로그로만 남기고 밖으로 던지지 않는다.
  */
@@ -36,10 +36,10 @@ public class IpoUnderwriterBackfill {
     private static final Logger log = LoggerFactory.getLogger(IpoUnderwriterBackfill.class);
 
     /**
-     * 진행 위치 이름. 2026-11-14 결함 수정(VALUNIVO 880)으로 {@code underwriters}(첫판, 공모 대부분을 놓침)에서 바꿔 처음부터 다시 훑는다.
-     * 옛 행은 남겨 두고 쓰지 않는다(이미 저장한 회사는 건너뛰므로 지울 것이 없다).
+     * 진행 위치 이름. 결함 수정 때마다 바꿔 처음부터 다시 훑는다: {@code underwriters}(첫판) → {@code underwriters-v2}(VALUNIVO 880)
+     * → {@code underwriters-v3}(VALUNIVO 893, 회사마다 넓은 기간 한 번 조회). 옛 행은 남겨 두고 쓰지 않는다(이미 저장한 회사는 건너뛰므로 지울 것이 없다).
      */
-    static final String PROGRESS_NAME = "underwriters-v2";
+    static final String PROGRESS_NAME = "underwriters-v3";
     static final int WINDOW_DAYS = 14;
 
     private final DartClient dart;
@@ -120,14 +120,19 @@ public class IpoUnderwriterBackfill {
         int unknownKind;
     }
 
-    private enum Miss { EMPTY, NO_DETAIL, UNKNOWN_KIND }
+    /**
+     * 상세 조회를 창 끝에서 얼마나 거슬러 묻는가. {@code estkRs.json}의 기간은 <b>최초 증권신고서 접수일</b>에 걸리고(VALUNIVO 893 실측),
+     * 창 안에 보이는 것이 정정·[발행조건확정]뿐이어도 최초 신고서는 몇 달 앞이다. 1년이면 최초 신고서가 들어간다.
+     */
+    static final int LOOKUP_DAYS = 365;
 
     /**
-     * 창 하나의 신고를 회사별로 묶어, 아직 없는 회사만 조회해 남긴다.
+     * 창 하나의 신고를 회사별로 묶어, 아직 없는 회사만 한 번씩 조회해 남긴다.
      *
-     * <p>{@code estkRs.json}은 조회 기간의 <b>최신 신고서 한 건</b>만 돌려준다. 기간을 창 끝까지로 잡아야 이 창의 접수번호 행이 돌아온다
-     * (첫판은 창 끝 + 120일로 잡아 창 밖의 더 나중 정정 신고서가 돌아와 행이 없었다). 결과가 비거나 상세·종류가 없으면 다음 접수번호를
-     * 시도하고, 유상증자로 판정될 때만 그 회사를 건너뛴다.
+     * <p>VALUNIVO 893 실측: {@code estkRs.json}은 기간이 최초 증권신고서 접수일에 걸릴 때만 행을 돌려주고, 그 행은 가장 나중 정정 신고서
+     * 한 건이다. 그래서 880·881처럼 창 안의 접수번호마다 창 기간으로 물으면 정정·확정 창은 "조회 빔", 최초 신고서 창은 접수번호가 달라
+     * "상세 없음"이 되어 공모 대부분을 놓쳤다(892 4장: 회사 1,579곳 중 빔 74%). 이제 회사마다 [창 끝 − {@value #LOOKUP_DAYS}일, 창 끝]으로
+     * 한 번 묻고 돌아온 행(접수번호 포함)을 그대로 쓴다. 창 끝을 넘기지 않으므로 이 창 뒤의 다른 공모는 돌아오지 않는다.
      */
     private WindowResult saveWindow(List<DartClient.DealNotice> deals, LocalDate since, LocalDate until) {
         Map<String, List<DartClient.DealNotice>> byCorp = deals.stream()
@@ -139,46 +144,31 @@ public class IpoUnderwriterBackfill {
                 result.known++;   // 더 최근 창에서 이미 남김(거꾸로 읽으므로 먼저 남긴 쪽이 더 나중 공모)
                 continue;
             }
-            List<DartClient.DealNotice> notices = entry.getValue().stream()
-                    .filter(n -> n.reportName() == null || !n.reportName().startsWith(DartClient.CONFIRMED_TERMS_PREFIX))
-                    .sorted(Comparator.comparing(DartClient.DealNotice::rceptDt, Comparator.nullsLast(Comparator.reverseOrder())))
-                    .toList();
-            Miss miss = Miss.EMPTY;
-            boolean done = false;
-            for (DartClient.DealNotice notice : notices) {
-                Optional<DartClient.OfferingLookup> lookup = dart.fetchOffering(notice.corpCode(), notice.rceptNo(), since, until);
-                if (lookup.isEmpty()) {
-                    miss = Miss.EMPTY;
-                    continue;   // 이 접수번호로는 아무것도 없음 — 다른 접수번호
-                }
-                if (lookup.get().kind() == OfferingKind.RIGHTS) {
-                    result.rights++;
-                    done = true;
-                    break;   // 유상증자 — 이 회사는 건너뜀
-                }
-                DartClient.OfferingDetail detail = lookup.get().detail();
-                if (detail == null || detail.underwriters().isEmpty()) {
-                    miss = Miss.NO_DETAIL;
-                    continue;   // 이 접수번호에는 행이 없음 — 다른 접수번호
-                }
-                if (lookup.get().kind() != OfferingKind.IPO) {
-                    miss = Miss.UNKNOWN_KIND;
-                    continue;   // 공모 종류를 판정하지 못함 — 다른 접수번호(모집방법이 실린 신고서가 있을 수 있음)
-                }
-                history.save(new IpoUnderwritingHistoryEntity(notice.corpCode(), notice.corpName(), notice.rceptNo(),
-                        notice.rceptDt() != null ? notice.rceptDt() : until, detail.subscriptionStart(), detail.underwriters(),
-                        clock.instant()));
-                result.saved++;
-                done = true;
-                break;
+            DartClient.DealNotice latest = entry.getValue().stream()
+                    .max(Comparator.comparing(DartClient.DealNotice::rceptDt, Comparator.nullsFirst(Comparator.naturalOrder())))
+                    .orElseThrow();
+            Optional<DartClient.OfferingLookup> lookup = dart.fetchLatestOffering(entry.getKey(), until.minusDays(LOOKUP_DAYS), until);
+            if (lookup.isEmpty()) {
+                result.empty++;
+                continue;
             }
-            if (!done) {
-                switch (miss) {
-                    case EMPTY -> result.empty++;
-                    case NO_DETAIL -> result.noDetail++;
-                    case UNKNOWN_KIND -> result.unknownKind++;
-                }
+            if (lookup.get().kind() == OfferingKind.RIGHTS) {
+                result.rights++;
+                continue;
             }
+            DartClient.OfferingDetail detail = lookup.get().detail();
+            if (detail == null || detail.underwriters().isEmpty()) {
+                result.noDetail++;
+                continue;
+            }
+            if (lookup.get().kind() != OfferingKind.IPO) {
+                result.unknownKind++;
+                continue;
+            }
+            history.save(new IpoUnderwritingHistoryEntity(entry.getKey(), latest.corpName(), detail.rceptNo(),
+                    latest.rceptDt() != null ? latest.rceptDt() : until, detail.subscriptionStart(), detail.underwriters(),
+                    clock.instant()));
+            result.saved++;
         }
         return result;
     }

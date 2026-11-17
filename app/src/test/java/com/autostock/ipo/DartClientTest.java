@@ -187,6 +187,41 @@ class DartClientTest {
     }
 
     @Test
+    void 접수번호를_모르면_돌아온_최신_정정_행으로_상세와_종류를_읽는다() throws Exception {
+        // VALUNIVO 893 실측(2026-11-18) 모양: 최초 신고서 09-16이 든 넓은 기간으로 물으면 10-08 정정 신고서 행 하나가 온다.
+        // 창 안 접수번호(09-16 최초, 10-20 발행조건확정)와 번호가 달라 옛 fetchOffering으로는 상세가 비었다.
+        TestableDartClient client = new TestableDartClient(null, JSON.readValue("""
+                {"status":"000","message":"정상","group":[
+                  {"title":"일반사항","list":[{"rcept_no":"20261008000310","corp_cls":"E","corp_code":"01649408","corp_name":"가나바이오",
+                    "sbd":"2026년 10월 21일 ~ 2026년 10월 22일","pymd":"2026년 10월 24일","rpt_rcpn":"-","asstd":"-"}]},
+                  {"title":"증권의종류","list":[{"rcept_no":"20261008000310","stksen":"보통주","stkcnt":"1,000,000","fv":"100",
+                    "slprc":"12,000","slta":"12,000,000,000","slmthn":"일반공모"}]},
+                  {"title":"인수인정보","list":[
+                    {"rcept_no":"20261008000310","actsen":"대표","actnmn":"미래에셋증권","stksen":"보통주"},
+                    {"rcept_no":"20261008000310","actsen":"인수","actnmn":"신영증권","stksen":"보통주"}]}
+                ]}
+                """, Map.class));
+
+        DartClient.OfferingLookup lookup = client.fetchLatestOffering(
+                "01649408", LocalDate.of(2025, 11, 2), LocalDate.of(2026, 11, 1)).orElseThrow();
+
+        assertEquals(OfferingKind.IPO, lookup.kind());
+        assertEquals("20261008000310", lookup.detail().rceptNo());
+        assertEquals(LocalDate.of(2026, 10, 21), lookup.detail().subscriptionStart());
+        assertEquals(List.of("미래에셋증권", "신영증권"), lookup.detail().underwriters());
+        assertTrue(client.fetchOffering("01649408", "20260916000544", LocalDate.of(2025, 11, 2), LocalDate.of(2026, 11, 1))
+                .map(DartClient.OfferingLookup::detail).isEmpty(), "음성 대조: 창 안 접수번호로 맞추면 상세가 빈다(옛 방식)");
+    }
+
+    @Test
+    void 기간에_최초_신고서가_없어_013이면_빈_값이다() throws Exception {
+        TestableDartClient client = new TestableDartClient(null, JSON.readValue(
+                "{\"status\":\"013\",\"message\":\"조회된 데이타가 없습니다.\"}", Map.class));
+
+        assertTrue(client.fetchLatestOffering("01649408", LocalDate.of(2026, 10, 19), LocalDate.of(2026, 11, 1)).isEmpty());
+    }
+
+    @Test
     void 공시_원본_ZIP에서_본문_XML을_꺼낸다() {
         TestableDartClient client = new TestableDartClient(null, null);
         client.documentResponse = DartFixtures.bytes("20260928000402.zip");

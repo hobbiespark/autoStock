@@ -62,9 +62,9 @@ class IpoUnderwriterBackfillDbTest extends PostgresDataJpaTest {
                 notice("C1", "가나전자", "R1A", "[발행조건확정]증권신고서(지분증권)", TODAY.minusDays(2)),
                 notice("C1", "가나전자", "R1B", "증권신고서(지분증권)", TODAY.minusDays(10)),
                 notice("C2", "다라상사", "R2", "증권신고서(지분증권)", TODAY.minusDays(5)))));
-        when(dart.fetchOffering(eq("C1"), eq("R1B"), any(), any()))
+        when(dart.fetchLatestOffering(eq("C1"), any(), any()))
                 .thenReturn(Optional.of(lookup("R1B", TODAY.plusDays(5), OfferingKind.IPO, "신영증권", "교보증권")));
-        when(dart.fetchOffering(eq("C2"), eq("R2"), any(), any()))
+        when(dart.fetchLatestOffering(eq("C2"), any(), any()))
                 .thenReturn(Optional.of(lookup("R2", TODAY.plusDays(3), OfferingKind.RIGHTS, "미래에셋증권")));
 
         assertEquals(1, backfill(1).pass());
@@ -73,36 +73,33 @@ class IpoUnderwriterBackfillDbTest extends PostgresDataJpaTest {
         IpoUnderwritingHistoryEntity saved = history.findByCorpCode("C1").orElseThrow();
         assertEquals(List.of("신영증권", "교보증권"), saved.getUnderwriterList());
         assertEquals(TODAY.plusDays(5), saved.countedOn());
-        verify(dart, never()).fetchOffering(eq("C1"), eq("R1A"), any(), any());   // 발행조건확정 접수번호는 행이 없어 묻지 않음
+        verify(dart).fetchLatestOffering("C1", until.minusDays(IpoUnderwriterBackfill.LOOKUP_DAYS), until);   // 회사마다 한 번
+        verify(dart, never()).fetchOffering(any(), any(), any(), any());
         IpoBackfillProgressEntity state = progress.findById(IpoUnderwriterBackfill.PROGRESS_NAME).orElseThrow();
         assertEquals(since, state.getCoveredFrom());
         assertEquals(TODAY.minusYears(5), state.getTargetFrom());
     }
 
     @Test
-    void 첫_접수번호가_비어도_다음_접수번호로_공모를_찾고_상세_조회는_창_끝까지만_묻는다() {
-        // VALUNIVO 880: estkRs.json은 조회 기간의 최신 신고서만 돌려준다. 첫판은 창 끝 + 120일로 물어 이 창의 행이 없었고,
-        // 첫 결과가 비면 회사를 통째로 건너뛰어 공모 대부분을 놓쳤다(운영 첫 실행: 신고 130건 중 3곳).
+    void 창에_정정과_발행조건확정만_있어도_최초_신고서가_든_넓은_기간으로_찾아_정정_행을_남긴다() {
+        // VALUNIVO 893 실측: estkRs.json은 기간이 최초 증권신고서 접수일에 걸릴 때만 행을 주고, 그 행은 최신 정정분이다.
+        // 880·881은 창 안 접수번호마다 창 기간으로 물어 이 창(정정·확정만)은 "조회 빔"이 됐다(892: 회사 1,579곳 중 74%).
         LocalDate until = TODAY;
         LocalDate since = TODAY.minusDays(13);
         when(dart.fetchRecentEquityFilings(since, until)).thenReturn(DartClient.RecentFilings.complete(List.of(
-                notice("C1", "가나전자", "R1NEW", "[기재정정]증권신고서(지분증권)", TODAY.minusDays(1)),
-                notice("C1", "가나전자", "R1OLD", "증권신고서(지분증권)", TODAY.minusDays(9)),
-                notice("C2", "다라상사", "R2", "증권신고서(지분증권)", TODAY.minusDays(4)),
-                notice("C2", "다라상사", "R2B", "증권신고서(지분증권)", TODAY.minusDays(8)))));
-        when(dart.fetchOffering(eq("C1"), eq("R1NEW"), any(), any())).thenReturn(Optional.empty());
-        when(dart.fetchOffering(eq("C1"), eq("R1OLD"), any(), any()))
-                .thenReturn(Optional.of(lookup("R1OLD", TODAY.plusDays(4), OfferingKind.IPO, "신영증권")));
-        when(dart.fetchOffering(eq("C2"), eq("R2"), any(), any()))
-                .thenReturn(Optional.of(lookup("R2", TODAY.plusDays(2), OfferingKind.RIGHTS, "미래에셋증권")));
+                notice("C1", "가나전자", "R1FIX", "[발행조건확정]증권신고서(지분증권)", TODAY.minusDays(1)),
+                notice("C1", "가나전자", "R1AMD", "[기재정정]증권신고서(지분증권)", TODAY.minusDays(9)))));
+        // 최초 신고서(R1ORIG)는 두 달 전이라 창 밖 — 넓은 기간으로 물으면 정정 행(R1AMD)이 온다
+        when(dart.fetchLatestOffering("C1", until.minusDays(365), until))
+                .thenReturn(Optional.of(lookup("R1AMD", TODAY.plusDays(4), OfferingKind.IPO, "신영증권", "교보증권")));
 
         backfill(1).pass();
 
-        assertEquals(List.of("신영증권"), history.findByCorpCode("C1").orElseThrow().getUnderwriterList(), "두 번째 접수번호로 찾음");
-        assertFalse(history.findByCorpCode("C2").isPresent(), "유상증자는 남기지 않음");
-        verify(dart).fetchOffering("C1", "R1OLD", since, until);   // 창 끝까지만 묻는다
-        verify(dart, never()).fetchOffering(eq("C2"), eq("R2B"), any(), any());   // 유상증자로 판정되면 그 회사는 더 묻지 않는다
-        assertEquals(IpoUnderwriterBackfill.PROGRESS_NAME, "underwriters-v2");
+        IpoUnderwritingHistoryEntity saved = history.findByCorpCode("C1").orElseThrow();
+        assertEquals(List.of("신영증권", "교보증권"), saved.getUnderwriterList());
+        assertEquals("R1AMD", saved.getRceptNo(), "돌아온 행의 접수번호를 남긴다");
+        assertEquals(TODAY.plusDays(4), saved.countedOn());
+        assertEquals("underwriters-v3", IpoUnderwriterBackfill.PROGRESS_NAME, "처음부터 다시 훑는다");
     }
 
     @Test
@@ -122,7 +119,7 @@ class IpoUnderwriterBackfillDbTest extends PostgresDataJpaTest {
     void 목표_날짜에_닿으면_멈추고_이미_남긴_회사는_다시_조회하지_않는다() {
         when(dart.fetchRecentEquityFilings(any(), any())).thenReturn(DartClient.RecentFilings.complete(List.of(
                 notice("C1", "가나전자", "R1", "증권신고서(지분증권)", TODAY.minusDays(1)))));
-        when(dart.fetchOffering(eq("C1"), eq("R1"), any(), any()))
+        when(dart.fetchLatestOffering(eq("C1"), any(), any()))
                 .thenReturn(Optional.of(lookup("R1", TODAY, OfferingKind.IPO, "신영증권")));
 
         IpoUnderwriterBackfill job = backfill(26);
@@ -134,7 +131,7 @@ class IpoUnderwriterBackfillDbTest extends PostgresDataJpaTest {
         assertTrue(progress.findById(IpoUnderwriterBackfill.PROGRESS_NAME).orElseThrow().done());
         assertEquals(0, job.pass(), "끝나면 더 읽지 않는다");
         assertTrue(total >= 130 && total <= 131, "5년 = 2주 창 약 131개: " + total);
-        verify(dart, org.mockito.Mockito.times(1)).fetchOffering(eq("C1"), eq("R1"), any(), any());
+        verify(dart, org.mockito.Mockito.times(1)).fetchLatestOffering(eq("C1"), any(), any());
     }
 
     @Test
@@ -142,7 +139,7 @@ class IpoUnderwriterBackfillDbTest extends PostgresDataJpaTest {
         when(dart.fetchRecentEquityFilings(any(), any())).thenReturn(DartClient.RecentFilings.complete(List.of()));
         when(dart.fetchRecentEquityFilings(TODAY.minusDays(13), TODAY)).thenReturn(DartClient.RecentFilings.complete(List.of(
                 notice("C1", "가나전자", "R1", "증권신고서(지분증권)", TODAY.minusDays(3)))));
-        when(dart.fetchOffering(eq("C1"), eq("R1"), any(), any()))
+        when(dart.fetchLatestOffering(eq("C1"), any(), any()))
                 .thenReturn(Optional.of(lookup("R1", TODAY.minusDays(1), OfferingKind.IPO, "신영증권")));
         backfill(2).pass();
 
