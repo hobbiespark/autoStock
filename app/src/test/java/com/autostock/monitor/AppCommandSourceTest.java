@@ -36,11 +36,19 @@ class AppCommandSourceTest {
 
     @Test
     void sourceAndRunnerKnowTheSameEighteenCommands() {
-        assertEquals(18, catalog.ids().size());   // VALUNIVO 870: 외화 적립 다섯 더함(플랫폼 한도 20)
+        assertEquals(20, catalog.ids().size());   // VALUNIVO 870: 외화 적립 다섯, 900: 공모주 기록 둘(플랫폼 한도 20)
         assertEquals(AppCommandRunner.HANDLED, new HashSet<>(catalog.ids()), "원천과 실행 부품의 명령 집합이 같다");
         for (String target : AppCommandCatalog.ALIASES.values()) assertTrue(catalog.find(target).isPresent(), target);
-        assertEquals(Set.of("emergency_stop", "trading_resume", "fx_reserve", "fx_fill", "fx_buy", "fx_cancel"),
+        assertEquals(Set.of("emergency_stop", "trading_resume", "fx_reserve", "fx_fill", "fx_buy", "fx_cancel", "ipo_allot", "ipo_return"),
                 Set.copyOf(catalog.commands().stream().filter(c -> !c.query()).map(AppCommandCatalog.Command::id).toList()));
+        // VALUNIVO 900: 공모주 기록 둘은 기록만 하는 change다. 이름·설명·키워드에 L1 낱말(매도 등)이 들어가면 플랫폼이 L1 천장으로 올린다.
+        for (String cid : List.of("ipo_allot", "ipo_return")) {
+            var node = java.util.stream.StreamSupport.stream(catalog.manifest().path("commands").spliterator(), false).filter(n -> n.path("id").asText().equals(cid)).findFirst().orElseThrow();
+            assertEquals("change", node.path("risk").asText(), cid);
+            String joined = (cid + " " + node.path("name").asText() + " " + node.path("description").asText() + " "
+                    + node.path("keywords").toString()).toLowerCase(Locale.ROOT);
+            assertTrue(L1_TERMS.stream().noneMatch(joined::contains), "공모주 기록 명령이 L1로 오르지 않는다: " + cid);
+        }
         // 변경 명령은 모두 화면 경로에서 실행하지 않는다(AppCommandRunner.CHANGES).
         assertEquals(Set.copyOf(catalog.commands().stream().filter(c -> !c.query()).map(AppCommandCatalog.Command::id).toList()),
                 AppCommandRunner.CHANGES);
