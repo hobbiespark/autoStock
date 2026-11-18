@@ -251,8 +251,11 @@ final class IpoAlertPlanner {
     static final int SCHEDULE_DAYS = 14;
     /** 일정 보기에서 되돌아볼 최근 상장 날 수(수익 기록 확인용). */
     static final int RECENT_LISTING_DAYS = 14;
-    /** 일정 보기 본문 글자 한도 — 텔레그램 한 메시지 4096자(BE BC-40) 안에 머리글·잘림 줄까지 들어가게. */
-    static final int SCHEDULE_MAX_CHARS = 3500;
+    /**
+     * 일정 보기 본문 글자 한도 — 니보 경유는 플랫폼이 앱 결과를 3,000자에서 자른다(VALUNIVO {@code AppCommandDispatcher.MAX_RESULT_CHARS},
+     * 예산 표 BE 02 2.1, VALUNIVO 901). 뒤에 붙는 "외 N줄"·기록 안내 줄(약 150자)까지 3,000자 안에 들어가게 2,800자로 둔다.
+     */
+    static final int SCHEDULE_MAX_CHARS = 2800;
 
     /**
      * 공모주 일정 보기(할 일 {@code ipo_view}, VALUNIVO 900) — 오늘부터 {@value #SCHEDULE_DAYS}일 안의 청약·상장과

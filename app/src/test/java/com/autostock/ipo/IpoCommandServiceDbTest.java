@@ -92,6 +92,19 @@ class IpoCommandServiceDbTest extends PostgresDataJpaTest {
     }
 
     @Test
+    void 일정이_많아도_플랫폼_결과_한도_3000자_안에_들고_줄인_사실을_남긴다() {
+        for (int i = 0; i < 60; i++) {
+            deals.save(deal("1%07d".formatted(i), "합성공모회사이름이조금긴편%02d".formatted(i), "2026102200%04d".formatted(i),
+                    LocalDate.of(2026, 11, 20), LocalDate.of(2026, 11, 21), null, IpoRecommendation.SKIP, null, null));
+        }
+        String text = run("ipo_view", "").text();
+
+        assertTrue(text.length() < 3000, "VALUNIVO AppCommandDispatcher.MAX_RESULT_CHARS 3000(901): " + text.length());
+        assertTrue(text.contains("줄(글자 한도 2800자로 줄임"), text);
+        assertTrue(text.endsWith("/autostock_ipo_return 회사 매도가(또는 수익률%)"), "기록 안내 줄은 줄여도 남는다");
+    }
+
+    @Test
     void 배정_기록은_회사의_모든_신고서_행에_쓴다() {
         IpoCommandService.Reply reply = run("ipo_allot", "가나테크 3 20");
 
