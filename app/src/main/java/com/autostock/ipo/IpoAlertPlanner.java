@@ -253,7 +253,7 @@ final class IpoAlertPlanner {
     static final int RECENT_LISTING_DAYS = 14;
     /**
      * 일정 보기 본문 글자 한도 — 니보 경유는 플랫폼이 앱 결과를 3,000자에서 자른다(VALUNIVO {@code AppCommandDispatcher.MAX_RESULT_CHARS},
-     * 예산 표 BE 02 2.1, VALUNIVO 901). 뒤에 붙는 "외 N줄"·기록 안내 줄(약 150자)까지 3,000자 안에 들어가게 2,800자로 둔다.
+     * 예산 표 BE 02 2.1, VALUNIVO 902). 뒤에 붙는 "외 N줄"·기록 안내 줄(약 150자)까지 3,000자 안에 들어가게 2,800자로 둔다.
      */
     static final int SCHEDULE_MAX_CHARS = 2800;
 

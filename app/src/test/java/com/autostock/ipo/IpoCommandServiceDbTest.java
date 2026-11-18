@@ -99,7 +99,7 @@ class IpoCommandServiceDbTest extends PostgresDataJpaTest {
         }
         String text = run("ipo_view", "").text();
 
-        assertTrue(text.length() < 3000, "VALUNIVO AppCommandDispatcher.MAX_RESULT_CHARS 3000(901): " + text.length());
+        assertTrue(text.length() < 3000, "VALUNIVO AppCommandDispatcher.MAX_RESULT_CHARS 3000(902): " + text.length());
         assertTrue(text.contains("줄(글자 한도 2800자로 줄임"), text);
         assertTrue(text.endsWith("/autostock_ipo_return 회사 매도가(또는 수익률%)"), "기록 안내 줄은 줄여도 남는다");
     }
