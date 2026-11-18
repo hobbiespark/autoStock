@@ -247,6 +247,101 @@ final class IpoAlertPlanner {
         return Optional.of(new PlannedAlert(WEEKLY_CORP, WEEKLY_NAME, PHASE_WEEKLY, key, message));
     }
 
+    /** 일정 보기(VALUNIVO 900)에서 앞으로 볼 날 수. */
+    static final int SCHEDULE_DAYS = 14;
+    /** 일정 보기에서 되돌아볼 최근 상장 날 수(수익 기록 확인용). */
+    static final int RECENT_LISTING_DAYS = 14;
+    /** 일정 보기 본문 글자 한도 — 텔레그램 한 메시지 4096자(BE BC-40) 안에 머리글·잘림 줄까지 들어가게. */
+    static final int SCHEDULE_MAX_CHARS = 3500;
+
+    /**
+     * 공모주 일정 보기(할 일 {@code ipo_view}, VALUNIVO 900) — 오늘부터 {@value #SCHEDULE_DAYS}일 안의 청약·상장과
+     * 최근 {@value #RECENT_LISTING_DAYS}일 안에 상장한 회사의 기록(배정·매도가·수익률)을 날짜 순으로 한 글에 싣는다.
+     * 주간 알림과 달리 관심 딜만 고르지 않는다(데브가 직접 물어 본 일정이라 비추천도 등급과 함께 보인다).
+     * 한도를 넘으면 뒤 줄을 "외 N건"으로 줄이고 그 사실을 글에 남긴다.
+     */
+    static String schedule(List<IpoDealEntity> deals, LocalDate today, IpoSubscriptionSizer sizer) {
+        LocalDate until = today.plusDays(SCHEDULE_DAYS - 1L);
+        LocalDate recentFrom = today.minusDays(RECENT_LISTING_DAYS);
+        List<Corp> corps = corps(deals);
+        Sizings sizings = Sizings.of(corps, today, sizer);
+        List<WeeklyLine> upcoming = new ArrayList<>();
+        List<WeeklyLine> recent = new ArrayList<>();
+        int subscriptions = 0;
+        int listings = 0;
+        for (Corp corp : corps) {
+            if (corp.start != null) {
+                LocalDate end = corp.end == null ? corp.start : corp.end;
+                if (!corp.start.isAfter(until) && !end.isBefore(today)) {
+                    subscriptions++;
+                    String lead = corp.rep.getLeadManager() == null ? "" : "(" + corp.rep.getLeadManager() + ")";
+                    String sizing = sizings.text(corp).map(t -> " " + t).orElse("");
+                    upcoming.add(new WeeklyLine(corp.start, "· 청약 %s~%s %s%s — %s, 공모가 %s%s.%s".formatted(day(corp.start),
+                            day(end), corp.name, lead, recommendationText(corp.rep), priceText(corp.rep), allocationText(corp), sizing)));
+                }
+            }
+            if (corp.listing == null) {
+                continue;
+            }
+            if (!corp.listing.isBefore(today) && !corp.listing.isAfter(until)) {
+                listings++;
+                upcoming.add(new WeeklyLine(corp.listing, "· 상장 %s %s — %s, 공모가 %s%s.".formatted(day(corp.listing),
+                        corp.label(), recommendationText(corp.rep), priceText(corp.rep), allocationText(corp))));
+            } else if (corp.listing.isBefore(today) && !corp.listing.isBefore(recentFrom) && corp.interested) {
+                recent.add(new WeeklyLine(corp.listing, "· 상장됨 %s %s — %s".formatted(day(corp.listing), corp.label(),
+                        resultText(corp))));
+            }
+        }
+        upcoming.sort(Comparator.comparing(WeeklyLine::on));
+        recent.sort(Comparator.comparing(WeeklyLine::on));
+        StringBuilder out = new StringBuilder("[공모주 일정] %s~%s — 청약 %d건 · 상장 %d건".formatted(day(today), day(until),
+                subscriptions, listings));
+        if (upcoming.isEmpty()) {
+            out.append("\n앞으로 ").append(SCHEDULE_DAYS).append("일 안의 청약·상장 일정 없음(공시·상장 확인 기준).");
+        }
+        List<String> lines = new ArrayList<>();
+        upcoming.forEach(l -> lines.add(l.text()));
+        if (!recent.isEmpty()) {
+            lines.add("최근 상장(기록):");
+            recent.forEach(l -> lines.add(l.text()));
+        }
+        int shown = 0;
+        for (String line : lines) {
+            if (out.length() + 1 + line.length() > SCHEDULE_MAX_CHARS) {
+                break;
+            }
+            out.append('\n').append(line);
+            shown++;
+        }
+        if (shown < lines.size()) {
+            out.append("\n외 ").append(lines.size() - shown).append("줄(글자 한도 ").append(SCHEDULE_MAX_CHARS)
+                    .append("자로 줄임, 공모주 화면에서 전체 확인)");
+        }
+        out.append("\n기록: 배정 /autostock_ipo_allot 회사 배정주수 · 상장 뒤 수익 /autostock_ipo_return 회사 매도가(또는 수익률%)");
+        return out.toString();
+    }
+
+    /** 최근 상장 회사의 기록 요약 — 배정·매도가·수익률. 비어 있으면 무엇을 넣으면 되는지. */
+    private static String resultText(Corp corp) {
+        Integer allocated = corp.allocated;
+        BigDecimal sell = corp.first(IpoDealEntity::getSellPrice).orElse(null);
+        BigDecimal offer = corp.first(IpoDealEntity::getOfferPriceFinal).orElse(null);
+        StringBuilder out = new StringBuilder("공모가 ").append(priceText(corp.rep));
+        out.append(allocated == null ? ", 배정 기록 없음" : ", 배정 %d주".formatted(allocated));
+        if (sell == null) {
+            return out.append(", 수익 기록 없음.").toString();
+        }
+        out.append(", 매도가 ").append(won(sell));
+        if (offer != null && offer.signum() > 0) {
+            out.append("(").append(returnText(sell, offer)).append(")");
+            if (allocated != null && allocated > 0) {
+                out.append(", 차익 약 ").append(won(sell.subtract(offer).multiply(BigDecimal.valueOf(allocated))))
+                        .append("(수수료·세금 전)");
+            }
+        }
+        return out.append('.').toString();
+    }
+
     /** 청약이 끝나지 않았는가 — 클래스 설명 "청약이 끝나지 않았다". */
     static boolean subscriptionOpen(LocalDate end, LocalDate listing, String confirmedRceptNo, LocalDate today) {
         if (listing != null && !listing.isAfter(today)) {

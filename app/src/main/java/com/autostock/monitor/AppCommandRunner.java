@@ -32,9 +32,9 @@ public class AppCommandRunner {
     /** 이 부품이 처리하는 할 일 ID. 원천({@link AppCommandCatalog})의 명령 집합과 같아야 한다(시험이 단정, 기획 12 7장). */
     public static final Set<String> HANDLED = Set.of("status_view", "emergency_stop", "trading_resume", "killswitch_view", "positions_view",
             "today_pnl_view", "events_view", "quote_view", "ipo_view", "daily_perf_view", "daily_report_view", "request_history_view",
-            "decisions_view", "fx_view", "fx_reserve", "fx_fill", "fx_buy", "fx_cancel");
+            "decisions_view", "fx_view", "fx_reserve", "fx_fill", "fx_buy", "fx_cancel", "ipo_allot", "ipo_return");
     /** 변경 할 일(화면 명령 목록에서는 실행하지 않는다). 외화 입력은 기록만 하지만 화면에서는 조회만 한다(VALUNIVO 870). */
-    static final Set<String> CHANGES = Set.of("emergency_stop", "trading_resume", "fx_reserve", "fx_fill", "fx_buy", "fx_cancel");
+    static final Set<String> CHANGES = Set.of("emergency_stop", "trading_resume", "fx_reserve", "fx_fill", "fx_buy", "fx_cancel", "ipo_allot", "ipo_return");
     static final Set<String> READ_ONLY = Set.of("quote_view", "ipo_view", "daily_perf_view", "daily_report_view", "request_history_view", "decisions_view");
 
     /** 할 일을 받은 경로. */
@@ -62,16 +62,17 @@ public class AppCommandRunner {
     private OrderHistoryController orderHistory;
     private DecisionController decisions;
     private DailyReportScheduler dailyReport;
-    private com.autostock.ipo.IpoRecheckService ipo;
     @Autowired(required = false) void dashboard(DashboardController value) { this.dashboard = value; }
     @Autowired(required = false) void performance(PerformanceController value) { this.performance = value; }
     @Autowired(required = false) void orderHistory(OrderHistoryController value) { this.orderHistory = value; }
     @Autowired(required = false) void decisions(DecisionController value) { this.decisions = value; }
     @Autowired(required = false) void dailyReport(DailyReportScheduler value) { this.dailyReport = value; }
-    @Autowired(required = false) void ipo(com.autostock.ipo.IpoRecheckService value) { this.ipo = value; }
     // VALUNIVO 870: 외화 적립 기록(fx 모듈). 시험에서 직접 만들 때는 비어 있을 수 있다.
     private com.autostock.fx.FxCommandService fx;
     @Autowired(required = false) void fx(com.autostock.fx.FxCommandService value) { this.fx = value; }
+    // VALUNIVO 900: 공모주 일정 보기·배정·수익 기록(ipo 모듈). 시험에서 직접 만들 때는 비어 있을 수 있다.
+    private com.autostock.ipo.IpoCommandService ipoCommands;
+    @Autowired(required = false) void ipoCommands(com.autostock.ipo.IpoCommandService value) { this.ipoCommands = value; }
 
     static final java.util.regex.Pattern SYMBOL = java.util.regex.Pattern.compile("(?<![0-9A-Z])([0-9A-Z]{6})(?![0-9A-Z])");
     static final java.util.regex.Pattern DATE = java.util.regex.Pattern.compile("(20[0-9]{2}-[01][0-9]-[0-3][0-9])");
@@ -95,6 +96,7 @@ public class AppCommandRunner {
                 yield new Result("ok", events.isEmpty() ? "최근 신호·체결이 없습니다." : "최근 신호·체결\n" + pretty(events.subList(0, Math.min(10, events.size()))));
             }
             case "quote_view", "ipo_view", "daily_perf_view", "daily_report_view", "request_history_view", "decisions_view" -> readOnly(commandId, input);
+            case "ipo_allot", "ipo_return" -> ipoCommand(commandId, input);
             case "fx_view", "fx_reserve", "fx_fill", "fx_buy", "fx_cancel" -> fxCommand(commandId, input);
             default -> null;
         };
@@ -107,6 +109,16 @@ public class AppCommandRunner {
             return fx.run(commandId, input).map(r -> new Result(r.ok() ? "ok" : "refused", r.text())).orElse(null);
         } catch (RuntimeException e) {
             return new Result("failed", "외화 기록 중 오류가 나 처리하지 못했습니다(" + e.getClass().getSimpleName() + ").");
+        }
+    }
+
+    /** 공모주 기록 명령 — 거절은 기록하지 않은 것이다(ipo 모듈 {@code IpoCommandService}). */
+    private Result ipoCommand(String commandId, String input) {
+        if (ipoCommands == null) return new Result("failed", NOT_YET);
+        try {
+            return ipoCommands.run(commandId, input).map(r -> new Result(r.ok() ? "ok" : "refused", r.text())).orElse(null);
+        } catch (RuntimeException e) {
+            return new Result("failed", "공모주 기록 중 오류가 나 처리하지 못했습니다(" + e.getClass().getSimpleName() + ").");
         }
     }
 
@@ -131,7 +143,11 @@ public class AppCommandRunner {
                     if (quote.currentPrice() == null) return new Result("failed", m.group(1) + " 시세를 받지 못했습니다. 잠시 뒤 다시 시도해 주세요.");
                     return new Result("ok", "현재 시세\n" + pretty(quote));
                 }
-                case "ipo_view" -> { return ipo == null ? new Result("failed", NOT_YET) : new Result("ok", ipo.reply("/ipo")); }
+                // VALUNIVO 900: 전에는 /ipo 재판단 사용법 글만 돌려줘 일정이 나오지 않았다. 일정 요약으로 바꾼다.
+                case "ipo_view" -> {
+                    if (ipoCommands == null) return new Result("failed", NOT_YET);
+                    return ipoCommands.run(commandId, text == null ? "" : text).map(r -> new Result("ok", r.text())).orElse(null);
+                }
                 case "daily_perf_view" -> {
                     if (performance == null) return new Result("failed", NOT_YET);
                     var rows = performance.daily(7);

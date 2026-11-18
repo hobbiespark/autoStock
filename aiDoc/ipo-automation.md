@@ -312,3 +312,23 @@
 - 미확인: 운영 화면 모양(반영 뒤), 실거래 매도 브랜치(`claude/as-ipo-live-sell`)의 봇 배정 명령이 어느 행에 저장하든 화면에는 보인다(회사로 묶음) — 그 브랜치 병합 때 함께 확인.
 - **운영 반영(2026-11-06 09:57, 사용자 지시 "지금 반영" — 장중 D260 예외, 사용량 보류는 "사용량 예외로 지금"으로 한 단위 예외)**: `main` `4bdd94b`(판단 근거 화면 C3 국면 요약과 함께), 공통 배포 `Invoke-AppDeployment.ps1`을 데브 터미널 탭에서 `-Apply`(RM-53) → release `20261106-095737-ipo-screen-regime`, 백업 `C:/ai/autoStock-runtime/backups/deploy-20261106-095737-ipo-screen-regime`. 6단계 대조 통과, 새 PID 28844 09:57:52 기동·`RUNNING`·WS 로그인. 확인: `GET /api/ipo` 40줄·회사 중복 0, 옵토닉스 `SUBSCRIBING` 한 줄. 판단 근거 화면 맨 위 "C3 국면: OFF — KODEX 200(069500) 종가 84,610 / SMA200 101,026" 표시
 
+
+## 10. 2026-11-18 바뀜 — 일정 보기 고침, 배정·수익 기록 명령 (VALUNIVO 900)
+
+- 요청(데브 11/18): 공모주 일정 확인 명령, 청약 뒤 배정 정보 입력 명령, 상장 뒤 수익률 입력 명령.
+- 고친 결함: 할 일 `ipo_view`(공모주 일정 보기, 니보 `/nivo_autostock_ipo_view`·앱 봇 `/autostock_ipo`·화면 명령 목록)가 일정 대신 `/ipo` 재판단 사용법 글만 답했다. 이제 `IpoAlertPlanner.schedule`이 앞으로 14일의 청약·상장(공모가·등급·주관사·배정 기록)과 최근 14일 안에 상장한 관심 딜의 배정·매도가·수익률을 날짜 순으로 답한다. 주간 알림과 달리 비추천 딜도 등급과 함께 보인다. 글이 3,500자를 넘으면 뒤 줄을 "외 N줄"로 줄인다(텔레그램 4096자).
+- 새 할 일 둘(설명서 원천 `contracts/autostock-manifest.json`, 니보 경유·앱 봇, 화면 경로에서는 실행하지 않음):
+
+| 할 일 | 앱 봇 | 인수 | 저장 |
+|---|---|---|---|
+| `ipo_allot` 공모주 배정 기록 | `/autostock_ipo_allot 동원파츠 3 20` | 회사, 배정주수, [청약주수] | `allocated_qty`·`applied_qty` |
+| `ipo_return` 공모주 수익 기록 | `/autostock_ipo_return 동원파츠 32000` 또는 `… +85% 2026-11-20` | 회사, 매도가 또는 수익률%, [매도일, 없으면 오늘] | `sell_price`·`sell_date` |
+
+- 저장은 화면 기록(`POST /api/ipo/{id}/record`)과 같은 `IpoDealCommandService.recordMyDeal`이고, 그 회사의 **모든 신고서 행**에 같은 값을 쓴다(화면·알림이 어느 행을 읽어도 같게). 기록만 하고 주문하지 않는다.
+- 회사 찾기: 최근 120일 공모주(유상증자 제외)에서 이름이 글 안에 그대로 있으면 그 회사, 없으면 첫 낱말을 이름 일부로 본다. 여러 곳이 맞으면 기록하지 않고 후보를 알려 준다. 숫자는 이름을 뗀 뒤 읽는다(`배정4주`처럼 붙여 써도 됨).
+- 수익률 입력은 확정 공모가 × (1 + 수익률)을 원 단위로 반올림해 매도가로 저장한다. 확정 공모가가 없으면 수익률 입력은 거절하고 매도가 입력만 받는다. 답에는 공모가 대비 수익률과 배정 수량 기준 차익(수수료·세금 전)을 싣는다.
+- 거절(기록 안 함): 회사 없음·여러 곳, 배정 > 청약, 매도일이 오늘보다 뒤, 수익률 -100% 이하, 매도가 0 이하.
+- 이름·설명·키워드에 플랫폼 L1 낱말(주문·매도·환불 등)을 넣지 않는다. 넣으면 플랫폼 검사기가 L1 천장으로 올린다(`AppCommandSourceTest`가 단정). 처음 설명의 "주문하지 않는다"가 이 시험에 걸려 고쳤다.
+- 명령 수가 20개로 플랫폼 한도(앱당 20)에 닿았다. 한도 문제는 VALUNIVO 다음 단위가 다룬다.
+- 멈춘 `claude/as-ipo-live-sell`(D-24)의 `/ipo 배정` 하위 명령과는 별개다(그 브랜치는 실계좌 매도와 묶여 합치지 않음).
+- 시험(2026-11-18, 작업트리 `C:/ai/_wt/autoStock-ipo-cmd`, JDK 25): `IpoCommandServiceDbTest` 9건(새, 실제 PostgreSQL, 마지막은 `AppCommandRunner` 조립 경로), `AppCommandSourceTest` 9·`PlatformAppCommandControllerTest` 6·`IpoRecheckServiceTest` 8·`IpoAlertPlannerTest` 14건 통과(건너뜀 0). 음성 대조: `ipo_view`를 예전 답으로 되돌리면 조립 경로 시험 1건 실패.

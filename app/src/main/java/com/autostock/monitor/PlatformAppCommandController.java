@@ -123,7 +123,6 @@ public class PlatformAppCommandController {
     void orderHistory(OrderHistoryController value) { runner.orderHistory(value); }
     void decisions(DecisionController value) { runner.decisions(value); }
     void dailyReport(DailyReportScheduler value) { runner.dailyReport(value); }
-    void ipo(com.autostock.ipo.IpoRecheckService value) { runner.ipo(value); }
 
     static boolean loopback(String address) {
         if (address == null) return false;
