@@ -89,7 +89,7 @@ public class AppCommandRunner {
             case "emergency_stop" -> { var reply = commands.stop(); yield new Result(reply.succeeded() ? "ok" : "failed", reply.reply()); }
             case "trading_resume" -> resume(input, route);
             case "killswitch_view" -> new Result("ok", killSwitch.isEngaged() ? "킬스위치: 작동 중(신규 주문 막힘)" : "킬스위치: 해제(주문 허용)");
-            case "positions_view" -> new Result("ok", facade.positions().isEmpty() ? "보유 종목이 없습니다." : "보유 종목\n" + pretty(facade.positions()));
+            case "positions_view" -> positions();
             case "today_pnl_view" -> new Result("ok", "계좌·손익\n" + pretty(accountAndTrading()));
             case "events_view" -> {
                 var events = facade.recentEvents();
@@ -186,6 +186,26 @@ public class AppCommandRunner {
         } catch (RuntimeException e) {
             return new Result("failed", "조회 중 오류가 나 처리하지 못했습니다(" + e.getClass().getSimpleName() + ").");
         }
+    }
+
+    /**
+     * VALUNIVO 910: 보유 종목. 현재가는 마지막으로 읽은 키움 잔고에서 오고 그 잔고는 {@code account()}가 부를 때만 다시 읽힌다.
+     * 대시보드를 열지 않은 날에도 현재가가 채워지게 목록 전에 잔고를 한 번 부른다(장중 30초·휴장일 10분 재사용은 그대로).
+     */
+    private Result positions() {
+        var account = facade.account();
+        var rows = facade.positions();
+        if (rows.isEmpty()) return new Result("ok", "보유 종목이 없습니다.");
+        return new Result("ok", "보유 종목\n" + pretty(rows) + priceBasis(account));
+    }
+
+    /** VALUNIVO 910: 현재가 기준 시각(KST·UTC)과 잔고 메모(조회 실패 사유 등). 모르면 빈 글. */
+    static String priceBasis(com.autostock.monitor.view.AccountView account) {
+        if (account == null) return "";
+        StringBuilder out = new StringBuilder();
+        if (account.asOf() != null) out.append("\n현재가 기준: ").append(ReadableText.when(account.asOf().toString()));
+        if (account.note() != null && !account.note().isBlank()) out.append("\n메모: ").append(account.note());
+        return out.toString();
     }
 
     /** 611: 자료가 비어도(null) 오류 없이 보이게 순서 있는 맵으로 담는다(Map.of는 null을 받지 않는다). */
