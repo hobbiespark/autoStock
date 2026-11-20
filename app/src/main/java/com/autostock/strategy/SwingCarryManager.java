@@ -8,6 +8,7 @@ import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.portfolio.StrategyBook;
+import com.autostock.risk.OneShareCap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -59,6 +60,8 @@ public class SwingCarryManager {
     private final StrategyGuard guard;
     private final ApplicationEventPublisher publisher;
     private final Clock clock;
+    /** 관문이 반드시 거부할 추가 매수를 미리 거르기(VALUNIVO 923) — null이면 거르지 않는다(시험용 생성자). */
+    private final OneShareCap oneShareCap;
 
     private final Map<String, StrategyCarryEntity> carried = new ConcurrentHashMap<>();
     private volatile boolean loaded;
@@ -66,6 +69,14 @@ public class SwingCarryManager {
     public SwingCarryManager(SwingCarryProperties properties, StrategyCarryRepository repository, StrategyBook book,
                              LiveMarket market, SignalOutbox outbox, StrategyGuard guard,
                              ApplicationEventPublisher publisher, Clock clock) {
+        this(properties, repository, book, market, outbox, guard, publisher, clock, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SwingCarryManager(SwingCarryProperties properties, StrategyCarryRepository repository, StrategyBook book,
+                             LiveMarket market, SignalOutbox outbox, StrategyGuard guard,
+                             ApplicationEventPublisher publisher, Clock clock, OneShareCap oneShareCap) {
+        this.oneShareCap = oneShareCap;
         this.properties = properties;
         this.repository = repository;
         this.book = book;
@@ -229,9 +240,22 @@ public class SwingCarryManager {
                             SignalOutbox.times(bid, 1 - properties.sellSlack()), bid, decision.reason(), metrics);
                 }
                 case ADD -> {
-                    adds++;
                     BigDecimal ask = market.bestAsk(entity.getSymbol());
                     metrics.put("bestAsk", ask == null ? "N/A" : ask.toPlainString());
+                    BigDecimal limit = SignalOutbox.times(ask, 1 + properties.buySlack());
+                    BigDecimal heldCost = position.get().avgPrice() == null ? BigDecimal.ZERO
+                            : position.get().avgPrice().multiply(BigDecimal.valueOf(position.get().quantity()));
+                    if (oneShareCap != null && limit != null
+                            && oneShareCap.addOnRejected(entity.getStrategyId(), limit, heldCost)) {
+                        // 923: 관문이 반드시 거부할 분할 — 신호 대신 보유 유지(916 S4, 매일 같은 거부 소음)
+                        metrics.put("heldCost", heldCost.setScale(0, java.math.RoundingMode.HALF_UP).toPlainString());
+                        oneShareCap.capFor(entity.getStrategyId()).ifPresent(c -> metrics.put("cap", c.toPlainString()));
+                        String why = decision.tranche() + "차 조건은 맞지만 종목 상한 여유가 1주 값보다 작음 — 보유 유지";
+                        outbox.decision(entity.getStrategyId(), horizon, entity.getSymbol(), "HOLD", why, metrics);
+                        parts.add("%s %s %s".formatted(entity.getStrategyId(), StockNames.label(code), why));
+                        continue;
+                    }
+                    adds++;
                     outbox.buyTranche(entity.getStrategyId(), horizon, entity.getSymbol(),
                             SignalOutbox.times(ask, 1 + properties.buySlack()), ask, decision.tranche(), decision.reason(),
                             metrics);

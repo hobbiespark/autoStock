@@ -10,6 +10,9 @@ import com.autostock.common.util.ClientOrderId;
 import com.autostock.common.util.Price;
 import com.autostock.common.util.Quantity;
 import com.autostock.common.util.StockCode;
+import com.autostock.risk.MultiStrategyRiskProperties;
+import com.autostock.risk.OneShareCap;
+import com.autostock.risk.TradingCapitalProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -195,5 +198,54 @@ class SwingCarryFlowTest {
         org.mockito.Mockito.verify(repository, org.mockito.Mockito.atLeastOnce()).save(captor.capture());
         List<StrategyCarryEntity> all = captor.getAllValues();
         return all.get(all.size() - 1);
+    }
+
+    /** VALUNIVO 923: 1주 상한 20만(운용 자금 200만 × 15% ÷ 3 × 2)으로 이월 관리자·단타를 다시 만든다. */
+    private void withOneShareCap() {
+        OneShareCap cap = new OneShareCap(new MultiStrategyRiskProperties(true, List.of(
+                new MultiStrategyRiskProperties.Sleeve("VB-DAY", 0.15, 3))),
+                new TradingCapitalProperties(2_000_000, 2.0, 500, 0.01), () -> new BigDecimal("484138536"));
+        SwingCarryProperties props = new SwingCarryProperties(true, List.of("VB-DAY", "ON-CLOSE"), 0.0023, 0.07, 0.05,
+                20, 60, 10, 0, 0.005, 0.01);
+        carry = new SwingCarryManager(props, repository, t.book, market, t.outbox, guard, t.events::add, CLOCK, cap);
+        vb = new DayBreakoutStrategy(new DayBreakoutProperties(true, List.of("005930"), 0.5, 20, 0.018, 0.07,
+                LocalTime.of(14, 30), LocalTime.of(15, 15), 3, 6, 0.005, 0.01), market, t.book, t.outbox, guard,
+                t.events::add, CLOCK, carry);
+        vb.prepareToday();
+    }
+
+    /** 이월 당일을 지나 다음 판단일로 옮긴다(2차 조건이 맞는 상승 봉). */
+    private void carryToNextDay(String ask) {
+        t.filled("VB-DAY", "005930", Side.BUY, 1, "100000");
+        when(market.bestBid("005930")).thenReturn(new BigDecimal("99000"));
+        vb.timeExit();
+        carry.evaluateToday();
+        LocalDate next = TODAY.plusDays(3);
+        when(guard.today()).thenReturn(next);
+        when(market.completedBars("005930")).thenReturn(rising("005930", next.minusDays(1)));
+        when(market.bestAsk(anyString())).thenReturn(new BigDecimal(ask));
+    }
+
+    @Test
+    void 관문이_반드시_거부할_2차는_신호_대신_보유_유지로_남긴다() {
+        withOneShareCap();
+        // 보유 원가 10만 + 2차 지정가 102,900 × 1.005 = 약 10.34만 > 상한 20만 − 10만
+        carryToNextDay("102900");
+        String line = carry.evaluateToday();
+        assertTrue(line.contains("추가 매수 0"), line);
+        assertTrue(line.contains("상한 여유"), line);
+        assertTrue(t.signals().isEmpty(), "관문이 거부할 신호를 내지 않는다");
+        assertTrue(t.decisions().stream().anyMatch(d -> d.conclusion().equals("HOLD") && d.reason().contains("상한 여유")));
+    }
+
+    @Test
+    void 상한_여유_안의_2차는_예전처럼_산다() {
+        withOneShareCap();
+        // 99,000 × 1.005 = 99,495 ≤ 상한 20만 − 보유 원가 10만
+        carryToNextDay("99000");
+        String line = carry.evaluateToday();
+        assertTrue(line.contains("추가 매수 1"), line);
+        assertEquals(1, t.signals().size());
+        assertEquals(Integer.valueOf(2), t.signals().get(0).tranche());
     }
 }
