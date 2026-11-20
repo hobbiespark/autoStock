@@ -60,6 +60,9 @@ public class TaLiveStrategy {
     private final Clock clock;
     /** 1주 상한 거르기(VALUNIVO 917) — null이면 거르지 않는다(시험용 생성자). */
     private final OneShareCap oneShareCap;
+    /** 925: 오늘 판단일을 남겨 장중 재기동 뒤 다시 판단하지 않는다(strategy_state, 키 {@link #RUN_STATE_ID}·종목). null이면 메모리만. */
+    private final StrategyStateStore stateStore;
+    static final String RUN_STATE_ID = "TA-RUN";
 
     /** (규칙, 종목). */
     record Key(String rule, String symbol) {
@@ -81,10 +84,18 @@ public class TaLiveStrategy {
         this(properties, ruleBooks, market, book, outbox, guard, publisher, clock, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public TaLiveStrategy(TaLiveProperties properties, ObjectProvider<DailyRuleBook> ruleBooks, LiveMarket market,
                           StrategyBook book, SignalOutbox outbox, StrategyGuard guard,
                           ApplicationEventPublisher publisher, Clock clock, OneShareCap oneShareCap) {
+        this(properties, ruleBooks, market, book, outbox, guard, publisher, clock, oneShareCap, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TaLiveStrategy(TaLiveProperties properties, ObjectProvider<DailyRuleBook> ruleBooks, LiveMarket market,
+                          StrategyBook book, SignalOutbox outbox, StrategyGuard guard,
+                          ApplicationEventPublisher publisher, Clock clock, OneShareCap oneShareCap,
+                          StrategyStateStore stateStore) {
+        this.stateStore = stateStore;
         this.oneShareCap = oneShareCap;
         this.properties = properties;
         this.ruleBooks = ruleBooks;
@@ -141,6 +152,12 @@ public class TaLiveStrategy {
         if (today.equals(ranDay)) {
             return;
         }
+        if (ranToday(today)) {
+            // 925: 장중 재기동 — 오늘 판단은 이미 했다(11-06 카카오 사고팔기 반복). 장중 돌파·손절 감시는 오늘 다시 걸지 않는다
+            ranDay = today;
+            log.info("{}: 장중 기동 — 오늘({}) 판단은 재기동 전에 이미 함, 다시 하지 않음", SUMMARY_ID, today);
+            return;
+        }
         DailyRuleBook rules = ruleBooks.getIfAvailable();
         if (rules == null) {
             log.error("{}: 규칙 묶음(DailyRuleBook) 빈이 없다 — 오늘 판단 못 함", SUMMARY_ID);
@@ -159,6 +176,36 @@ public class TaLiveStrategy {
         log.info(result.line());
         publisher.publishEvent(new StrategyRunCompleted(SUMMARY_ID, today, result.line(), result.errors(),
                 clock.instant()));
+        rememberRun(today);
+    }
+
+    /** 925: 저장된 판단일이 모든 종목에서 오늘이면 참. 저장소가 없거나 읽기에 실패하면 거짓(예전처럼 판단). */
+    private boolean ranToday(LocalDate today) {
+        if (stateStore == null) {
+            return false;
+        }
+        try {
+            Map<String, LocalDate> dates = stateStore.loadLastDecisionDates(RUN_STATE_ID);
+            return !properties.symbols().isEmpty()
+                    && properties.symbols().stream().allMatch(s -> today.equals(dates.get(s)));
+        } catch (RuntimeException e) {
+            log.warn("{}: 오늘 판단일 읽기 실패 — 예전처럼 판단한다: {}", SUMMARY_ID, e.toString());
+            return false;
+        }
+    }
+
+    /** 925: 오늘 판단일을 종목마다 남긴다. 실패해도 판단은 그대로(재기동 때만 다시 판단할 수 있음). */
+    private void rememberRun(LocalDate today) {
+        if (stateStore == null) {
+            return;
+        }
+        try {
+            for (String symbol : properties.symbols()) {
+                stateStore.saveLastDecisionDate(RUN_STATE_ID, symbol, today, clock.instant());
+            }
+        } catch (RuntimeException e) {
+            log.warn("{}: 오늘 판단일 저장 실패: {}", SUMMARY_ID, e.toString());
+        }
     }
 
     /** 하루 판단 결과 — 요약 한 줄과 오류 수. */
