@@ -256,4 +256,26 @@ public class LiveMarket {
             log.info("전략용 시가 받기 — {}/{}종목 · 빠짐 {}: {}", ok, symbols.size(), missed.size(), String.join(", ", missed));
         }
     }
+
+    /**
+     * 평일 09:05~10:55 5분마다 — 아직 못 받은 오늘 시가만 다시 받는다(VALUNIVO 924). 지연 개장일(수능일 10:00 등)에는 09:00:05
+     * 받기가 0/N으로 끝나 VB-DAY가 그날 시가를 모르는 채 남았다(11-19). 다 받았으면 조회하지 않는다.
+     */
+    @Scheduled(cron = "5 5/5 9-10 * * MON-FRI", zone = "Asia/Seoul")
+    public void retryMissingOpens() {
+        if (owners.isEmpty() || !calendar.isTradingDay(today())) {
+            return;
+        }
+        List<String> missing = registeredSymbols().stream().filter(s -> knownOpen(s) == null).toList();
+        if (missing.isEmpty()) {
+            return;
+        }
+        int ok = 0;
+        for (String symbol : missing) {
+            if (todayOpen(symbol) != null) {
+                ok++;
+            }
+        }
+        log.info("전략용 시가 다시 받기 — 빠졌던 {}종목 중 {}종목 받음", missing.size(), ok);
+    }
 }

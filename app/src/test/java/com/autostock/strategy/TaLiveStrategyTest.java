@@ -161,7 +161,9 @@ class TaLiveStrategyTest {
 
         when(market.todayOpen("005930")).thenReturn(null);
         when(guard.today()).thenReturn(TODAY.plusDays(1));
-        strategy.runIfDue("09:01");
+        // VALUNIVO 924: 모든 종목 시가가 없으면 11:00 전에는 판단을 미루고(지연 개장), 그 뒤에는 예전처럼 오류로 센다
+        when(guard.now()).thenReturn(LocalTime.of(11, 0));
+        strategy.runIfDue("장중 기동 11:00");
         assertEquals(1, t.runs().get(1).errors());
     }
 }

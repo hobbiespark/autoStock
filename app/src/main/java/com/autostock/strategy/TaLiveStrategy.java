@@ -46,6 +46,8 @@ public class TaLiveStrategy {
     private static final String HORIZON = "SWING";
     /** 하루 판단 마감 — 09:01 예약이든 장중 따라잡기든 이 시각부터는 그날 판단을 하지 않는다(2026-10-21). */
     static final LocalTime JUDGE_DEADLINE = LocalTime.of(15, 0);
+    /** 924: 모든 종목 시가가 없을 때 판단을 미루는 마감 — 지연 개장(10:00)을 덮고, 그 뒤 없음은 시세 장애로 센다. */
+    static final LocalTime DEFER_UNTIL = LocalTime.of(11, 0);
     private static final long ACTIVE_RECHECK_MILLIS = 30_000;
 
     private final TaLiveProperties properties;
@@ -68,6 +70,8 @@ public class TaLiveStrategy {
     /** 진입과 짝지은 손절 — 매수가 체결돼 보유가 생기면 손절 감시로 옮긴다. */
     private final Map<Key, BigDecimal> pairedStops = new ConcurrentHashMap<>();
     private volatile LocalDate ranDay;
+    /** 924: 시가 없어 판단을 미룬 줄을 남긴 날(하루 한 번만). */
+    private volatile LocalDate deferredLoggedDay;
     private volatile boolean active;
     private volatile long activeCheckedAt;
 
@@ -144,6 +148,14 @@ public class TaLiveStrategy {
             return;
         }
         Result result = execute(rules, today, label);
+        if (!today.equals(ranDay)) {
+            // 924: 시가가 아직 없어 판단을 미룸 — 1분마다 따라잡기가 다시 오므로 그날 첫 번만 남기고 결과 알림은 내지 않는다
+            if (!today.equals(deferredLoggedDay)) {
+                deferredLoggedDay = today;
+                log.info(result.line());
+            }
+            return;
+        }
         log.info(result.line());
         publisher.publishEvent(new StrategyRunCompleted(SUMMARY_ID, today, result.line(), result.errors(),
                 clock.instant()));
@@ -166,9 +178,13 @@ public class TaLiveStrategy {
         int shadowOnly = 0;
         int none = 0;
         int errors = 0;
+        int noOpen = 0;
         for (String symbol : properties.symbols()) {
             List<Candle> candles = market.completedBars(symbol);
             BigDecimal open = market.todayOpen(symbol);
+            if (open == null) {
+                noOpen++;
+            }
             if (candles.size() < properties.minBars() || open == null) {
                 errors++;
                 log.warn("{}: {} 데이터 부족 — 봉 {}개(최소 {}), 시가 {}{} — 오늘 이 종목 판단 안 함", SUMMARY_ID,
@@ -254,6 +270,12 @@ public class TaLiveStrategy {
                     log.error("{}: {} {} 판단 오류 — 이 규칙·종목만 건너뜀", SUMMARY_ID, rule, StockNames.label(symbol), e);
                 }
             }
+        }
+        if (noOpen > 0 && noOpen == properties.symbols().size() && guard.now().isBefore(DEFER_UNTIL)) {
+            // 924: 모든 종목 시가가 없음 = 장 시작 전(지연 개장일 등). 오늘 판단 완료로 두지 않아 1분 따라잡기가 개장 뒤 다시 판단한다.
+            // 11:00 뒤에도 없으면 시세 장애로 보고 예전처럼 오류로 세어 결과를 남긴다(알림이 사라지지 않게)
+            return new Result("%s %s 차트 기법 — 시가 없음 %d종목(장 시작 전?) — 판단 미룸, 1분 뒤 다시"
+                    .formatted(SUMMARY_ID, today, noOpen), 0);
         }
         ranDay = today;
         return new Result("%s %s 차트 기법 5종(%s) — 시가 매수 %d · 시가 매도 %d · 장중 돌파 감시 %d · 손절 감시 %d · 보유 유지 %d · 규칙상 보유(따라 사지 않음) %d · 조건 없음 %d · 오류 %d"

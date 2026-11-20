@@ -248,4 +248,29 @@ class SwingCarryFlowTest {
         assertEquals(1, t.signals().size());
         assertEquals(Integer.valueOf(2), t.signals().get(0).tranche());
     }
+
+    @Test
+    void 아침_청산이_남아_있으면_10시대에_매도를_다시_낸다() {
+        t.filled("VB-DAY", "005930", Side.BUY, 1, "100000");
+        when(market.bestBid("005930")).thenReturn(new BigDecimal("99000"));
+        vb.timeExit();
+        carry.evaluateToday();
+        assertNull(carry.retryExitsToday(), "청산을 정하지 않은 날은 다시 낼 것이 없다");
+
+        LocalDate next = TODAY.plusDays(3);
+        when(guard.today()).thenReturn(next);
+        List<Candle> falling = new ArrayList<>();
+        for (int i = 0; i < 80; i++) {
+            falling.add(candle("005930", next.minusDays(80 - i), "90000", "90000", "90000", "90000"));
+        }
+        when(market.completedBars("005930")).thenReturn(falling);   // 종가 9만 ≤ 평단 10만 × 0.93 → 손절
+        when(market.bestBid("005930")).thenReturn(new BigDecimal("90000"));
+        carry.evaluateToday();
+        long sellsAfterMorning = t.signals().stream().filter(s -> s.side() == Side.SELL).count();
+        assertEquals(1, sellsAfterMorning, "09:02 손절 매도");
+
+        String retry = carry.retryExitsToday();   // 체결이 없어 보유가 그대로(장시작전 거부 등)
+        assertTrue(retry != null && retry.contains("이월 청산 다시 1종목"), retry);
+        assertEquals(2, t.signals().stream().filter(s -> s.side() == Side.SELL).count());
+    }
 }
