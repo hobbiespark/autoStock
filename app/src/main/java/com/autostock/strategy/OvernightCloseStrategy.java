@@ -6,6 +6,7 @@ import com.autostock.common.util.StockNames;
 import com.autostock.market.MarketDataPort;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.portfolio.StrategyBook;
+import com.autostock.risk.OneShareCap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -70,6 +72,8 @@ public class OvernightCloseStrategy {
     private final SwingCarryManager carry;
     /** 미국 발표 밤 건너뛰기(E1) — null이면 적용하지 않는다(시험용 생성자). */
     private final UsEventNights eventNights;
+    /** 1주 상한 거르기(VALUNIVO 917) — null이면 거르지 않는다(시험용 생성자). */
+    private final OneShareCap oneShareCap;
 
     /** 오늘 고른 종목(15:15) — 15:26에 산다. */
     private volatile Picks picks = new Picks(null, List.of());
@@ -95,10 +99,18 @@ public class OvernightCloseStrategy {
         this(properties, market, book, outbox, guard, publisher, clock, carry, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public OvernightCloseStrategy(OvernightCloseProperties properties, LiveMarket market, StrategyBook book,
                                   SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
                                   Clock clock, SwingCarryManager carry, UsEventNights eventNights) {
+        this(properties, market, book, outbox, guard, publisher, clock, carry, eventNights, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public OvernightCloseStrategy(OvernightCloseProperties properties, LiveMarket market, StrategyBook book,
+                                  SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
+                                  Clock clock, SwingCarryManager carry, UsEventNights eventNights,
+                                  OneShareCap oneShareCap) {
+        this.oneShareCap = oneShareCap;
         this.properties = properties;
         this.market = market;
         this.book = book;
@@ -202,9 +214,16 @@ public class OvernightCloseStrategy {
         Set<String> heldNow = book.positions(STRATEGY_ID).keySet().stream().map(StockCode::value)
                 .collect(Collectors.toSet());
         int[] checked = {0};
+        int[] overCap = {0};
         List<Pick> chosen = choose(ranked, heldNow, properties, code -> {
             checked[0]++;
             return market.quote(code);
+        }, limit -> {
+            boolean over = oneShareCap != null && oneShareCap.exceeds(STRATEGY_ID, limit);
+            if (over) {
+                overCap[0]++;
+            }
+            return over;
         });
         picks = new Picks(today, chosen);
         String detail = chosen.isEmpty() ? "선택 없음"
@@ -212,9 +231,9 @@ public class OvernightCloseStrategy {
                         p.changeRate().setScale(2, RoundingMode.HALF_UP).toPlainString(),
                         p.tradingValue().divide(BigDecimal.valueOf(100_000_000), 0, RoundingMode.HALF_UP)))
                 .collect(Collectors.joining(" · "));
-        String line = "%s %s 후보 — 순위 교집합 %d · 등락률 +%s~+%s%% %d · 현재가 확인 %d → 선택 %d: %s".formatted(
-                STRATEGY_ID, today, intersectionSize(lists), num(properties.minChangePct()),
-                num(properties.maxChangePct()), ranked.size(), checked[0], chosen.size(), detail);
+        String line = "%s %s 후보 — 순위 교집합 %d · 등락률 +%s~+%s%% %d · 1주 상한 초과 제외 %d · 현재가 확인 %d → 선택 %d: %s"
+                .formatted(STRATEGY_ID, today, intersectionSize(lists), num(properties.minChangePct()),
+                        num(properties.maxChangePct()), ranked.size(), overCap[0], checked[0], chosen.size(), detail);
         log.info(line);
         publisher.publishEvent(new StrategyRunCompleted(STRATEGY_ID, today, line, 0, clock.instant()));
     }
@@ -308,6 +327,15 @@ public class OvernightCloseStrategy {
      */
     static List<Pick> choose(List<MarketDataPort.RankedStock> ranked, Set<String> heldNow, OvernightCloseProperties p,
                              Function<String, MarketDataPort.StockQuote> quotes) {
+        return choose(ranked, heldNow, p, quotes, limit -> false);
+    }
+
+    /**
+     * {@link #choose(List, Set, OvernightCloseProperties, Function)} + 1주 상한 거르기(VALUNIVO 917) — 순위 현재가로 만든
+     * 지정가(× (1 + buyPremium))가 상한을 넘는 종목은 현재가 확인 전에 건너뛴다(관문이 어차피 거부한다). 그 자리는 다음 후보가 채운다.
+     */
+    static List<Pick> choose(List<MarketDataPort.RankedStock> ranked, Set<String> heldNow, OvernightCloseProperties p,
+                             Function<String, MarketDataPort.StockQuote> quotes, Predicate<BigDecimal> overCap) {
         List<Pick> chosen = new ArrayList<>();
         int checks = 0;
         for (MarketDataPort.RankedStock r : ranked) {
@@ -315,6 +343,9 @@ public class OvernightCloseStrategy {
                 break;
             }
             if (heldNow.contains(r.code())) {
+                continue;
+            }
+            if (r.current() != null && overCap.test(SignalOutbox.times(r.current(), 1 + p.buyPremium()))) {
                 continue;
             }
             checks++;
