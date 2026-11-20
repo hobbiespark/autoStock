@@ -10,7 +10,8 @@ import java.util.List;
  * 단타 변동성 돌파(VB-DAY) 설정 — 값은 사전 선언(aiDoc/multi-strategy-paper-2026-10-16.md 3-1)이다. 결과를 본 뒤 바꾸면 새 trial.
  *
  * @param enabled          기본 꺼짐 — 시작 스크립트가 켠다(C3와 같은 방식)
- * @param symbols          종목 — 2026-08-31 KRX 스냅샷 시가총액 상위 20 보통주
+ * @param symbols          종목 — 2026-08-31 KRX 스냅샷 시가총액 순 보통주 중 2026-11-20 현재가 × 1.005 ≤ 1주 상한 20만 원인
+ *                         위에서부터 20종목(VALUNIVO 918, 데브 11-20 "살 수 있는 종목으로"). 예전 목록은 시총 상위 20 그대로였다
  * @param k                변동성 계수
  * @param smaDays          추세 필터 SMA 창(봉)
  * @param takeProfit       익절 폭(가격 기준, 0.018 = +1.8%)
@@ -25,9 +26,9 @@ import java.util.List;
 @ConfigurationProperties(prefix = "strategy.vb")
 public record DayBreakoutProperties(
         @DefaultValue("false") boolean enabled,
-        @DefaultValue({"005930", "000660", "402340", "009150", "373220", "005380", "207940", "105560", "032830",
-                "028260", "012450", "034020", "000270", "055550", "329180", "006400", "068270", "012330", "034730",
-                "086790"}) List<String> symbols,
+        @DefaultValue({"005930", "105560", "034020", "000270", "055550", "086790", "066570", "035420", "010120",
+                "042660", "316140", "196170", "096770", "042700", "015760", "138040", "017670", "011200", "006800",
+                "033780"}) List<String> symbols,
         @DefaultValue("0.5") double k,
         @DefaultValue("20") int smaDays,
         @DefaultValue("0.018") double takeProfit,
