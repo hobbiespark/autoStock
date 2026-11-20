@@ -7,6 +7,7 @@ import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.portfolio.StrategyBook;
+import com.autostock.risk.OneShareCap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -65,6 +66,8 @@ public class DayBreakoutStrategy {
     private final Clock clock;
     /** 스윙 이월 — null이면 예전 동작(시험용 생성자). */
     private final SwingCarryManager carry;
+    /** 1주 상한 거르기(VALUNIVO 917) — null이면 거르지 않는다(시험용 생성자). */
+    private final OneShareCap oneShareCap;
 
     private final Map<String, DayBreakoutMath.Setup> setups = new ConcurrentHashMap<>();
     private final Set<String> entered = ConcurrentHashMap.newKeySet();
@@ -85,10 +88,17 @@ public class DayBreakoutStrategy {
         this(properties, market, book, outbox, guard, publisher, clock, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public DayBreakoutStrategy(DayBreakoutProperties properties, LiveMarket market, StrategyBook book,
                                SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
                                Clock clock, SwingCarryManager carry) {
+        this(properties, market, book, outbox, guard, publisher, clock, carry, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DayBreakoutStrategy(DayBreakoutProperties properties, LiveMarket market, StrategyBook book,
+                               SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
+                               Clock clock, SwingCarryManager carry, OneShareCap oneShareCap) {
+        this.oneShareCap = oneShareCap;
         this.properties = properties;
         this.market = market;
         this.book = book;
@@ -293,6 +303,9 @@ public class DayBreakoutStrategy {
             }
             return;
         }
+        if (overOneShareCap(symbol, open)) {
+            return;
+        }
         BigDecimal target = DayBreakoutMath.target(setup, open, properties.k());
         if (price.compareTo(target) < 0) {
             return;
@@ -329,6 +342,32 @@ public class DayBreakoutStrategy {
             outbox.buy(STRATEGY_ID, HORIZON, symbol, SignalOutbox.times(price, 1 + properties.buySlack()), target, 1.0,
                     why, metrics);
         }
+    }
+
+    /**
+     * 1주 상한 거르기(VALUNIVO 917) — 진입 지정가는 체결가 × (1 + buySlack)이고 체결가 ≥ 목표가 ≥ 시가라, 시가 × (1 + buySlack)가
+     * 이 전략의 1주 상한({@link OneShareCap})을 넘으면 오늘 어떤 돌파도 관문에서 {@code 무의미 거래}로 거부된다. 그 종목은 보류로
+     * 하루 한 번만 기록하고 신호를 내지 않는다. 상한을 모르면 거르지 않는다(관문이 판정).
+     */
+    private boolean overOneShareCap(String symbol, BigDecimal open) {
+        if (oneShareCap == null) {
+            return false;
+        }
+        if ("상한".equals(skipped.get(symbol))) {
+            return true;
+        }
+        BigDecimal entryFloor = SignalOutbox.times(open, 1 + properties.buySlack());
+        if (!oneShareCap.exceeds(STRATEGY_ID, entryFloor)) {
+            return false;
+        }
+        if (skipped.putIfAbsent(symbol, "상한") == null) {
+            Map<String, String> metrics = new LinkedHashMap<>();
+            metrics.put("open", open.toPlainString());
+            metrics.put("entryFloor", entryFloor.toPlainString());
+            oneShareCap.capFor(STRATEGY_ID).ifPresent(cap -> metrics.put("cap", cap.toPlainString()));
+            outbox.decision(STRATEGY_ID, HORIZON, symbol, "SKIP", "1주 값이 종목 상한 초과 — 오늘 진입 안 함", metrics);
+        }
+        return true;
     }
 
     /** 15:15 시간 청산. */

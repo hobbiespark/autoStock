@@ -6,6 +6,7 @@ import com.autostock.common.event.StrategyRunCompleted;
 import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.portfolio.StrategyBook;
+import com.autostock.risk.OneShareCap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.ObjectProvider;
@@ -55,6 +56,8 @@ public class TaLiveStrategy {
     private final StrategyGuard guard;
     private final ApplicationEventPublisher publisher;
     private final Clock clock;
+    /** 1주 상한 거르기(VALUNIVO 917) — null이면 거르지 않는다(시험용 생성자). */
+    private final OneShareCap oneShareCap;
 
     /** (규칙, 종목). */
     record Key(String rule, String symbol) {
@@ -71,6 +74,14 @@ public class TaLiveStrategy {
     public TaLiveStrategy(TaLiveProperties properties, ObjectProvider<DailyRuleBook> ruleBooks, LiveMarket market,
                           StrategyBook book, SignalOutbox outbox, StrategyGuard guard,
                           ApplicationEventPublisher publisher, Clock clock) {
+        this(properties, ruleBooks, market, book, outbox, guard, publisher, clock, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public TaLiveStrategy(TaLiveProperties properties, ObjectProvider<DailyRuleBook> ruleBooks, LiveMarket market,
+                          StrategyBook book, SignalOutbox outbox, StrategyGuard guard,
+                          ApplicationEventPublisher publisher, Clock clock, OneShareCap oneShareCap) {
+        this.oneShareCap = oneShareCap;
         this.properties = properties;
         this.ruleBooks = ruleBooks;
         this.market = market;
@@ -203,7 +214,17 @@ public class TaLiveStrategy {
                         shadowOnly++;
                     } else {
                         DailyRuleBook.RuleOrder stop = plan.first(DailyRuleBook.RuleOrder.Kind.SELL_STOP);
-                        if (plan.has(DailyRuleBook.RuleOrder.Kind.BUY_AT_OPEN)) {
+                        if (plan.has(DailyRuleBook.RuleOrder.Kind.BUY_AT_OPEN)
+                                && overOneShareCap(rule, market.bestAsk(symbol))) {
+                            skipOverCap(rule, symbol, name, market.bestAsk(symbol), metrics);
+                            none++;
+                        } else if (plan.has(DailyRuleBook.RuleOrder.Kind.BUY_STOP)
+                                && overOneShareCap(rule, SignalOutbox.times(
+                                        plan.first(DailyRuleBook.RuleOrder.Kind.BUY_STOP).price(), 1 + properties.buySlack()))) {
+                            // 장중 돌파 지정가 = 체결가 × (1 + buySlack) ≥ 돌파가 × (1 + buySlack) — 이미 상한을 넘으면 걸어 두지 않는다
+                            skipOverCap(rule, symbol, name, plan.first(DailyRuleBook.RuleOrder.Kind.BUY_STOP).price(), metrics);
+                            none++;
+                        } else if (plan.has(DailyRuleBook.RuleOrder.Kind.BUY_AT_OPEN)) {
                             BigDecimal ask = market.bestAsk(symbol);
                             metrics.put("bestAsk", ask == null ? "N/A" : ask.toPlainString());
                             // 슬리피지 기준 = 오늘 시가(백테스트 체결가) — T-PAPER-TA가 재는 값(2026-10-22)
@@ -293,6 +314,18 @@ public class TaLiveStrategy {
                         Map.of("stop", stop.toPlainString(), "price", price.toPlainString()));
             }
         }
+    }
+
+    /** 1주 상한 거르기(VALUNIVO 917) — 지정가 기준 1주 값이 이 규칙(슬리브)의 상한을 넘나. 모르면 false. */
+    private boolean overOneShareCap(String rule, BigDecimal oneSharePrice) {
+        return oneShareCap != null && oneShareCap.exceeds(rule, oneSharePrice);
+    }
+
+    /** 상한을 넘어 진입하지 않는 종목 — 관문이 어차피 {@code 무의미 거래}로 거부하므로 신호 대신 보류를 한 번 남긴다. */
+    private void skipOverCap(String rule, String symbol, String name, BigDecimal price, Map<String, String> metrics) {
+        metrics.put("price", price == null ? "N/A" : price.toPlainString());
+        oneShareCap.capFor(rule).ifPresent(cap -> metrics.put("cap", cap.toPlainString()));
+        outbox.decision(rule, HORIZON, symbol, "SKIP", name + " — 1주 값이 종목 상한 초과, 진입 안 함", metrics);
     }
 
     private void sellNow(String rule, String symbol, String reason, Map<String, String> metrics) {

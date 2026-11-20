@@ -92,12 +92,15 @@ class PerformancePeriodsTest {
         PerformanceProperties bound = Binder.get(env).bind("monitor.performance", PerformanceProperties.class).get();
 
         assertEquals(LocalDate.of(2026, 10, 23), bound.since());
-        assertEquals(4, bound.periods().size());
+        assertEquals(6, bound.periods().size(), "VALUNIVO 917: 11/16 경로 C·11/23 1주 상한 거르기 두 행 추가");
         assertEquals(LocalDate.of(2026, 10, 16), bound.periods().get(0).since());
         assertEquals(486_000_000L, bound.periods().get(0).capitalKrw());
         assertEquals(LocalDate.of(2026, 10, 31), bound.periods().get(3).since());
         assertEquals(2_000_000L, bound.periods().get(3).capitalKrw());
         assertTrue(bound.periods().get(3).label().startsWith("200만 원"));
+        assertEquals(LocalDate.of(2026, 11, 16), bound.periods().get(4).since());
+        assertEquals(LocalDate.of(2026, 11, 23), bound.periods().get(5).since());
+        assertTrue(bound.periods().get(5).label().contains("T-PAPER-AFFORD"));
     }
 
     @Test
