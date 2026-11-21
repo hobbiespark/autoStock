@@ -68,6 +68,9 @@ public class DayBreakoutStrategy {
     private final SwingCarryManager carry;
     /** 1주 상한 거르기(VALUNIVO 917) — null이면 거르지 않는다(시험용 생성자). */
     private final OneShareCap oneShareCap;
+    /** 925: 오늘 진입한 종목을 남겨 장중 재기동 뒤 다시 진입하지 않는다(strategy_state, 키 {@link #ENTRY_STATE_ID}·종목). */
+    private final StrategyStateStore stateStore;
+    static final String ENTRY_STATE_ID = "VB-DAY-ENTRY";
 
     private final Map<String, DayBreakoutMath.Setup> setups = new ConcurrentHashMap<>();
     private final Set<String> entered = ConcurrentHashMap.newKeySet();
@@ -94,10 +97,18 @@ public class DayBreakoutStrategy {
         this(properties, market, book, outbox, guard, publisher, clock, carry, null);
     }
 
-    @org.springframework.beans.factory.annotation.Autowired
     public DayBreakoutStrategy(DayBreakoutProperties properties, LiveMarket market, StrategyBook book,
                                SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
                                Clock clock, SwingCarryManager carry, OneShareCap oneShareCap) {
+        this(properties, market, book, outbox, guard, publisher, clock, carry, oneShareCap, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public DayBreakoutStrategy(DayBreakoutProperties properties, LiveMarket market, StrategyBook book,
+                               SignalOutbox outbox, StrategyGuard guard, ApplicationEventPublisher publisher,
+                               Clock clock, SwingCarryManager carry, OneShareCap oneShareCap,
+                               StrategyStateStore stateStore) {
+        this.stateStore = stateStore;
         this.oneShareCap = oneShareCap;
         this.properties = properties;
         this.market = market;
@@ -196,6 +207,39 @@ public class DayBreakoutStrategy {
             stopLosses.set(0);
             timeExits.set(0);
             carries.set(0);
+            restoreTodayEntries(today);
+        }
+    }
+
+    /** 925: 재기동 전에 오늘 진입한 종목을 되돌린다(하루 진입 수도 함께). 저장소가 없거나 실패하면 비운 채로 둔다. */
+    private void restoreTodayEntries(LocalDate today) {
+        if (stateStore == null) {
+            return;
+        }
+        try {
+            stateStore.loadLastDecisionDates(ENTRY_STATE_ID).forEach((symbol, date) -> {
+                if (today.equals(date) && entered.add(symbol)) {
+                    entries.incrementAndGet();
+                }
+            });
+            if (!entered.isEmpty()) {
+                log.info("{}: 장중 기동 — 오늘 이미 진입한 {}종목은 다시 진입하지 않음: {}", STRATEGY_ID, entered.size(),
+                        entered.stream().map(StockNames::label).collect(java.util.stream.Collectors.joining(", ")));
+            }
+        } catch (RuntimeException e) {
+            log.warn("{}: 오늘 진입 종목 읽기 실패 — 비운 채로 시작: {}", STRATEGY_ID, e.toString());
+        }
+    }
+
+    /** 925: 진입 종목을 오늘 날짜로 남긴다. 실패해도 진입은 그대로. */
+    private void rememberEntry(String symbol) {
+        if (stateStore == null) {
+            return;
+        }
+        try {
+            stateStore.saveLastDecisionDate(ENTRY_STATE_ID, symbol, guard.today(), clock.instant());
+        } catch (RuntimeException e) {
+            log.warn("{}: 진입 종목 저장 실패({}): {}", STRATEGY_ID, StockNames.label(symbol), e.toString());
         }
     }
 
@@ -322,6 +366,7 @@ public class DayBreakoutStrategy {
             return;
         }
         entries.incrementAndGet();
+        rememberEntry(symbol);
         Map<String, String> metrics = new LinkedHashMap<>();
         metrics.put("open", open.toPlainString());
         metrics.put("prevHigh", setup.prevHigh().toPlainString());

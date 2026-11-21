@@ -8,6 +8,7 @@ import com.autostock.common.util.StockCode;
 import com.autostock.common.util.StockNames;
 import com.autostock.portfolio.PositionBook;
 import com.autostock.portfolio.StrategyBook;
+import com.autostock.risk.OneShareCap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -59,13 +60,25 @@ public class SwingCarryManager {
     private final StrategyGuard guard;
     private final ApplicationEventPublisher publisher;
     private final Clock clock;
+    /** 관문이 반드시 거부할 추가 매수를 미리 거르기(VALUNIVO 923) — null이면 거르지 않는다(시험용 생성자). */
+    private final OneShareCap oneShareCap;
 
     private final Map<String, StrategyCarryEntity> carried = new ConcurrentHashMap<>();
+    /** 924: 이월 청산을 결정한 날(전략|종목 → 날짜) — 10시대 재시도용. 재기동하면 비워져 그날 재시도는 없다. */
+    private final Map<String, LocalDate> sellDecided = new ConcurrentHashMap<>();
     private volatile boolean loaded;
 
     public SwingCarryManager(SwingCarryProperties properties, StrategyCarryRepository repository, StrategyBook book,
                              LiveMarket market, SignalOutbox outbox, StrategyGuard guard,
                              ApplicationEventPublisher publisher, Clock clock) {
+        this(properties, repository, book, market, outbox, guard, publisher, clock, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public SwingCarryManager(SwingCarryProperties properties, StrategyCarryRepository repository, StrategyBook book,
+                             LiveMarket market, SignalOutbox outbox, StrategyGuard guard,
+                             ApplicationEventPublisher publisher, Clock clock, OneShareCap oneShareCap) {
+        this.oneShareCap = oneShareCap;
         this.properties = properties;
         this.repository = repository;
         this.book = book;
@@ -192,6 +205,48 @@ public class SwingCarryManager {
         }
     }
 
+    /**
+     * 평일 10:02·10:32 — 오늘 09:02에 청산하기로 했는데 아직 들고 있는 이월 보유의 매도를 다시 낸다(VALUNIVO 924). 지연 개장일
+     * (11-19 수능일 10:00 개장)에는 09:02 매도가 {@code RC4057 장시작전}으로 거부돼 다음 날에야 팔렸다. 미체결 매도가 남아 있으면
+     * 관문이 중복 매도를 막는다. 판단(청산 조건)은 다시 하지 않는다.
+     */
+    @Scheduled(cron = "0 2,32 10 * * MON-FRI", zone = "Asia/Seoul")
+    public void retryExits() {
+        if (!guard.active(properties.enabled())) {
+            return;
+        }
+        String line = retryExitsToday();
+        if (line != null) {
+            log.warn(line);
+        }
+    }
+
+    /** 오늘 청산하기로 한 이월 보유 중 아직 남은 것에 매도를 다시 낸다. 다시 낸 것이 없으면 null. */
+    String retryExitsToday() {
+        LocalDate today = guard.today();
+        List<String> retried = new ArrayList<>();
+        for (StrategyCarryEntity entity : List.copyOf(carried.values())) {
+            if (!today.equals(sellDecided.get(key(entity.getStrategyId(), entity.getSymbol())))) {
+                continue;
+            }
+            StockCode code = new StockCode(entity.getSymbol());
+            Optional<PositionBook.Position> position = book.position(entity.getStrategyId(), code);
+            if (position.isEmpty() || position.get().quantity() <= 0) {
+                continue;
+            }
+            BigDecimal bid = market.bestBid(entity.getSymbol());
+            Map<String, String> metrics = new LinkedHashMap<>();
+            metrics.put("bestBid", bid == null ? "N/A" : bid.toPlainString());
+            metrics.put("quantity", String.valueOf(position.get().quantity()));
+            String horizon = entity.getStage() == SwingCarryMath.Stage.MID ? "MID" : "SWING";
+            outbox.sell(entity.getStrategyId(), horizon, entity.getSymbol(),
+                    SignalOutbox.times(bid, 1 - properties.sellSlack()), bid, "이월 청산 다시(아침 매도 미체결·거부)", metrics);
+            retried.add(entity.getStrategyId() + " " + StockNames.label(code));
+        }
+        return retried.isEmpty() ? null
+                : "%s %s 이월 청산 다시 %d종목 — %s".formatted(JOB, today, retried.size(), String.join(" · ", retried));
+    }
+
     /** 오늘 판단을 하고 한 줄 요약을 돌려준다(이월 보유가 없으면 null). */
     String evaluateToday() {
         ensureLoaded();
@@ -223,15 +278,29 @@ public class SwingCarryManager {
             switch (decision.action()) {
                 case SELL -> {
                     sells++;
+                    sellDecided.put(key(entity.getStrategyId(), entity.getSymbol()), today);
                     BigDecimal bid = market.bestBid(entity.getSymbol());
                     metrics.put("bestBid", bid == null ? "N/A" : bid.toPlainString());
                     outbox.sell(entity.getStrategyId(), horizon, entity.getSymbol(),
                             SignalOutbox.times(bid, 1 - properties.sellSlack()), bid, decision.reason(), metrics);
                 }
                 case ADD -> {
-                    adds++;
                     BigDecimal ask = market.bestAsk(entity.getSymbol());
                     metrics.put("bestAsk", ask == null ? "N/A" : ask.toPlainString());
+                    BigDecimal limit = SignalOutbox.times(ask, 1 + properties.buySlack());
+                    BigDecimal heldCost = position.get().avgPrice() == null ? BigDecimal.ZERO
+                            : position.get().avgPrice().multiply(BigDecimal.valueOf(position.get().quantity()));
+                    if (oneShareCap != null && limit != null
+                            && oneShareCap.addOnRejected(entity.getStrategyId(), limit, heldCost)) {
+                        // 923: 관문이 반드시 거부할 분할 — 신호 대신 보유 유지(916 S4, 매일 같은 거부 소음)
+                        metrics.put("heldCost", heldCost.setScale(0, java.math.RoundingMode.HALF_UP).toPlainString());
+                        oneShareCap.capFor(entity.getStrategyId()).ifPresent(c -> metrics.put("cap", c.toPlainString()));
+                        String why = decision.tranche() + "차 조건은 맞지만 종목 상한 여유가 1주 값보다 작음 — 보유 유지";
+                        outbox.decision(entity.getStrategyId(), horizon, entity.getSymbol(), "HOLD", why, metrics);
+                        parts.add("%s %s %s".formatted(entity.getStrategyId(), StockNames.label(code), why));
+                        continue;
+                    }
+                    adds++;
                     outbox.buyTranche(entity.getStrategyId(), horizon, entity.getSymbol(),
                             SignalOutbox.times(ask, 1 + properties.buySlack()), ask, decision.tranche(), decision.reason(),
                             metrics);

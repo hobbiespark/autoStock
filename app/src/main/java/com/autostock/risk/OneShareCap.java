@@ -46,6 +46,24 @@ public class OneShareCap {
         return Optional.of(capital.meaningfulOrderCap(perPosition));
     }
 
+    /**
+     * 분할 추가 매수(2·3차)를 관문이 반드시 거부하나(VALUNIVO 923) — {@link RiskGate}의 최소 유의미 수량 판정은
+     * "최소 유의미 수량 × 1주 값 > 종목 상한 − 이 전략의 보유 원가"일 때 두 갈래 모두 거부한다(여유가 그 이상이면 수량을 줄여서라도
+     * 산다). 상한을 모르거나 규칙이 꺼져 있으면 false(관문에 맡긴다).
+     */
+    public boolean addOnRejected(String strategyId, BigDecimal oneSharePrice, BigDecimal heldCost) {
+        if (oneSharePrice == null || oneSharePrice.signum() <= 0) {
+            return false;
+        }
+        Optional<BigDecimal> cap = capFor(strategyId);
+        if (cap.isEmpty()) {
+            return false;
+        }
+        BigDecimal room = cap.get().subtract(heldCost == null ? BigDecimal.ZERO : heldCost);
+        long minQty = Math.max(1, capital.minMeaningfulQuantity(oneSharePrice));
+        return oneSharePrice.multiply(BigDecimal.valueOf(minQty)).compareTo(room) > 0;
+    }
+
     /** 1주 값(지정가 기준)이 이 전략의 상한을 넘나. 상한을 모르면 false(거르지 않는다). */
     public boolean exceeds(String strategyId, BigDecimal oneSharePrice) {
         if (oneSharePrice == null || oneSharePrice.signum() <= 0) {
